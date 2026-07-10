@@ -4,6 +4,7 @@ import csv
 import hashlib
 import json
 import random
+import math
 from datetime import datetime, timezone
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -186,6 +187,44 @@ def select(inventory: list[dict[str, str]], config: dict) -> tuple[list[dict], l
             selected_ids.add(row["uuid"])
 
     selected = selected[:target]
+
+    def enforce_floor(predicate, required: int, reason: str) -> None:
+        nonlocal selected, selected_ids
+        current = sum(predicate(row) for row in selected)
+        if current >= required:
+            return
+        candidates = sorted(
+            (row for row in eligible if row["uuid"] not in selected_ids and predicate(row)),
+            key=lambda row: float(row["score_total"]),
+            reverse=True,
+        )
+        while current < required and candidates:
+            incoming = candidates.pop(0)
+            donors = sorted(
+                (row for row in selected if not predicate(row)),
+                key=lambda row: (
+                    row["primary_view"] != incoming["primary_view"],
+                    float(row["score_total"]),
+                ),
+            )
+            if not donors:
+                break
+            outgoing = donors[0]
+            selected.remove(outgoing)
+            selected_ids.remove(outgoing["uuid"])
+            incoming["selection_reason"] += f"; diversity floor: {reason}"
+            selected.append(incoming)
+            selected_ids.add(incoming["uuid"])
+            current += 1
+
+    named_floor = math.ceil(target * float(config.get("minimum_named_people_fraction", 0)))
+    person_free_floor = math.ceil(target * float(config.get("minimum_person_free_fraction", 0)))
+    enforce_floor(lambda row: bool(split_values(row.get("persons"))), named_floor, "named relationships")
+    enforce_floor(lambda row: not bool(split_values(row.get("persons"))), person_free_floor, "person-free material context")
+    if sum(bool(split_values(row.get("persons"))) for row in selected) < named_floor:
+        raise ValueError("candidate field cannot satisfy minimum_named_people_fraction")
+    if sum(not bool(split_values(row.get("persons"))) for row in selected) < person_free_floor:
+        raise ValueError("candidate field cannot satisfy minimum_person_free_fraction")
     selected.sort(key=lambda row: (row["primary_view"], -float(row["score_total"]), row["uuid"]))
     summary = {
         "inventory_count": len(inventory),

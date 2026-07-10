@@ -1,0 +1,4 @@
+interface:
+  display_name: "Curate Apple Photos"
+  short_description: "Build evaluated, editor-ready Photos albums"
+  default_prompt: "Use $curate-apple-photos to turn this curatorial brief into a locally inspected, recursively evaluated, versioned Apple Photos corpus."

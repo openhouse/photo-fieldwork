@@ -1,0 +1,19 @@
+#!/bin/sh
+set -eu
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+SOURCE="$ROOT/skills/curate-apple-photos"
+DESTINATION="${CODEX_HOME:-$HOME/.codex}/skills/curate-apple-photos"
+
+mkdir -p "$(dirname "$DESTINATION")"
+if [ -L "$DESTINATION" ] && [ "$(readlink "$DESTINATION")" = "$SOURCE" ]; then
+  printf 'already installed: %s\n' "$DESTINATION"
+  exit 0
+fi
+if [ -e "$DESTINATION" ] || [ -L "$DESTINATION" ]; then
+  printf 'refusing to replace existing path: %s\n' "$DESTINATION" >&2
+  exit 2
+fi
+ln -s "$SOURCE" "$DESTINATION"
+printf 'installed: %s -> %s\n' "$DESTINATION" "$SOURCE"
+printf 'restart Codex before opening the first new chat that uses the skill\n'

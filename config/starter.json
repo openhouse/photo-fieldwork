@@ -7,6 +7,8 @@
   "exploratory_fraction": 0.1,
   "minimum_eval_precision": 0.75,
   "minimum_eval_coverage": 0.8,
+  "minimum_named_people_fraction": 0.35,
+  "minimum_person_free_fraction": 0.2,
   "views": [
     {"id": "00", "label": "Unclassified / Editor Field", "quota": 2},
     {"id": "01", "label": "People / Presence", "quota": 3},
@@ -15,4 +17,3 @@
     {"id": "04", "label": "Places / Thresholds / Traces", "quota": 2}
   ]
 }
-

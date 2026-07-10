@@ -1,4 +1,4 @@
-.PHONY: demo test check
+.PHONY: demo test check install-skill
 
 demo:
 	./bin/photo-fieldwork demo --workspace runs/practice
@@ -11,3 +11,5 @@ check: test
 	python3 -m json.tool config/starter.json >/dev/null
 	python3 -m json.tool schemas/config.schema.json >/dev/null
 
+install-skill:
+	./bin/install-skill

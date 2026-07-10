@@ -1,0 +1,229 @@
+#!/usr/bin/env python3
+"""Build a brief-specific candidate CSV from the shared read-only Photos inventory."""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+import math
+import sqlite3
+from collections import defaultdict
+from pathlib import Path
+
+
+BASE_COLUMNS = [
+    "uuid", "filename", "original_filename", "date_created", "year", "width", "height",
+    "is_photo", "is_movie", "favorite", "edited", "hidden", "trashed", "missing",
+    "screenshot", "selfie", "portrait", "burst", "burst_key", "burst_pick_type",
+    "overall_aesthetic_score", "duplicate_group_id", "camera_make", "camera_model",
+    "face_count", "title", "description",
+]
+
+
+def connect(path: Path) -> sqlite3.Connection:
+    conn = sqlite3.connect(f"file:{path}?mode=ro&immutable=1", uri=True, timeout=60)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA query_only=ON")
+    return conn
+
+
+def like_matches(conn: sqlite3.Connection, query: str, values: list[str]) -> set[str]:
+    matched: set[str] = set()
+    for value in values:
+        pattern = f"%{value.casefold()}%"
+        matched.update(row[0] for row in conn.execute(query, (pattern,)))
+    return matched
+
+
+def relation_values(conn: sqlite3.Connection, table: str, column: str, ids: list[str]) -> dict[str, list[str]]:
+    values: dict[str, list[str]] = defaultdict(list)
+    for start in range(0, len(ids), 700):
+        batch = ids[start : start + 700]
+        placeholders = ",".join("?" for _ in batch)
+        for uuid, value in conn.execute(f"SELECT uuid, {column} FROM {table} WHERE uuid IN ({placeholders})", batch):
+            if value and value not in values[uuid]:
+                values[uuid].append(str(value))
+    return values
+
+
+def asset_rows(conn: sqlite3.Connection, ids: list[str]) -> dict[str, dict]:
+    values = {}
+    for start in range(0, len(ids), 700):
+        batch = ids[start : start + 700]
+        placeholders = ",".join("?" for _ in batch)
+        for row in conn.execute(
+            f"SELECT {','.join(BASE_COLUMNS)} FROM asset WHERE uuid IN ({placeholders})",
+            batch,
+        ):
+            values[row["uuid"]] = dict(row)
+    return values
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--db", type=Path, required=True)
+    parser.add_argument("--retrieval", type=Path, required=True)
+    parser.add_argument("--target", type=int, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    args = parser.parse_args()
+
+    spec = json.loads(args.retrieval.read_text(encoding="utf-8"))
+    views = spec.get("views") or []
+    if not views:
+        raise SystemExit("retrieval.json requires at least one view")
+    candidate_target = max(args.target, math.ceil(args.target * float(spec.get("candidate_multiplier", 1.75))))
+    conn = connect(args.db)
+    asset_count = conn.execute("SELECT count(*) FROM asset WHERE is_photo = 1 AND hidden = 0 AND trashed = 0").fetchone()[0]
+
+    view_scores: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    for view in views:
+        view_id = str(view["id"])
+        terms = [str(value).casefold() for value in view.get("terms", []) if str(value).strip()]
+        people = [str(value).casefold() for value in view.get("people", []) if str(value).strip()]
+        albums = [str(value).casefold() for value in view.get("albums", []) if str(value).strip()]
+        places = [str(value).casefold() for value in view.get("places", []) if str(value).strip()]
+        search_terms = [str(value).casefold() for value in view.get("search_terms", []) if str(value).strip()]
+
+        base_query = """
+            SELECT uuid FROM asset
+            WHERE is_photo = 1 AND hidden = 0 AND trashed = 0 AND lower(
+                coalesce(filename,'') || ' ' || coalesce(original_filename,'') || ' ' ||
+                coalesce(title,'') || ' ' || coalesce(description,'')
+            ) LIKE ?
+        """
+        relation_queries = [
+            ("SELECT uuid FROM asset_album WHERE lower(coalesce(album_title,'')) LIKE ?", 7.0),
+            ("SELECT uuid FROM asset_keyword WHERE lower(keyword) LIKE ?", 6.0),
+            ("SELECT uuid FROM asset_label WHERE lower(label_normalized) LIKE ?", 4.0),
+            ("SELECT uuid FROM asset_place WHERE lower(place) LIKE ?", 4.0),
+        ]
+        for term in terms:
+            for uuid in like_matches(conn, base_query, [term]):
+                view_scores[view_id][uuid] += 7.0
+            for query, weight in relation_queries:
+                for uuid in like_matches(conn, query, [term]):
+                    view_scores[view_id][uuid] += weight
+        for uuid in like_matches(conn, "SELECT uuid FROM asset_person WHERE lower(person) LIKE ?", people):
+            view_scores[view_id][uuid] += 8.0
+        for uuid in like_matches(conn, "SELECT uuid FROM asset_album WHERE lower(coalesce(album_title,'')) LIKE ?", albums):
+            view_scores[view_id][uuid] += 10.0
+        for uuid in like_matches(conn, "SELECT uuid FROM asset_place WHERE lower(place) LIKE ?", places):
+            view_scores[view_id][uuid] += 5.0
+        for uuid in like_matches(conn, "SELECT uuid FROM asset_search WHERE lower(coalesce(normalized_string,'')) LIKE ?", search_terms):
+            view_scores[view_id][uuid] += 4.0
+
+        year_start = view.get("year_start")
+        year_end = view.get("year_end")
+        if year_start is not None or year_end is not None:
+            low = int(year_start or 0)
+            high = int(year_end or 9999)
+            for uuid in list(view_scores[view_id]):
+                year = conn.execute("SELECT year FROM asset WHERE uuid = ?", (uuid,)).fetchone()
+                if year and year[0] is not None and low <= int(year[0]) <= high:
+                    view_scores[view_id][uuid] += 2.0
+
+    matched_ids = {uuid for scores in view_scores.values() for uuid in scores}
+    base_rows = asset_rows(conn, list(matched_ids)) if matched_ids else {}
+
+    def prior_attention(uuid: str) -> float:
+        row = base_rows.get(uuid, {})
+        favorite = bool(row.get("favorite"))
+        edited = bool(row.get("edited"))
+        return 12.0 if favorite and edited else 7.0 if favorite else 5.0 if edited else 0.0
+
+    selected: list[str] = []
+    selected_set: set[str] = set()
+    multiplier = float(spec.get("candidate_multiplier", 1.75))
+    for view in views:
+        view_id = str(view["id"])
+        limit = max(1, math.ceil(int(view.get("quota", 0)) * multiplier))
+        ranked = sorted(view_scores[view_id], key=lambda uuid: (view_scores[view_id][uuid] + prior_attention(uuid), uuid), reverse=True)
+        for uuid in ranked[:limit]:
+            if uuid not in selected_set:
+                selected.append(uuid)
+                selected_set.add(uuid)
+
+    if len(selected) < candidate_target:
+        needed = candidate_target - len(selected)
+        fallback = conn.execute(
+            """
+            SELECT uuid FROM asset
+            WHERE is_photo = 1 AND hidden = 0 AND trashed = 0
+              AND (favorite = 1 OR edited = 1 OR face_count > 0)
+            ORDER BY (favorite + edited) DESC, face_count DESC, uuid
+            LIMIT ?
+            """,
+            (needed * 4,),
+        )
+        for (uuid,) in fallback:
+            if uuid not in selected_set:
+                selected.append(uuid)
+                selected_set.add(uuid)
+                if len(selected) == candidate_target:
+                    break
+    selected = selected[:candidate_target]
+
+    base_rows = asset_rows(conn, selected)
+    people = relation_values(conn, "asset_person", "person", selected)
+    albums = relation_values(conn, "asset_album", "album_title", selected)
+    labels = relation_values(conn, "asset_label", "label", selected)
+    places = relation_values(conn, "asset_place", "place", selected)
+    conn.close()
+
+    output_rows = []
+    for uuid in selected:
+        row = base_rows[uuid]
+        scores = sorted(
+            ((view_id, score_map.get(uuid, 0.0)) for view_id, score_map in view_scores.items() if score_map.get(uuid, 0.0) > 0),
+            key=lambda item: (-item[1], item[0]),
+        )
+        metadata_score = scores[0][1] if scores else 0.0
+        confidence = "high" if metadata_score >= 12 else "medium" if metadata_score >= 6 else "low" if metadata_score > 0 else "unknown"
+        output_rows.append(
+            {
+                "uuid": uuid,
+                "filename": row.get("original_filename") or row.get("filename") or "",
+                "candidate_views": ";".join(view for view, _ in scores),
+                "evidence_confidence": confidence,
+                "metadata_score": f"{metadata_score:.2f}",
+                "visible_context": "",
+                "persons": ";".join(sorted(people.get(uuid, []))),
+                "albums": ";".join(sorted(albums.get(uuid, []))),
+                "labels": ";".join(sorted(labels.get(uuid, []))),
+                "place": ";".join(sorted(set(places.get(uuid, []))))[:500],
+                "favorite": str(bool(row.get("favorite"))).lower(),
+                "edited": str(bool(row.get("edited"))).lower(),
+                "safety_status": "clear",
+                "safety_reason": "",
+                "hidden": str(bool(row.get("hidden") or row.get("trashed"))).lower(),
+                "missing": str(bool(row.get("missing"))).lower(),
+                "duplicate_group": row.get("duplicate_group_id") or "",
+                "burst_group": row.get("burst_key") or "",
+                "aesthetic_score": row.get("overall_aesthetic_score") if row.get("overall_aesthetic_score") is not None else "",
+                "event_cluster": "",
+                "date": row.get("date_created") or "",
+                "year": row.get("year") or "",
+                "width": row.get("width") or "",
+                "height": row.get("height") or "",
+                "face_count": row.get("face_count") or 0,
+                "camera_make": row.get("camera_make") or "",
+                "camera_model": row.get("camera_model") or "",
+                "local_path": "",
+            }
+        )
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    fields = list(output_rows[0])
+    with args.output.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        writer.writerows(output_rows)
+    print(f"source_photos={asset_count}")
+    print(f"matched_assets={len(matched_ids)}")
+    print(f"candidate_target={candidate_target}")
+    print(f"candidate_rows={len(output_rows)}")
+    print(f"output={args.output}")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>en</string>
+  <key>CFBundleExecutable</key>
+  <string>JamiePhotoArchive</string>
+  <key>CFBundleIdentifier</key>
+  <string>art.jamieburkart.jamiephotoarchive</string>
+  <key>CFBundleName</key>
+  <string>Jamie Photo Archive</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>2.0</string>
+  <key>CFBundleVersion</key>
+  <string>2</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>15.0</string>
+  <key>LSUIElement</key>
+  <true/>
+  <key>NSPhotoLibraryUsageDescription</key>
+  <string>Locally inspect authorized photographs and build non-destructive, versioned editorial albums without uploading images or changing originals.</string>
+  <key>NSPhotoLibraryAddUsageDescription</key>
+  <string>Create folders and albums and add existing authorized photographs without altering originals or metadata.</string>
+</dict>
+</plist>
