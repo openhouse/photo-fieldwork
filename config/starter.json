@@ -1,0 +1,18 @@
+{
+  "$schema": "../schemas/config.schema.json",
+  "seed": 20260710,
+  "target_count": 12,
+  "unclassified_view": "00",
+  "burst_limit": 2,
+  "exploratory_fraction": 0.1,
+  "minimum_eval_precision": 0.75,
+  "minimum_eval_coverage": 0.8,
+  "views": [
+    {"id": "00", "label": "Unclassified / Editor Field", "quota": 2},
+    {"id": "01", "label": "People / Presence", "quota": 3},
+    {"id": "02", "label": "Work / Apparatus", "quota": 3},
+    {"id": "03", "label": "Project Evidence - Editor Hypothesis", "quota": 2},
+    {"id": "04", "label": "Places / Thresholds / Traces", "quota": 2}
+  ]
+}
+

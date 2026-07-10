@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.venv/
+dist/
+build/
+*.egg-info/
+.DS_Store
+runs/
+previews/
+originals/
+private/
+*.photoslibrary/
+
