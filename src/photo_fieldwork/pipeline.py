@@ -11,8 +11,14 @@ from pathlib import Path
 from typing import Iterable
 
 
+JUDGMENTS = {"fit", "reject", "uncertain"}
+ASSIGNMENT_STATUSES = {"assigned", "unclassified", "sparse-hypothesis"}
+
+
 def read_config(path: Path) -> dict:
     config = json.loads(path.read_text(encoding="utf-8"))
+    if config.get("schema_version") != 2:
+        raise ValueError("config schema_version must be 2")
     view_ids = [view["id"] for view in config["views"]]
     if len(view_ids) != len(set(view_ids)):
         raise ValueError("view IDs must be unique")
@@ -20,16 +26,24 @@ def read_config(path: Path) -> dict:
         raise ValueError("unclassified_view must name a configured view")
     if sum(int(view["quota"]) for view in config["views"]) != int(config["target_count"]):
         raise ValueError("view quotas must sum to target_count")
+    valid_modes = {"material", "sparse-hypothesis"}
+    invalid_modes = {
+        str(view.get("evaluation_mode", "material"))
+        for view in config["views"]
+        if str(view.get("evaluation_mode", "material")) not in valid_modes
+    }
+    if invalid_modes:
+        raise ValueError(f"invalid view evaluation modes: {', '.join(sorted(invalid_modes))}")
     return config
 
 
-def read_csv(path: Path) -> list[dict[str, str]]:
+def read_csv(path: Path, required: set[str] | None = None) -> list[dict[str, str]]:
     with path.open(newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
     if not rows:
         raise ValueError(f"no rows found in {path}")
-    required = {"uuid", "filename"}
-    missing = required - set(rows[0])
+    required_fields = required or {"uuid", "filename"}
+    missing = required_fields - set(rows[0])
     if missing:
         raise ValueError(f"missing required columns: {', '.join(sorted(missing))}")
     return rows
@@ -61,6 +75,30 @@ def split_values(value: object) -> list[str]:
 def stable_noise(seed: int, uuid: str) -> float:
     digest = hashlib.sha256(f"{seed}:{uuid}".encode()).digest()
     return int.from_bytes(digest[:8], "big") / 2**64
+
+
+def wilson_interval(successes: int, total: int, z: float = 1.96) -> list[float] | None:
+    if total <= 0:
+        return None
+    proportion = successes / total
+    denominator = 1 + z * z / total
+    center = (proportion + z * z / (2 * total)) / denominator
+    margin = z * math.sqrt((proportion * (1 - proportion) + z * z / (4 * total)) / total) / denominator
+    return [round(max(0.0, center - margin), 4), round(min(1.0, center + margin), 4)]
+
+
+def master_sha256(rows: Iterable[dict[str, str]]) -> str:
+    """Hash the exact membership and editorial assignment written to Photos."""
+    payload = [
+        {
+            "uuid": str(row["uuid"]).split("/", 1)[0],
+            "assigned_view": str(row.get("assigned_view") or row.get("primary_view") or ""),
+        }
+        for row in rows
+    ]
+    payload.sort(key=lambda row: (row["assigned_view"], row["uuid"]))
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def is_hold(row: dict[str, str]) -> bool:
@@ -103,7 +141,11 @@ def cluster_representatives(rows: list[dict[str, str]], config: dict) -> list[di
     exact_groups: dict[str, list[dict[str, str]]] = defaultdict(list)
     singles: list[dict[str, str]] = []
     for row in rows:
-        group = row.get("duplicate_group", "").strip()
+        group = (
+            row.get("perceptual_cluster_id", "").strip()
+            or row.get("duplicate_group", "").strip()
+            or row.get("duplicate_group_id", "").strip()
+        )
         (exact_groups[group] if group else singles).append(row)
 
     def cluster_rank(row: dict[str, str]) -> tuple:
@@ -133,8 +175,20 @@ def cluster_representatives(rows: list[dict[str, str]], config: dict) -> list[di
 
 def choose_primary_view(row: dict[str, str], config: dict) -> str:
     configured = {view["id"] for view in config["views"]}
-    candidates = [view for view in split_values(row.get("candidate_views")) if view in configured]
-    return candidates[0] if candidates else config["unclassified_view"]
+    assigned = str(row.get("assigned_view", "")).strip()
+    if not assigned:
+        raise ValueError(
+            f"inventory row {row.get('uuid', '<unknown>')} lacks assigned_view; "
+            "candidate_views are retrieval hypotheses, not editorial assignments"
+        )
+    if assigned not in configured:
+        raise ValueError(f"inventory row {row.get('uuid', '<unknown>')} has unknown assigned_view {assigned}")
+    status = str(row.get("assignment_status", "assigned")).strip() or "assigned"
+    if status not in ASSIGNMENT_STATUSES:
+        raise ValueError(f"inventory row {row.get('uuid', '<unknown>')} has invalid assignment_status {status}")
+    if not str(row.get("assignment_version", "")).strip():
+        raise ValueError(f"inventory row {row.get('uuid', '<unknown>')} lacks assignment_version")
+    return assigned
 
 
 def rank_row(row: dict[str, str], config: dict) -> float:
@@ -152,7 +206,9 @@ def select(inventory: list[dict[str, str]], config: dict) -> tuple[list[dict], l
         row["selection_reason"] = "; ".join(
             reason
             for reason in [
-                f"retrieval hypothesis {row['primary_view']}",
+                f"editorial assignment {row['primary_view']}",
+                f"assignment: {row.get('assignment_reason')}" if row.get("assignment_reason") else "",
+                f"retrieval hypotheses: {row.get('candidate_views')}" if row.get("candidate_views") else "",
                 f"visible context: {row.get('visible_context')}" if row.get("visible_context") else "",
                 f"evidence confidence: {confidence}",
                 "pre-existing named people" if split_values(row.get("persons")) else "",
@@ -226,6 +282,11 @@ def select(inventory: list[dict[str, str]], config: dict) -> tuple[list[dict], l
     if sum(not bool(split_values(row.get("persons"))) for row in selected) < person_free_floor:
         raise ValueError("candidate field cannot satisfy minimum_person_free_fraction")
     selected.sort(key=lambda row: (row["primary_view"], -float(row["score_total"]), row["uuid"]))
+    digest = master_sha256(selected)
+    proposal_id = f"pfp-{digest[:16]}"
+    for row in selected:
+        row["master_sha256"] = digest
+        row["proposal_id"] = proposal_id
     summary = {
         "inventory_count": len(inventory),
         "eligible_after_cluster_reduction": len(eligible),
@@ -234,14 +295,26 @@ def select(inventory: list[dict[str, str]], config: dict) -> tuple[list[dict], l
         "view_counts": dict(sorted(Counter(row["primary_view"] for row in selected).items())),
         "named_people_count": sum(bool(split_values(row.get("persons"))) for row in selected),
         "uncertain_count": sum(row.get("evidence_confidence", "unknown") in {"low", "unknown", ""} for row in selected),
+        "master_sha256": digest,
+        "proposal_id": proposal_id,
     }
     return selected, holds, summary
 
 
-def make_sample(master: list[dict[str, str]], per_view: int, seed: int) -> list[dict]:
+def make_sample(
+    master: list[dict[str, str]],
+    per_view: int,
+    seed: int,
+    excluded_ids: set[str] | None = None,
+    canary_ids: set[str] | None = None,
+) -> list[dict]:
+    excluded_ids = excluded_ids or set()
+    canary_ids = canary_ids or set()
+    selected_counts = Counter(row.get("primary_view", "unknown") for row in master)
     grouped: dict[str, list[dict]] = defaultdict(list)
     for row in master:
-        grouped[row.get("primary_view", "unknown")].append(row)
+        if row["uuid"] not in excluded_ids and row["uuid"] not in canary_ids:
+            grouped[row.get("primary_view", "unknown")].append(row)
     sample: list[dict] = []
     rng = random.Random(seed)
     for view, rows in sorted(grouped.items()):
@@ -255,32 +328,121 @@ def make_sample(master: list[dict[str, str]], per_view: int, seed: int) -> list[
             picks = [ordered[index] for index in sorted(positions)[:per_view]]
         for row in picks:
             item = dict(row)
+            item["view_selected_count"] = str(selected_counts[view])
+            item["sampling_reason"] = (
+                "full available sparse view"
+                if len(rows) <= per_view
+                else "score boundary and deterministic random stratum sample"
+            )
+            item["sample_kind"] = "fresh"
             item["judgment"] = ""
             item["evaluation_note"] = ""
             sample.append(item)
+    for row in master:
+        if row["uuid"] not in canary_ids:
+            continue
+        item = dict(row)
+        item["view_selected_count"] = str(selected_counts[row.get("primary_view", "unknown")])
+        item["sampling_reason"] = "regression canary"
+        item["sample_kind"] = "canary"
+        item["judgment"] = ""
+        item["evaluation_note"] = ""
+        sample.append(item)
     return sample
 
 
 def evaluate(feedback: list[dict[str, str]], config: dict) -> tuple[dict, bool]:
-    allowed = {"fit", "reject", "uncertain"}
-    judged = [row for row in feedback if row.get("judgment", "").strip().lower() in allowed]
+    proposal_ids = {row.get("proposal_id", "").strip() for row in feedback}
+    master_hashes = {row.get("master_sha256", "").strip() for row in feedback}
+    if "" in proposal_ids or len(proposal_ids) != 1:
+        raise ValueError("evaluation rows must share one non-empty proposal_id")
+    if "" in master_hashes or len(master_hashes) != 1:
+        raise ValueError("evaluation rows must share one non-empty master_sha256")
+    unknown = sorted(
+        {
+            row.get("judgment", "").strip().lower()
+            for row in feedback
+            if row.get("judgment", "").strip() and row.get("judgment", "").strip().lower() not in JUDGMENTS
+        }
+    )
+    if unknown:
+        raise ValueError(f"unknown evaluation judgments: {', '.join(unknown)}")
+    judged = [row for row in feedback if row.get("judgment", "").strip().lower() in JUDGMENTS]
     fit = sum(row["judgment"].strip().lower() == "fit" for row in judged)
     reject = sum(row["judgment"].strip().lower() == "reject" for row in judged)
     uncertain = sum(row["judgment"].strip().lower() == "uncertain" for row in judged)
     coverage = len(judged) / len(feedback) if feedback else 0.0
     precision = fit / (fit + reject) if fit + reject else 0.0
     by_view = {}
-    for view in sorted({row.get("primary_view", "unknown") for row in feedback}):
-        rows = [row for row in judged if row.get("primary_view", "unknown") == view]
+    fresh_feedback = [row for row in feedback if row.get("sample_kind", "fresh") != "canary"]
+    fresh_judged = [row for row in judged if row.get("sample_kind", "fresh") != "canary"]
+    canaries = [row for row in judged if row.get("sample_kind") == "canary"]
+    canary_failures = [row["uuid"] for row in canaries if row["judgment"].strip().lower() != "fit"]
+    minimum_view_precision = float(config.get("minimum_view_eval_precision", 0.65))
+    minimum_view_sample = int(config.get("minimum_view_eval_sample", 2))
+    maximum_uncertainty = float(config.get("maximum_eval_uncertainty", 0.25))
+    minimum_coverage = float(config.get("minimum_eval_coverage", 0.8))
+    views_by_id = {str(view["id"]): view for view in config["views"] if int(view["quota"]) > 0}
+    for view_id, view in sorted(views_by_id.items()):
+        sampled = [row for row in fresh_feedback if row.get("primary_view", "unknown") == view_id]
+        rows = [row for row in fresh_judged if row.get("primary_view", "unknown") == view_id]
         decisive = [row for row in rows if row["judgment"].strip().lower() in {"fit", "reject"}]
-        by_view[view] = {
+        view_precision = (
+            sum(row["judgment"].strip().lower() == "fit" for row in decisive) / len(decisive)
+            if decisive else None
+        )
+        view_coverage = len(rows) / len(sampled) if sampled else 0.0
+        uncertainty_rate = (
+            sum(row["judgment"].strip().lower() == "uncertain" for row in rows) / len(rows)
+            if rows else 0.0
+        )
+        selected_count = max(
+            [int(row.get("view_selected_count") or 0) for row in sampled] or [int(view["quota"])]
+        )
+        required_decisive = min(minimum_view_sample, selected_count)
+        mode = str(view.get("evaluation_mode", "material"))
+        precision_gate = float(view.get("minimum_eval_precision", minimum_view_precision))
+        reasons = []
+        if not sampled:
+            reasons.append("view not sampled")
+        if view_coverage < minimum_coverage:
+            reasons.append("coverage below minimum")
+        if uncertainty_rate > maximum_uncertainty:
+            reasons.append("uncertainty above maximum")
+        if mode == "material":
+            if len(decisive) < required_decisive:
+                reasons.append("insufficient decisive judgments")
+            if view_precision is None or view_precision < precision_gate:
+                reasons.append("precision below minimum")
+        by_view[view_id] = {
+            "label": view.get("label", view_id),
+            "evaluation_mode": mode,
+            "sampled": len(sampled),
             "judged": len(rows),
-            "precision": sum(row["judgment"].strip().lower() == "fit" for row in decisive) / len(decisive) if decisive else None,
+            "decisive": len(decisive),
+            "required_decisive": required_decisive,
+            "coverage": round(view_coverage, 4),
+            "precision": round(view_precision, 4) if view_precision is not None else None,
+            "precision_interval_95": wilson_interval(
+                sum(row["judgment"].strip().lower() == "fit" for row in decisive),
+                len(decisive),
+            ),
+            "minimum_precision": precision_gate if mode == "material" else None,
+            "uncertainty_rate": round(uncertainty_rate, 4),
+            "maximum_uncertainty": maximum_uncertainty,
+            "passed": not reasons,
+            "failure_reasons": reasons,
         }
-    passed = coverage >= float(config.get("minimum_eval_coverage", 0.8)) and precision >= float(
-        config.get("minimum_eval_precision", 0.75)
+    passed = (
+        coverage >= minimum_coverage
+        and precision >= float(config.get("minimum_eval_precision", 0.75))
+        and all(result["passed"] for result in by_view.values())
+        and not canary_failures
     )
     report = {
+        "schema_version": 2,
+        "proposal_id": next(iter(proposal_ids)),
+        "master_sha256": next(iter(master_hashes)),
         "sample_count": len(feedback),
         "judged_count": len(judged),
         "fit": fit,
@@ -288,12 +450,85 @@ def evaluate(feedback: list[dict[str, str]], config: dict) -> tuple[dict, bool]:
         "uncertain": uncertain,
         "coverage": round(coverage, 4),
         "precision": round(precision, 4),
-        "minimum_coverage": config.get("minimum_eval_coverage", 0.8),
+        "precision_interval_95": wilson_interval(fit, fit + reject),
+        "minimum_coverage": minimum_coverage,
         "minimum_precision": config.get("minimum_eval_precision", 0.75),
+        "minimum_view_precision": minimum_view_precision,
+        "minimum_view_sample": minimum_view_sample,
+        "maximum_uncertainty": maximum_uncertainty,
+        "canary_count": len(canaries),
+        "canary_failures": canary_failures,
         "passed": passed,
         "by_view": by_view,
     }
     return report, passed
+
+
+def validate_feedback(feedback: list[dict[str, str]]) -> dict:
+    required = {"uuid", "proposal_id", "master_sha256", "judgment"}
+    missing = required - set(feedback[0]) if feedback else required
+    if missing:
+        raise ValueError(f"feedback missing required columns: {', '.join(sorted(missing))}")
+    seen: dict[str, str] = {}
+    proposal_ids: set[str] = set()
+    master_hashes: set[str] = set()
+    for row in feedback:
+        uuid = row["uuid"].strip()
+        judgment = row["judgment"].strip().lower()
+        if not uuid:
+            raise ValueError("feedback contains an empty uuid")
+        if judgment not in JUDGMENTS:
+            raise ValueError(f"feedback row {uuid} has invalid judgment {judgment or '<empty>'}")
+        if uuid in seen and seen[uuid] != judgment:
+            raise ValueError(f"feedback contains conflicting judgments for {uuid}")
+        seen[uuid] = judgment
+        proposal_ids.add(row["proposal_id"].strip())
+        master_hashes.add(row["master_sha256"].strip())
+    if "" in proposal_ids or len(proposal_ids) != 1:
+        raise ValueError("feedback must name one non-empty proposal_id")
+    if "" in master_hashes or len(master_hashes) != 1:
+        raise ValueError("feedback must name one non-empty master_sha256")
+    return {
+        "schema_version": 1,
+        "row_count": len(feedback),
+        "unique_uuid_count": len(seen),
+        "proposal_id": next(iter(proposal_ids)),
+        "master_sha256": next(iter(master_hashes)),
+        "judgment_counts": dict(sorted(Counter(seen.values()).items())),
+        "status": "PASS",
+    }
+
+
+def apply_feedback(sample: list[dict[str, str]], feedback: list[dict[str, str]]) -> list[dict[str, str]]:
+    summary = validate_feedback(feedback)
+    sample_proposals = {row.get("proposal_id", "").strip() for row in sample}
+    sample_hashes = {row.get("master_sha256", "").strip() for row in sample}
+    if sample_proposals != {summary["proposal_id"]}:
+        raise ValueError("feedback proposal_id does not match the evaluation sample")
+    if sample_hashes != {summary["master_sha256"]}:
+        raise ValueError("feedback master_sha256 does not match the evaluation sample")
+    updates: dict[str, dict[str, str]] = {}
+    for row in feedback:
+        uuid = row["uuid"].strip()
+        if uuid in updates:
+            continue
+        updates[uuid] = row
+    sample_ids = {row["uuid"] for row in sample}
+    unknown = set(updates) - sample_ids
+    if unknown:
+        raise ValueError(f"feedback contains {len(unknown)} UUIDs outside the evaluation sample")
+    merged = []
+    for row in sample:
+        item = dict(row)
+        update = updates.get(row["uuid"])
+        if update:
+            item["judgment"] = update["judgment"].strip().lower()
+            item["evaluation_note"] = update.get("evaluation_note", "").strip()
+            item["judgment_reason"] = update.get("judgment_reason", "").strip()
+            item["evaluator"] = update.get("evaluator", "").strip()
+            item["judged_at"] = update.get("judged_at", "").strip()
+        merged.append(item)
+    return merged
 
 
 def validate(master: list[dict[str, str]], holds: list[dict[str, str]], config: dict) -> tuple[list[str], dict]:
@@ -309,6 +544,17 @@ def validate(master: list[dict[str, str]], holds: list[dict[str, str]], config: 
         errors.append(f"master overlaps safety holds by {len(overlap)} rows")
     if any(not row.get("selection_reason") for row in master):
         errors.append("one or more selected rows lack a selection reason")
+    if any(not row.get("assigned_view") for row in master):
+        errors.append("one or more selected rows lack assigned_view")
+    if any(row.get("primary_view") != row.get("assigned_view") for row in master):
+        errors.append("primary_view must remain an exact output alias of assigned_view")
+    hashes = {row.get("master_sha256", "") for row in master}
+    expected_hash = master_sha256(master)
+    if hashes != {expected_hash}:
+        errors.append("master_sha256 is missing or does not match exact membership and assignments")
+    proposal_ids = {row.get("proposal_id", "") for row in master}
+    if proposal_ids != {f"pfp-{expected_hash[:16]}"}:
+        errors.append("proposal_id is missing or does not match master_sha256")
     configured = {view["id"] for view in config["views"] if int(view["quota"]) > 0}
     represented = {row.get("primary_view") for row in master}
     missing_views = configured - represented
@@ -321,6 +567,8 @@ def validate(master: list[dict[str, str]], holds: list[dict[str, str]], config: 
         "hold_count": len(holds),
         "hold_overlap": len(overlap),
         "represented_views": sorted(represented),
+        "master_sha256": expected_hash,
+        "proposal_id": f"pfp-{expected_hash[:16]}",
     }
     return errors, metrics
 
@@ -331,8 +579,19 @@ def build_catalog_plan(
     plan_id: str,
     source_title: str,
     source_identifier: str,
+    evaluation_report: dict,
 ) -> dict:
     """Build an adapter-neutral, membership-only catalog plan."""
+    digest = master_sha256(master)
+    proposal_id = f"pfp-{digest[:16]}"
+    if any(row.get("primary_view") != row.get("assigned_view") for row in master):
+        raise ValueError("catalog plan requires primary_view to match assigned_view")
+    if not evaluation_report.get("passed"):
+        raise ValueError("catalog plan requires a passing final evaluation")
+    if evaluation_report.get("master_sha256") != digest:
+        raise ValueError("evaluated master hash does not match the proposed catalog plan")
+    if evaluation_report.get("proposal_id") != proposal_id:
+        raise ValueError("evaluated proposal_id does not match the proposed catalog plan")
     view_labels = {view["id"]: view["label"] for view in config["views"]}
     albums = [
         {
@@ -351,8 +610,15 @@ def build_catalog_plan(
             }
         )
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "plan_id": plan_id,
+        "proposal_id": proposal_id,
+        "master_sha256": digest,
+        "evaluation": {
+            "proposal_id": evaluation_report["proposal_id"],
+            "master_sha256": evaluation_report["master_sha256"],
+            "passed": True,
+        },
         "created_at": datetime.now(timezone.utc).isoformat(),
         "safety_mode": "create-folders-albums-and-add-membership-only",
         "source": {"title": source_title, "identifier": source_identifier},

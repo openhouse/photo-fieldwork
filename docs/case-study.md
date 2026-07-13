@@ -21,3 +21,18 @@ The completed version contained exactly 8,000 unique stills. It preserved the so
 
 The transferable lesson is simple: metadata is excellent for constructing a field of attention. It is not a substitute for looking, provenance, or editorial judgment. A good workflow makes those differences operational.
 
+## Whole-library revision
+
+A later v04-I run expanded the source to 603,137 visible still photographs. It retrieved and locally inspected 7,000 fresh candidates, produced an exact 4,000-photo editor field, kept 1,982 holds disjoint from the master, performed a ten-photo write test, reran the production write idempotently, and independently verified exact album membership with no missing, unexpected, or out-of-source assets.
+
+The larger run exposed additional system failures that were not visible at the earlier scale:
+
+- term-by-term wildcard retrieval became an operational bottleneck;
+- candidate hypotheses could leak back into final view assignment;
+- overall precision could pass while individual views remained weak;
+- run-specific feedback scripts could lose required judgment fields;
+- metadata duplicate groups missed near-identical and cross-format images;
+- exact coordinates and machine paths needed structural redaction rather than policy alone;
+- the final evaluated master needed a verifiable identity carried into write plans.
+
+Revision I turns those observations into contracts: explicit assignments, per-view release gates, structured feedback, local perceptual clustering, privacy-aware source inventories, proposal hashes, hash-bound plans, typed reports, and atomic run-state transitions.

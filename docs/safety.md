@@ -2,11 +2,13 @@
 
 ## Data minimization
 
-- Inventory only the source corpus needed for the run.
+- Resolve and fingerprint only the source scope needed for the run.
+- Use the `minimal` or `retrieval` inventory profile unless a private-operational debug artifact is explicitly required.
 - Use previews rather than originals when possible.
 - Keep exact coordinates out of editor-facing manifests.
 - Store generalized safety flags, not detected private text.
 - Never publish archive manifests containing private local paths or named-person associations without review.
+- Label artifacts `private-operational`, `review-sensitive`, or `public-safe`. Run the public-report linter before human publication review.
 
 ## Prohibited by default
 
@@ -36,4 +38,3 @@ A production adapter must:
 7. Support independent read-only verification.
 
 If an adapter cannot meet all seven conditions, it is not production-ready.
-

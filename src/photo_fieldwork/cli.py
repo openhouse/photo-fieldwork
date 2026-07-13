@@ -6,7 +6,18 @@ import shutil
 import sys
 from pathlib import Path
 
-from .pipeline import build_catalog_plan, evaluate, make_sample, read_config, read_csv, select, validate, write_csv
+from .pipeline import (
+    apply_feedback,
+    build_catalog_plan,
+    evaluate,
+    make_sample,
+    read_config,
+    read_csv,
+    select,
+    validate,
+    validate_feedback,
+    write_csv,
+)
 from .practice import create_demo_inventory, practice_feedback, write_demo_readme
 
 
@@ -39,7 +50,11 @@ def command_select(args: argparse.Namespace) -> int:
 
 def command_sample(args: argparse.Namespace) -> int:
     master = read_csv(args.master)
-    sample = make_sample(master, args.per_view, args.seed)
+    excluded_ids: set[str] = set()
+    for path in args.exclude_feedback or []:
+        excluded_ids.update(row["uuid"] for row in read_csv(path, {"uuid"}))
+    canary_ids = {row["uuid"] for row in read_csv(args.canaries, {"uuid"})} if args.canaries else set()
+    sample = make_sample(master, args.per_view, args.seed, excluded_ids, canary_ids)
     write_csv(args.output, sample)
     print(f"wrote {len(sample)} evaluation rows to {args.output}")
     return 0
@@ -54,6 +69,25 @@ def command_evaluate(args: argparse.Namespace) -> int:
     (args.output / "evaluation-report.md").write_text(markdown_report("Evaluation report", report), encoding="utf-8")
     print(f"evaluation {'PASS' if passed else 'FAIL'}: precision={report['precision']}, coverage={report['coverage']}")
     return 0 if passed else 2
+
+
+def command_feedback_validate(args: argparse.Namespace) -> int:
+    feedback = read_csv(args.feedback, {"uuid", "proposal_id", "master_sha256", "judgment"})
+    report = validate_feedback(feedback)
+    if args.output:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(report, indent=2))
+    return 0
+
+
+def command_feedback_apply(args: argparse.Namespace) -> int:
+    sample = read_csv(args.sample)
+    feedback = read_csv(args.feedback, {"uuid", "proposal_id", "master_sha256", "judgment"})
+    merged = apply_feedback(sample, feedback)
+    write_csv(args.output, merged)
+    print(f"applied {len(feedback)} feedback rows to {args.output}")
+    return 0
 
 
 def command_validate(args: argparse.Namespace) -> int:
@@ -73,7 +107,15 @@ def command_validate(args: argparse.Namespace) -> int:
 def command_plan(args: argparse.Namespace) -> int:
     config = read_config(args.config)
     master = read_csv(args.master)
-    plan = build_catalog_plan(master, config, args.plan_id, args.source_title, args.source_identifier)
+    evaluation_report = json.loads(args.evaluation_report.read_text(encoding="utf-8"))
+    plan = build_catalog_plan(
+        master,
+        config,
+        args.plan_id,
+        args.source_title,
+        args.source_identifier,
+        evaluation_report,
+    )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
     print(f"wrote membership-only catalog plan to {args.output}")
@@ -97,6 +139,8 @@ def command_demo(args: argparse.Namespace) -> int:
             output=sample_path,
             per_view=3,
             seed=20260710,
+            exclude_feedback=[],
+            canaries=None,
         )
     )
     practice_feedback(sample_path)
@@ -116,6 +160,7 @@ def command_demo(args: argparse.Namespace) -> int:
             plan_id="synthetic-practice-plan",
             source_title="Synthetic practice corpus",
             source_identifier="SYNTHETIC-ONLY",
+            evaluation_report=workspace / "reports" / "evaluation-report.json",
             output=workspace / "manifests" / "catalog-plan.json",
         )
     )
@@ -142,6 +187,13 @@ def parser() -> argparse.ArgumentParser:
     sample.add_argument("--output", type=Path, required=True)
     sample.add_argument("--per-view", type=int, default=3)
     sample.add_argument("--seed", type=int, default=20260710)
+    sample.add_argument(
+        "--exclude-feedback",
+        type=Path,
+        action="append",
+        help="exclude UUIDs already labeled in an earlier feedback CSV; may be repeated",
+    )
+    sample.add_argument("--canaries", type=Path, help="append these master UUIDs as regression canaries")
     sample.set_defaults(func=command_sample)
 
     evaluation = sub.add_parser("evaluate", help="measure labeled evaluation feedback")
@@ -149,6 +201,17 @@ def parser() -> argparse.ArgumentParser:
     evaluation.add_argument("--config", type=Path, required=True)
     evaluation.add_argument("--output", type=Path, required=True)
     evaluation.set_defaults(func=command_evaluate)
+
+    feedback = sub.add_parser("feedback-validate", help="validate structured evaluation feedback")
+    feedback.add_argument("--feedback", type=Path, required=True)
+    feedback.add_argument("--output", type=Path)
+    feedback.set_defaults(func=command_feedback_validate)
+
+    feedback_apply = sub.add_parser("feedback-apply", help="apply validated feedback to an evaluation sample")
+    feedback_apply.add_argument("--sample", type=Path, required=True)
+    feedback_apply.add_argument("--feedback", type=Path, required=True)
+    feedback_apply.add_argument("--output", type=Path, required=True)
+    feedback_apply.set_defaults(func=command_feedback_apply)
 
     validation = sub.add_parser("validate", help="validate a proposed master against invariants")
     validation.add_argument("--master", type=Path, required=True)
@@ -163,6 +226,7 @@ def parser() -> argparse.ArgumentParser:
     plan.add_argument("--plan-id", required=True)
     plan.add_argument("--source-title", required=True)
     plan.add_argument("--source-identifier", required=True)
+    plan.add_argument("--evaluation-report", type=Path, required=True)
     plan.add_argument("--output", type=Path, required=True)
     plan.set_defaults(func=command_plan)
     return root

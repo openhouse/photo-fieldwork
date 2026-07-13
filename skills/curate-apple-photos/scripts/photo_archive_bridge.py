@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import os
 import plistlib
@@ -35,6 +36,35 @@ AUDIT_FOLDER_ID = "7F9EB400-C06D-412C-9443-300A2C47CCE7/L0/020"
 def dump_json(path: Path, value: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def master_sha256(rows: list[dict[str, str]]) -> str:
+    payload = [
+        {
+            "uuid": base_identifier(row["uuid"]),
+            "assigned_view": str(row.get("assigned_view") or row.get("primary_view") or ""),
+        }
+        for row in rows
+    ]
+    payload.sort(key=lambda row: (row["assigned_view"], row["uuid"]))
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def update_run_state(workspace: Path, phase: str, status: str, **details: object) -> None:
+    state_path = workspace / "run-state.json"
+    if not state_path.exists():
+        return
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    if phase not in state.get("phases", {}):
+        raise ValueError(f"unknown run phase: {phase}")
+    state["phases"][phase] = status
+    state["status"] = "failed" if status == "failed" else "active"
+    state["updated_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
+    state["last_transition"] = {"phase": phase, "status": status, **details}
+    temporary = state_path.with_suffix(".json.tmp")
+    dump_json(temporary, state)
+    temporary.replace(state_path)
 
 
 def local_identifier(value: str) -> str:
@@ -162,6 +192,8 @@ def command_inspection_plan(args: argparse.Namespace) -> int:
         "target_long_edge": args.target_long_edge,
         "export_previews": not args.no_previews,
         "ocr_all": not args.no_ocr,
+        "classify_all": not args.no_classify,
+        "detect_faces": not args.no_face_detection,
         "network_access_allowed": False,
     }
     dump_json(args.output, plan)
@@ -219,6 +251,13 @@ def snapshot_plan(args: argparse.Namespace, plan_id: str, folders: list[dict], a
         "operation": "snapshot-membership",
         "schema_version": 1,
         "plan_id": plan_id,
+        "proposal_id": args.proposal_id,
+        "master_sha256": args.master_sha256,
+        "evaluation": {
+            "proposal_id": args.proposal_id,
+            "master_sha256": args.master_sha256,
+            "passed": True,
+        },
         "safety_mode": "create-folders-albums-and-add-membership-only",
         "source_album_identifier": args.source_id,
         "expected_source_count": args.source_count,
@@ -242,6 +281,22 @@ def command_snapshot_plans(args: argparse.Namespace) -> int:
         raise ValueError(f"master overlaps HOLD by {len(overlap)} IDs")
     if not all(row.get("selection_reason") or row.get("selection_reasons") or row.get("editorial_reasons") for row in master_rows):
         raise ValueError("every master row must have a selection reason")
+    if any(
+        row.get("assigned_view")
+        and row.get("primary_view")
+        and row["assigned_view"] != row["primary_view"]
+        for row in master_rows
+    ):
+        raise ValueError("primary_view must match assigned_view before snapshot plan generation")
+    digest = master_sha256(master_rows)
+    proposal_id = f"pfp-{digest[:16]}"
+    evaluation = json.loads(args.evaluation_report.read_text(encoding="utf-8"))
+    if not evaluation.get("passed"):
+        raise ValueError("snapshot plans require a passing final evaluation")
+    if evaluation.get("master_sha256") != digest or evaluation.get("proposal_id") != proposal_id:
+        raise ValueError("final evaluation does not match the master membership and assignments")
+    args.master_sha256 = digest
+    args.proposal_id = proposal_id
 
     by_view: dict[str, list[str]] = {}
     view_labels = {}
@@ -299,6 +354,14 @@ def command_snapshot_plans(args: argparse.Namespace) -> int:
     production_path = args.workspace / "manifests" / f"{args.version}-production-plan.json"
     dump_json(test_path, test)
     dump_json(production_path, production)
+    update_run_state(
+        args.workspace,
+        "validation",
+        "completed",
+        proposal_id=proposal_id,
+        master_sha256=digest,
+        production_plan=str(production_path),
+    )
     print(f"test_plan={test_path}")
     print(f"production_plan={production_path}")
     print(f"production_albums={len(production_albums)}")
@@ -310,21 +373,42 @@ def command_run_plan(args: argparse.Namespace) -> int:
     plan_path = args.plan.resolve()
     plan = json.loads(plan_path.read_text(encoding="utf-8"))
     receipt_path = Path(plan["receipt_path"])
+    workspace = plan_path.parent.parent
+    operation = str(plan.get("operation", ""))
+    if operation == "inspect-local-images":
+        phase = "local_inspection"
+    elif "write-test" in str(plan.get("plan_id", "")):
+        phase = "write_test"
+    else:
+        phase = "production_commit"
     if not APP.is_dir():
         raise ValueError(f"permissioned app not found: {APP}")
     before = receipt_path.stat().st_mtime_ns if receipt_path.exists() else None
     command = ["/usr/bin/open", "-W", "-n", str(APP), "--args", "--plan", str(plan_path)]
     print("launching permissioned helper; this may run for a long time", flush=True)
+    update_run_state(workspace, phase, "running", plan=str(plan_path))
     completed = subprocess.run(command, check=False)
     if completed.returncode:
+        update_run_state(workspace, phase, "failed", exit_code=completed.returncode)
         raise ValueError(f"helper launcher failed with exit code {completed.returncode}")
     if not receipt_path.exists():
+        update_run_state(workspace, phase, "failed", reason="helper finished without receipt")
         raise ValueError(f"helper finished without receipt: {receipt_path}")
     after = receipt_path.stat().st_mtime_ns
     if before is not None and before == after:
+        update_run_state(workspace, phase, "failed", reason="receipt was not refreshed")
         raise ValueError(f"receipt was not refreshed: {receipt_path}")
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    update_run_state(workspace, phase, "completed", receipt=str(receipt_path), plan_id=plan.get("plan_id"))
     print(json.dumps(receipt, indent=2, ensure_ascii=False))
+    return 0
+
+
+def command_status(args: argparse.Namespace) -> int:
+    state_path = args.workspace / "run-state.json"
+    if not state_path.exists():
+        raise ValueError(f"run state not found: {state_path}")
+    print(json.dumps(json.loads(state_path.read_text(encoding="utf-8")), indent=2, ensure_ascii=False))
     return 0
 
 
@@ -355,6 +439,8 @@ def parser() -> argparse.ArgumentParser:
     inspect.add_argument("--limit", type=int)
     inspect.add_argument("--no-previews", action="store_true")
     inspect.add_argument("--no-ocr", action="store_true")
+    inspect.add_argument("--no-classify", action="store_true")
+    inspect.add_argument("--no-face-detection", action="store_true")
     inspect.set_defaults(func=command_inspection_plan)
 
     plans = sub.add_parser("snapshot-plans", help="build test-first app plans from a validated master")
@@ -366,6 +452,7 @@ def parser() -> argparse.ArgumentParser:
     plans.add_argument("--folder-title", required=True)
     plans.add_argument("--view-column", default="primary_view")
     plans.add_argument("--config", type=Path)
+    plans.add_argument("--evaluation-report", type=Path, required=True)
     plans.add_argument("--source-id", default=SOURCE_ID)
     plans.add_argument("--source-count", type=int, default=SOURCE_COUNT)
     plans.add_argument("--batch-size", type=int, default=500)
@@ -374,6 +461,10 @@ def parser() -> argparse.ArgumentParser:
     run = sub.add_parser("run-plan", help="launch a plan through the stable permissioned app bundle")
     run.add_argument("--plan", type=Path, required=True)
     run.set_defaults(func=command_run_plan)
+
+    status = sub.add_parser("status", help="show the durable state of a versioned run")
+    status.add_argument("--workspace", type=Path, required=True)
+    status.set_defaults(func=command_status)
     return root
 
 
