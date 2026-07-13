@@ -31,11 +31,11 @@ make check
 ## Use it with your own inventory
 
 1. Copy `config/starter.json` and edit the views, quotas, and thresholds.
-2. Prepare a CSV using `schemas/inventory-fields.md`.
+2. Prepare a CSV using `schemas/inventory-fields.md`. Keep retrieval hypotheses in `candidate_views` and put the reviewed editorial decision in `assigned_view`.
 3. Run the selection and create an evaluation sample.
 4. Inspect sampled images locally and record `fit`, `reject`, or `uncertain`.
-5. Evaluate, revise, and repeat until the agreed criteria pass.
-6. Generate a catalog write plan. Test ten items before any production write.
+5. Validate and apply structured feedback, then evaluate, revise, and repeat until overall and per-view criteria pass.
+6. Freeze and fully evaluate the final master. Generate a catalog write plan bound to that evaluation by `master_sha256`. Test ten items before any production write.
 7. Verify the committed album membership independently and read-only.
 
 ```bash
@@ -47,10 +47,21 @@ make check
 ./bin/photo-fieldwork sample \
   --master runs/my-run/manifests/proposed-master.csv \
   --output runs/my-run/manifests/eval-sample.csv \
-  --per-view 3
+  --per-view 3 \
+  --exclude-feedback runs/prior-round/manifests/eval-feedback.csv \
+  --canaries path/to/regression-canaries.csv
+
+./bin/photo-fieldwork feedback-validate \
+  --feedback runs/my-run/manifests/eval-feedback.csv \
+  --output runs/my-run/reports/feedback-validation.json
+
+./bin/photo-fieldwork feedback-apply \
+  --sample runs/my-run/manifests/eval-sample.csv \
+  --feedback runs/my-run/manifests/eval-feedback.csv \
+  --output runs/my-run/manifests/eval-sample-labeled.csv
 
 ./bin/photo-fieldwork evaluate \
-  --feedback runs/my-run/manifests/eval-sample.csv \
+  --feedback runs/my-run/manifests/eval-sample-labeled.csv \
   --config path/to/config.json \
   --output runs/my-run/reports
 
@@ -66,6 +77,7 @@ make check
   --plan-id my-run-v01 \
   --source-title "Wide retrieval - do not edit" \
   --source-identifier SOURCE-ID \
+  --evaluation-report runs/my-run/reports/evaluation-report.json \
   --output runs/my-run/manifests/catalog-plan.json
 ```
 
@@ -83,10 +95,12 @@ Those are different questions. Photo Fieldwork keeps them different.
 
 - A deterministic, configurable selection engine.
 - Safety holds that cannot enter the master.
-- Duplicate and burst controls.
+- Exact, burst, and local perceptual duplicate controls.
 - Named-people and visible-apparatus signals.
 - An unclassified editor field for honest uncertainty.
-- Stratified evaluation samples and precision thresholds.
+- Frozen proposal hashes, structured feedback, and overall plus per-view evaluation gates.
+- Versioned album and whole-visible-library source contracts.
+- Atomic run-state transitions and independently typed JSON/Markdown verification reports.
 - A fully synthetic practice run.
 - Apple Photos integration guidance and adapter contracts.
 - A case study of how visual inspection changed a real workflow.
@@ -99,7 +113,7 @@ Those are different questions. Photo Fieldwork keeps them different.
 - Direct writes to Photos SQLite.
 - A claim that the generated corpus is the final edit.
 
-Read [the workflow](docs/workflow.md), [the architecture](docs/architecture.md), [the safety model](docs/safety.md), and [the Apple Photos guide](docs/apple-photos.md) before using a private archive.
+Read [the workflow](docs/workflow.md), [the architecture](docs/architecture.md), [the safety model](docs/safety.md), and [the Apple Photos guide](docs/apple-photos.md) before using a private archive. Existing configurations should also read the [Revision I migration guide](docs/revision-I.md). The observed product rationale is preserved in [recommendations-I.md](recommendations-I.md).
 
 ## Use it as a Codex skill
 

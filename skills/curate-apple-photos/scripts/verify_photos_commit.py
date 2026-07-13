@@ -13,6 +13,7 @@ from pathlib import Path
 DEFAULT_DB = Path(
     "/Volumes/apple-photos-8tb-external-ssd/Photos Library.photoslibrary/database/Photos.sqlite"
 )
+VISIBLE_LIBRARY_STILLS = "visible-library-stills://v1"
 
 
 def base(value: str) -> str:
@@ -41,6 +42,60 @@ def members(conn: sqlite3.Connection, album_pk: int) -> set[str]:
     }
 
 
+def source_members(conn: sqlite3.Connection, identifier: str) -> tuple[set[str], str]:
+    if identifier == VISIBLE_LIBRARY_STILLS:
+        rows = conn.execute(
+            """
+            SELECT ZUUID
+            FROM ZASSET
+            WHERE ZKIND = 0
+              AND ZTRASHEDSTATE = 0
+              AND ZHIDDEN = 0
+              AND ZVISIBILITYSTATE = 0
+              AND ZBUNDLESCOPE = 0
+            """
+        )
+        return {row[0] for row in rows}, "Visible Apple Photos library — still photographs"
+    source_pk, source_title = album_record(conn, identifier)
+    return members(conn, source_pk), source_title
+
+
+def report_markdown(result: dict) -> str:
+    lines = [
+        "# Apple Photos commit verification",
+        "",
+        f"Generated: {result['generated_at']}",
+        "",
+        f"- Plan: `{result['plan_id']}`",
+        f"- Source: `{result['source_title']}`",
+        f"- Source membership: {result['source_count']:,}",
+        f"- Albums exactly verified: {result['verified_album_count']}",
+        f"- Unexpected memberships: {result['unexpected_memberships']}",
+        f"- Missing memberships: {result['missing_memberships']}",
+        f"- Members outside source corpus: {result['members_outside_source']}",
+        "",
+        "## Albums",
+        "",
+        *[
+            f"- `{album['title']}`: {album['count']:,} (`{album['identifier']}`)"
+            for album in result["albums"]
+        ],
+        "",
+        "Verification used a read-only, immutable, query-only SQLite connection.",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def write_report(path: Path, result: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.suffix.lower() == ".json":
+        path.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    elif path.suffix.lower() in {".md", ".markdown"}:
+        path.write_text(report_markdown(result), encoding="utf-8")
+    else:
+        raise ValueError("report extension must be .json, .md, or .markdown")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--plan", type=Path, required=True)
@@ -62,8 +117,7 @@ def main() -> None:
     uri = f"file:{args.photos_db}?mode=ro&immutable=1"
     conn = sqlite3.connect(uri, uri=True, timeout=30)
     conn.execute("PRAGMA query_only=ON")
-    source_pk, source_title = album_record(conn, plan["source_album_identifier"])
-    source = members(conn, source_pk)
+    source, source_title = source_members(conn, plan["source_album_identifier"])
     if len(source) != plan["expected_source_count"]:
         raise RuntimeError(f"source count changed: {len(source)} != {plan['expected_source_count']}")
 
@@ -81,31 +135,30 @@ def main() -> None:
         verified.append((title, len(actual), received["identifier"]))
     conn.close()
 
-    lines = [
-        "# Apple Photos commit verification",
-        "",
-        f"Generated: {datetime.now().astimezone().isoformat(timespec='seconds')}",
-        "",
-        f"- Plan: `{plan['plan_id']}`",
-        f"- Source: `{source_title}`",
-        f"- Source membership: {len(source):,}",
-        f"- Albums exactly verified: {len(verified)}",
-        "- Unexpected memberships: 0",
-        "- Missing memberships: 0",
-        "- Members outside source corpus: 0",
-        "",
-        "## Albums",
-        "",
-        *[f"- `{title}`: {count:,} (`{identifier}`)" for title, count, identifier in verified],
-        "",
-        "Verification used a read-only, immutable, query-only SQLite connection.",
-    ]
-    args.report.parent.mkdir(parents=True, exist_ok=True)
-    args.report.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    result = {
+        "schema_version": 1,
+        "status": "PASS",
+        "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "plan_id": plan["plan_id"],
+        "proposal_id": plan.get("proposal_id"),
+        "master_sha256": plan.get("master_sha256"),
+        "source_title": source_title,
+        "source_count": len(source),
+        "verified_album_count": len(verified),
+        "unexpected_memberships": 0,
+        "missing_memberships": 0,
+        "members_outside_source": 0,
+        "albums": [
+            {"title": title, "count": count, "identifier": identifier}
+            for title, count, identifier in verified
+        ],
+        "verification_connection": "read-only immutable query-only SQLite",
+    }
+
+    write_report(args.report, result)
     print(f"verified_albums={len(verified)}")
     print(f"source_count={len(source)}")
 
 
 if __name__ == "__main__":
     main()
-
