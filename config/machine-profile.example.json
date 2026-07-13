@@ -1,0 +1,27 @@
+{
+  "$schema": "../schemas/profile.schema.json",
+  "schema_version": 1,
+  "name": "example-local-library",
+  "workspace_root": "~/Documents/Photo-Fieldwork-Runs",
+  "photos_database": "/path/to/Photos Library.photoslibrary/database/Photos.sqlite",
+  "helper": {
+    "app_path": "/Applications/Photo Fieldwork Helper.app",
+    "bundle_id": "example.photo-fieldwork.helper"
+  },
+  "default_writer_adapter": "photokit",
+  "applescript_writer": null,
+  "default_source": "visible_stills",
+  "sources": {
+    "visible_stills": {
+      "title": "Visible Apple Photos library - still photographs",
+      "identifier": "visible-library-stills://v1",
+      "expected_count": null,
+      "inventory_db": "~/Documents/Photo-Fieldwork-Runs/shared/visible-stills.sqlite"
+    }
+  },
+  "protected_folders": {
+    "root": {"title": "PHOTO FIELDWORK", "identifier": "REPLACE-WITH-LOCAL-ID"},
+    "private": {"title": "PRIVATE REVIEW - DO NOT SHARE", "identifier": "REPLACE-WITH-LOCAL-ID"},
+    "audit": {"title": "WRITE TESTS / AUDIT", "identifier": "REPLACE-WITH-LOCAL-ID"}
+  }
+}

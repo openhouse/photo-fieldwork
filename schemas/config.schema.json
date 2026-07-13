@@ -2,8 +2,11 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Photo Fieldwork configuration",
   "type": "object",
-  "required": ["seed", "target_count", "unclassified_view", "views"],
+  "required": ["schema_version", "seed", "target_count", "unclassified_view", "views"],
+  "additionalProperties": false,
   "properties": {
+    "$schema": {"type": "string"},
+    "schema_version": {"const": 1},
     "seed": {"type": "integer"},
     "target_count": {"type": "integer", "minimum": 1},
     "unclassified_view": {"type": "string"},
@@ -11,14 +14,19 @@
     "exploratory_fraction": {"type": "number", "minimum": 0, "maximum": 1},
     "minimum_eval_precision": {"type": "number", "minimum": 0, "maximum": 1},
     "minimum_eval_coverage": {"type": "number", "minimum": 0, "maximum": 1},
+    "minimum_view_precision": {"type": "number", "minimum": 0, "maximum": 1},
+    "minimum_view_decisions": {"type": "integer", "minimum": 1},
+    "require_final_field_audit": {"type": "boolean"},
     "minimum_named_people_fraction": {"type": "number", "minimum": 0, "maximum": 1},
     "minimum_person_free_fraction": {"type": "number", "minimum": 0, "maximum": 1},
+    "event_cluster_limit": {"type": "integer", "minimum": 0},
     "views": {
       "type": "array",
       "minItems": 1,
       "items": {
         "type": "object",
         "required": ["id", "label", "quota"],
+        "additionalProperties": false,
         "properties": {
           "id": {"type": "string"},
           "label": {"type": "string"},

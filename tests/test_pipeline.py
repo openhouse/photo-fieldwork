@@ -1,9 +1,12 @@
 import tempfile
+import tomllib
 import unittest
+from copy import deepcopy
 from pathlib import Path
 
+from photo_fieldwork import __version__
 from photo_fieldwork.pipeline import build_catalog_plan, evaluate, make_sample, read_config, read_csv, select, validate
-from photo_fieldwork.practice import create_demo_inventory
+from photo_fieldwork.practice import STARTER_CONFIG, create_demo_inventory
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -55,9 +58,49 @@ class PipelineTests(unittest.TestCase):
 
     def test_validation_enforces_invariants(self):
         master, holds, _ = select(self.inventory, self.config)
-        errors, metrics = validate(master, holds, self.config)
+        sample = make_sample(master, 3, 20260710)
+        for row in sample:
+            row["judgment"] = "fit"
+        report, passed = evaluate(sample, self.config, final_field=True)
+        self.assertTrue(passed)
+        errors, metrics = validate(master, holds, self.config, report, sample)
         self.assertEqual(errors, [])
         self.assertEqual(metrics["status"], "PASS")
+
+    def test_known_reject_cannot_reenter(self):
+        self.inventory[0]["known_reject"] = "true"
+        master, _, summary = select(self.inventory, self.config)
+        self.assertNotIn(self.inventory[0]["uuid"], {row["uuid"] for row in master})
+        self.assertEqual(summary["known_reject_count"], 1)
+
+    def test_material_view_failure_blocks_evaluation(self):
+        master, _, _ = select(self.inventory, self.config)
+        sample = make_sample(master, 3, 20260710)
+        weak_view = sample[0]["primary_view"]
+        for row in sample:
+            row["judgment"] = "reject" if row["primary_view"] == weak_view else "fit"
+        report, passed = evaluate(sample, self.config, final_field=True)
+        self.assertFalse(passed)
+        self.assertFalse(report["by_view"][weak_view]["passed"])
+
+    def test_event_cluster_limit_fails_instead_of_padding(self):
+        config = deepcopy(self.config)
+        config["event_cluster_limit"] = 1
+        for row in self.inventory:
+            row["event_cluster"] = "one-event"
+        with self.assertRaises(ValueError):
+            select(self.inventory, config)
+
+    def test_final_audit_requires_every_replacement(self):
+        master, holds, _ = select(self.inventory, self.config)
+        master[0]["replacement"] = "true"
+        sample = make_sample(master, 3, 20260710)
+        for row in sample:
+            row["judgment"] = "fit"
+        report, _ = evaluate(sample, self.config, final_field=True)
+        final_feedback = [row for row in sample if row["uuid"] != master[0]["uuid"]]
+        errors, _ = validate(master, holds, self.config, report, final_feedback)
+        self.assertTrue(any("replacement" in error for error in errors))
 
     def test_catalog_plan_allows_only_membership_writes(self):
         master, _, _ = select(self.inventory, self.config)
@@ -66,6 +109,15 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(plan["expected_master_count"], 12)
         self.assertEqual(plan["write_test_count"], 10)
         self.assertEqual(len(plan["albums"][0]["asset_ids"]), 12)
+
+    def test_packaged_starter_matches_repository_config(self):
+        repository_config = dict(self.config)
+        repository_config.pop("$schema", None)
+        self.assertEqual(repository_config, STARTER_CONFIG)
+
+    def test_package_versions_match(self):
+        metadata = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        self.assertEqual(metadata["project"]["version"], __version__)
 
 
 if __name__ == "__main__":

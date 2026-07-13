@@ -12,12 +12,36 @@ FIELDS = [
     "date", "place", "local_path",
 ]
 
+STARTER_CONFIG = {
+    "schema_version": 1,
+    "seed": 20260710,
+    "target_count": 12,
+    "unclassified_view": "00",
+    "burst_limit": 2,
+    "exploratory_fraction": 0.1,
+    "minimum_eval_precision": 0.75,
+    "minimum_eval_coverage": 0.8,
+    "minimum_view_precision": 0.65,
+    "minimum_view_decisions": 1,
+    "require_final_field_audit": True,
+    "minimum_named_people_fraction": 0.35,
+    "minimum_person_free_fraction": 0.2,
+    "event_cluster_limit": 4,
+    "views": [
+        {"id": "00", "label": "Unclassified / Editor Field", "quota": 2},
+        {"id": "01", "label": "People / Presence", "quota": 3},
+        {"id": "02", "label": "Work / Apparatus", "quota": 3},
+        {"id": "03", "label": "Project Evidence - Editor Hypothesis", "quota": 2},
+        {"id": "04", "label": "Places / Thresholds / Traces", "quota": 2},
+    ],
+}
+
 
 def create_demo_inventory(path: Path) -> None:
     rows = []
     contexts = [
-        ("01", "high", "people", "Alex Example;Jamie Example"),
-        ("02", "high", "apparatus", "Jamie Example"),
+        ("01", "high", "people", "Alex Example;Archive Owner"),
+        ("02", "high", "apparatus", "Archive Owner"),
         ("03", "high", "document", ""),
         ("04", "medium", "place", ""),
         ("", "unknown", "", ""),
@@ -53,6 +77,11 @@ def create_demo_inventory(path: Path) -> None:
         writer.writerows(rows)
 
 
+def write_starter_config(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(STARTER_CONFIG, indent=2) + "\n", encoding="utf-8")
+
+
 def practice_feedback(sample_path: Path) -> None:
     with sample_path.open(newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
@@ -75,4 +104,3 @@ def write_demo_readme(path: Path) -> None:
         "safety and Apple Photos documentation.\n",
         encoding="utf-8",
     )
-

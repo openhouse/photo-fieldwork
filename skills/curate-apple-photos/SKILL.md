@@ -1,112 +1,88 @@
 ---
 name: curate-apple-photos
-description: Curate a large, versioned photo corpus from Jamie Burkart's local Apple Photos library from a pasted curatorial brief. Use when asked to create a 5k, 6k, 8k, or other editor-ready Photos album or folder of albums; role-play a named peer panel; use existing People associations; locally inspect pixels through the permissioned Jamie Photo Archive app; run recursive visual evaluation; quarantine sensitive material; preserve prior versions; and commit and independently verify non-destructive album membership.
+description: Curate a large, versioned photo corpus from a local Apple Photos library and a pasted brief. Use existing People associations, inspect pixels locally through a permissioned helper, run recursive visual evaluation, quarantine sensitive material, preserve prior versions, and independently verify non-destructive album membership.
 ---
 
 # Curate Apple Photos
 
-Turn the user's brief into a locally inspected, recursively evaluated, versioned Apple Photos editor field. Carry the work through Photos commit and independent verification unless the user pauses it or a genuine permission/data blocker remains.
+Turn a brief into a locally inspected, recursively evaluated, versioned Apple Photos editor field. Carry the work through Photos commit and independent verification unless the user pauses or a genuine permission or data blocker remains.
 
 ## Start
 
-1. Keep requested role-play speakers visible in commentary and final discussion. Their judgments guide interpretation; scripts and receipts establish operational facts.
+1. Keep requested editorial lenses visible. Their judgments guide interpretation; receipts establish operational facts.
 2. Read [machine-profile.md](references/machine-profile.md), then run:
 
 ```bash
+photo-fieldwork profile check
 python3 scripts/photo_archive_bridge.py doctor
+python3 scripts/photo_archive_bridge.py probe
 ```
 
-3. Read [brief-contract.md](references/brief-contract.md). Convert the pasted brief into:
-   - `brief.md`, preserving the user's words;
-   - `retrieval.json`, defining views, terms, people, albums, places, and supporting date ranges;
-   - `config.json`, defining target, quotas, seed, uncertainty view, and evaluation thresholds.
-4. Initialize a uniquely named run under `/Users/jburkart/Documents/Jamie-Photo-Archive-2026/` with `photo_archive_bridge.py init-run`. Never reuse or overwrite v00, v01, v02, or another run.
+3. Read [brief-contract.md](references/brief-contract.md). Preserve the user's words in `brief.md`; derive `retrieval.json` and `config.json`.
+4. Reserve one semantic version with `photo-fieldwork run init`. Never reuse a version. Put evaluation rounds and experiments inside that run.
 
 ## Governing invariants
 
-- Use the existing 124,484-item wide album as the default immutable source. Verify its identifier and current count before work.
-- Do not alter source albums, originals, metadata, faces, favorite status, dates, locations, or prior versions.
-- Never write Photos SQLite. The permissioned app may only inspect locally or create folders/albums and add existing membership.
+- Verify the selected source identifier and live count before work.
+- Do not alter source albums, originals, metadata, faces, favorites, dates, locations, or prior versions.
+- Never write Photos SQLite.
 - Do not upload pixels, previews, OCR, faces, coordinates, or manifests.
-- Use existing People names. Never identify unnamed faces or infer sensitive traits.
+- Use existing People names only. Never identify unnamed faces or infer sensitive traits.
 - Keep exact private locations and raw OCR out of reports.
 - A potential sensitive item enters HOLD before ranking and cannot enter the master.
-- Preserve `Unclassified / Editor Field`. Do not force every photograph into a project story.
+- Preserve `Unclassified / Editor Field`.
 - Label project-specific views `EDITOR HYPOTHESIS` unless visible evidence plus provenance supports stronger wording.
-- Apple aesthetic scores may break ties only inside true duplicate or burst clusters.
-- Dates support retrieval but are not narrative authority; imported film and scans may be misdated.
+- Use Apple aesthetic scores only inside genuine duplicate or burst clusters.
+- Treat cached previews as verified cache hits, never as newly decoded pixels.
 
 Read [safety.md](references/safety.md) whenever a brief concerns private homes, minors, health, legal strategy, financial records, identity documents, or vulnerable collaborators.
 
 ## Build the candidate field
 
-1. Query the shared read-only inventory:
+1. Build or select the compact read-only inventory named by the profile.
+2. Retrieve 1.5-2.0 times the target with `retrieve_candidates.py`. Save diagnostics and make every match explainable.
+3. Create an inspection plan with `photo_archive_bridge.py inspection-plan`.
+4. Run it through the stable permissioned helper with `photo_archive_bridge.py run-plan`. Network access remains false.
+5. Verify every preview with `verify_preview_exports.py` before looking.
+6. Use `cache_previews.py` to record newly decoded pixels, verified cache hits, and missing or corrupt previews separately.
+7. Merge local inspection results with `merge_inspection.py`.
 
-```bash
-python3 scripts/retrieve_candidates.py \
-  --db /Users/jburkart/Documents/Jamie-Photo-Archive-2026/shared/wide-corpus.sqlite \
-  --retrieval RUN/retrieval.json \
-  --target TARGET \
-  --output RUN/manifests/candidate-pool.csv
-```
-
-2. Aim for 1.5-2.0 times the requested master size after metadata retrieval. Include named relationships, prior favorites/edits, person-free material context, and exploratory results.
-3. Generate a local inspection plan with `photo_archive_bridge.py inspection-plan`.
-4. Run the stable permissioned helper with `photo_archive_bridge.py run-plan`. Network access must remain false. Export 1280px previews into the private run workspace; raw OCR is never written.
-5. Merge the inspection JSONL into the candidate CSV using `merge_inspection.py`.
+Record checksummed phase receipts with `photo-fieldwork run record` as work advances.
 
 ## Select, look, evaluate, recurse
 
-Read [evaluation-loop.md](references/evaluation-loop.md) before the first visual round.
+Read [evaluation-loop.md](references/evaluation-loop.md).
 
-1. Run the project selector:
+1. Run `photo-fieldwork select`.
+2. Sample low, middle, and high scores from every populated view.
+3. Generate contact sheets and the local review workbench. Inspect actual previews, opening individual images when context or safety is unclear.
+4. Record `fit`, `reject`, or `uncertain`, a visible reason, a safety state, and an error category.
+5. Run `photo-fieldwork evaluate`. Read every rejection and representative uncertainty.
+6. Revise retrieval, assignments, penalties, quotas, event limits, or hold rules in response to observed errors. Keep the seed fixed.
+7. Persist known rejects and historical holds so they cannot return under another label.
+8. Repeat until overall and material-view gates pass.
+9. Audit the actual frozen field with `--final-field`, including every replacement introduced after an earlier pass.
 
-```bash
-/Volumes/16TB_SSD/Sites/photo-fieldwork/bin/photo-fieldwork select \
-  --inventory RUN/manifests/ready-candidates.csv \
-  --config RUN/config.json \
-  --output RUN
-```
-
-2. Create a score-stratified sample from every view. For the first round, inspect at least 3 per view and at least 36 overall. Later rounds should normally inspect 60-100 images across low, middle, and high scores.
-3. Build contact sheets with `make_contact_sheets.py`. Use `view_image` to inspect every page. Open individual previews when context or safety is unclear.
-4. Speak briefly as the requested peers. If Jamie cannot review, role-play Jamie using the supplied brief and voice references, while marking the judgment as delegated editorial inference rather than eyewitness fact.
-5. Record `fit`, `reject`, or `uncertain`, one visible reason, a safety state, and an error category in the evaluation CSV.
-6. Run `photo-fieldwork evaluate`. Read all rejections and a stratified uncertainty sample.
-7. Change retrieval, assignments, penalties, quotas, or hold rules in response to observed errors. Keep the seed fixed. Save each round separately.
-8. Repeat until:
-   - evaluation coverage and precision meet `config.json`;
-   - every view has been visually sampled;
-   - known safety regressions are absent;
-   - generic social context is not standing in for professional evidence;
-   - people and collective context remain meaningfully represented;
-   - uncertainty is explicit;
-   - the exact requested target is met with unique still-photo IDs.
-
-Do not claim success from Vision labels or metadata alone. The recursive loop requires actual preview inspection in the chat.
+Do not claim success from Vision labels or metadata alone. The recursive loop requires actual preview inspection.
 
 ## Validate and commit
 
-1. Run `photo-fieldwork validate`. Save a PASS report.
+1. Run `photo-fieldwork validate` with the final evaluation report and feedback.
 2. Generate test and production plans with `photo_archive_bridge.py snapshot-plans`.
-3. Inspect the plans. Confirm the source count, target count, folder title, HOLD separation, and that operations are membership-only.
-4. Run the ten-item write test through the app. Independently verify it with `verify_photos_commit.py`.
-5. Run the production plan through the app. Rerun it once to confirm idempotence.
-6. Independently verify every album against the plan using read-only, immutable SQLite access.
-7. Update `run-state.json` after each phase and write a completion report containing exact counts, identifiers, evaluation results, privacy facts, and unresolved uncertainty.
-
-The helper invocation may require a Codex permission approval for `open -W`; request a reusable approval scoped to `/Applications/Jamie Photo Archive.app`. The app's Photos permission itself should persist under its stable bundle identity.
+3. Inspect the frozen plans, source count, target, folder title, HOLD separation, and membership-only mode.
+4. Run the ten-item write test and independently verify it.
+5. Run production, rerun it once for idempotence, and independently verify it through compact WAL-aware evidence.
+6. Record every phase receipt and generate the completion report from receipts.
 
 ## Final response
 
 Return:
 
-- a short role-play discussion;
-- the Photos folder and master-album names;
+- a short editorial discussion;
+- folder and master-album names;
 - exact master, HOLD, people, uncertainty, and evaluation counts;
-- confirmation that source and prior versions remain unchanged;
+- source and prior-version preservation;
 - confirmation that no external upload occurred;
-- links to the run README, master manifest, evaluation report, app receipt, and independent verification.
+- links to the run report, master manifest, evaluation report, app receipt, compact evidence, and independent verification.
 
-State clearly that this is an editor-ready field, not the final publication edit.
-
+State clearly that the result is an editor-ready field, not the final publication edit.

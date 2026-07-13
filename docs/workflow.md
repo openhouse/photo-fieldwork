@@ -10,6 +10,8 @@ Write down what may be read, what may be created, where outputs live, and which 
 
 Give the broad retrieval corpus a stable name and count. Never alter it during a versioned run. Preserve v00, v01, and later runs as separate folders so selection logic can be compared rather than overwritten.
 
+Reserve the semantic version before work. Keep experiments as rounds inside one run; do not create competing authoritative folders with the same version.
+
 ## 2. Build a compact inventory
 
 Capture stable IDs, filenames, albums, existing people associations, dates, places, favorite/edit status, duplicate and burst groups, and local availability. Dates are evidence, not truth: film scans and later imports can carry misleading timestamps.
@@ -40,6 +42,8 @@ People associations are first-class archive structure. Preserve named relationsh
 
 Sample low, middle, and high-scoring images from each view. Measure coverage and precision. Read the rejected examples. Revise retrieval, scoring, holds, or labels, then rerun with the same seed. A metric without inspected failure cases is not enough.
 
+Persist known visual rejects and historical holds so they cannot return through another label. After the field is frozen, audit the actual selection and every replacement.
+
 ## 9. Plan before writing
 
 Produce proposed-master, hold, membership, and decision manifests before touching the catalog. Every selected stable ID needs a reason. The plan must be idempotent.
@@ -52,7 +56,10 @@ Write ten non-sensitive items to a uniquely named test album. Verify exact membe
 
 Use a read-only mechanism distinct from the writer to compare planned and actual membership. Report missing, unexpected, outside-source, and hold-overlap counts. Preserve receipts, configuration, scripts, and evaluation feedback with the version.
 
+For WAL-backed catalogs, extract compact evidence through a WAL-aware read-only transaction before immutable verification.
+
 ## 12. Hand off honestly
 
 Tell editors what the system did and did not do. The result is a contact field for human editing, not the final visual narrative.
 
+Generate the status and completion report from append-only phase receipts. Do not mark a run complete by editing status text manually.

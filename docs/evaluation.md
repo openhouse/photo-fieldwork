@@ -11,6 +11,8 @@ The goal is not to prove the selector is intelligent. The goal is to discover wh
 5. Compute overall and per-view precision.
 6. Read every rejection and a sample of uncertainties.
 7. Revise one part of the system and rerun deterministically.
+8. Persist known rejects and historical holds as regression controls.
+9. Audit the actual frozen field, including every replacement introduced after an earlier pass.
 
 ## Error taxonomy
 
@@ -27,11 +29,12 @@ The goal is not to prove the selector is intelligent. The goal is to discover wh
 
 - Evaluation coverage meets the configured threshold.
 - Overall precision meets the configured threshold.
+- Every material view meets its configured decisive-precision and minimum-decision thresholds.
 - No known safety regression appears in the master.
 - Every view has been sampled.
 - Every selected row has a reason.
 - Uncertainty is represented explicitly.
 - A human editor is told that project views remain hypotheses where provenance is incomplete.
+- Every replacement appears in the final-field feedback.
 
 Passing the gate means the corpus is ready for editors. It does not mean every category assignment is factually proven.
-

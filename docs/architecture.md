@@ -24,6 +24,8 @@ Catalog reader or filesystem scanner
                   independent verifier
 ```
 
+Every production phase also emits an append-only receipt. `run-state.json` and the completion report are derived views of those receipts.
+
 ## Core
 
 The standard-library Python core reads a normalized CSV, applies immutable safety exclusions, reduces duplicate and burst clusters, assigns editor views, creates selection reasons, samples evaluations, measures results, validates invariants, and emits an adapter-neutral catalog plan.
@@ -53,6 +55,16 @@ A writer consumes `catalog-plan.json`. It may create version folders, create alb
 ## Verifier adapters
 
 A verifier independently compares plan and catalog. It should be read-only and should not share mutation code with the writer.
+
+For Apple Photos, the verifier first opens the live catalog in one WAL-aware, read-only transaction and extracts only relevant source checks and target memberships into compact evidence. Verification then reopens that evidence with immutable and query-only flags.
+
+## Machine profiles
+
+User-specific paths, source counts, stable app identities, and protected Photos identifiers live in a validated local profile outside Git. Public code consumes the profile but does not carry live machine topology.
+
+## Run state
+
+Semantic versions are reserved before work. Phase receipts contain checksums for declared input and output files. Later phases cannot pass while prerequisites are incomplete. Repeated evaluation receipts are allowed; the latest passing receipt determines phase state.
 
 ## Extension points
 

@@ -1,4 +1,5 @@
 {
+  "schema_version": 1,
   "$schema": "../schemas/config.schema.json",
   "seed": 20260710,
   "target_count": 12,
@@ -7,8 +8,12 @@
   "exploratory_fraction": 0.1,
   "minimum_eval_precision": 0.75,
   "minimum_eval_coverage": 0.8,
+  "minimum_view_precision": 0.65,
+  "minimum_view_decisions": 1,
+  "require_final_field_audit": true,
   "minimum_named_people_fraction": 0.35,
   "minimum_person_free_fraction": 0.2,
+  "event_cluster_limit": 4,
   "views": [
     {"id": "00", "label": "Unclassified / Editor Field", "quota": 2},
     {"id": "01", "label": "People / Presence", "quota": 3},

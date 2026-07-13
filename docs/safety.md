@@ -7,6 +7,8 @@
 - Keep exact coordinates out of editor-facing manifests.
 - Store generalized safety flags, not detected private text.
 - Never publish archive manifests containing private local paths or named-person associations without review.
+- Keep populated machine profiles outside Git.
+- Extract compact verification evidence instead of copying the full catalog database.
 
 ## Prohibited by default
 
@@ -23,6 +25,8 @@ Any item marked `safety_status=hold`, hidden, or missing is excluded before rank
 
 The HOLD set should be private and access-controlled. It is not an editor album and must not be exported casually.
 
+Historical HOLD state persists across runs. A changed album label or retrieval term cannot automatically return a held asset to eligibility. Known visible false positives are also retained as regression controls.
+
 ## Catalog adapter contract
 
 A production adapter must:
@@ -36,4 +40,3 @@ A production adapter must:
 7. Support independent read-only verification.
 
 If an adapter cannot meet all seven conditions, it is not production-ready.
-
