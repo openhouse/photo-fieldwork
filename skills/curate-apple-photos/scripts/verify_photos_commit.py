@@ -13,6 +13,7 @@ from pathlib import Path
 DEFAULT_DB = Path(
     "/Volumes/apple-photos-8tb-external-ssd/Photos Library.photoslibrary/database/Photos.sqlite"
 )
+VISIBLE_LIBRARY_STILLS = "visible-library-stills://v1"
 
 
 def base(value: str) -> str:
@@ -41,6 +42,24 @@ def members(conn: sqlite3.Connection, album_pk: int) -> set[str]:
     }
 
 
+def source_members(conn: sqlite3.Connection, identifier: str) -> tuple[set[str], str]:
+    if identifier == VISIBLE_LIBRARY_STILLS:
+        rows = conn.execute(
+            """
+            SELECT ZUUID
+            FROM ZASSET
+            WHERE ZKIND = 0
+              AND ZTRASHEDSTATE = 0
+              AND ZHIDDEN = 0
+              AND ZVISIBILITYSTATE = 0
+              AND ZBUNDLESCOPE = 0
+            """
+        )
+        return {row[0] for row in rows}, "Visible Apple Photos library - still photographs"
+    source_pk, source_title = album_record(conn, identifier)
+    return members(conn, source_pk), source_title
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--plan", type=Path, required=True)
@@ -62,8 +81,7 @@ def main() -> None:
     uri = f"file:{args.photos_db}?mode=ro&immutable=1"
     conn = sqlite3.connect(uri, uri=True, timeout=30)
     conn.execute("PRAGMA query_only=ON")
-    source_pk, source_title = album_record(conn, plan["source_album_identifier"])
-    source = members(conn, source_pk)
+    source, source_title = source_members(conn, plan["source_album_identifier"])
     if len(source) != plan["expected_source_count"]:
         raise RuntimeError(f"source count changed: {len(source)} != {plan['expected_source_count']}")
 
@@ -102,10 +120,28 @@ def main() -> None:
     ]
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    json_report = {
+        "status": "PASS",
+        "plan_id": plan["plan_id"],
+        "source_title": source_title,
+        "source_count": len(source),
+        "albums_verified": len(verified),
+        "unexpected_memberships": 0,
+        "missing_memberships": 0,
+        "members_outside_source": 0,
+        "albums": [
+            {"title": title, "count": count, "identifier": identifier}
+            for title, count, identifier in verified
+        ],
+        "connection_mode": "read-only-immutable-query-only",
+    }
+    args.report.with_suffix(".json").write_text(
+        json.dumps(json_report, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     print(f"verified_albums={len(verified)}")
     print(f"source_count={len(source)}")
 
 
 if __name__ == "__main__":
     main()
-

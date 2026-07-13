@@ -46,10 +46,17 @@ class PipelineTests(unittest.TestCase):
         sample = make_sample(master, 3, 20260710)
         for row in sample:
             row["judgment"] = "reject"
+            row["visible_reason"] = "synthetic rejection"
+            row["safety_status"] = "clear"
+            row["error_category"] = "retrieval-mismatch"
+            row["round_id"] = "test-01"
+            row["reviewer_lens"] = "unit-test"
         _, passed = evaluate(sample, self.config)
         self.assertFalse(passed)
         for row in sample:
             row["judgment"] = "fit"
+            row["visible_reason"] = "synthetic fit"
+            row["error_category"] = "visible-fit"
         _, passed = evaluate(sample, self.config)
         self.assertTrue(passed)
 

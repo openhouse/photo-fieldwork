@@ -5,10 +5,11 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import math
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from PIL import Image, ImageDraw, ImageFont, ImageOps, UnidentifiedImageError
 
 
 def preview_path(directory: Path, uuid: str) -> Path | None:
@@ -20,13 +21,24 @@ def preview_path(directory: Path, uuid: str) -> Path | None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sample", type=Path, required=True)
-    parser.add_argument("--previews", type=Path, required=True)
+    parser.add_argument("--previews", type=Path)
+    parser.add_argument("--preview-index", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--columns", type=int, default=4)
     parser.add_argument("--rows", type=int, default=3)
     parser.add_argument("--cell-width", type=int, default=360)
     parser.add_argument("--cell-height", type=int, default=310)
     args = parser.parse_args()
+    if bool(args.previews) == bool(args.preview_index):
+        raise SystemExit("provide exactly one of --previews or --preview-index")
+
+    indexed = {}
+    if args.preview_index:
+        for line in args.preview_index.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                row = json.loads(line)
+                if row.get("preview_path") and row.get("preview_valid", True):
+                    indexed[row["uuid"].split("/", 1)[0]] = Path(row["preview_path"])
 
     with args.sample.open(newline="", encoding="utf-8-sig") as handle:
         records = list(csv.DictReader(handle))
@@ -43,15 +55,23 @@ def main() -> None:
         for index, record in enumerate(batch):
             x = (index % args.columns) * args.cell_width
             y = (index // args.columns) * args.cell_height
-            path = preview_path(args.previews, record["uuid"])
+            path = (
+                indexed.get(record["uuid"].split("/", 1)[0])
+                if args.preview_index
+                else preview_path(args.previews, record["uuid"])
+            )
             image_box = (x + 8, y + 8, x + args.cell_width - 8, y + args.cell_height - 62)
             if path:
-                with Image.open(path) as source:
-                    image = ImageOps.exif_transpose(source).convert("RGB")
-                    image.thumbnail((args.cell_width - 16, args.cell_height - 70))
-                    px = x + (args.cell_width - image.width) // 2
-                    py = y + 8 + (args.cell_height - 70 - image.height) // 2
-                    canvas.paste(image, (px, py))
+                try:
+                    with Image.open(path) as source:
+                        image = ImageOps.exif_transpose(source).convert("RGB")
+                        image.thumbnail((args.cell_width - 16, args.cell_height - 70))
+                        px = x + (args.cell_width - image.width) // 2
+                        py = y + 8 + (args.cell_height - 70 - image.height) // 2
+                        canvas.paste(image, (px, py))
+                except (UnidentifiedImageError, OSError):
+                    draw.rectangle(image_box, outline="#a33", width=2)
+                    draw.text((x + 18, y + 110), "PREVIEW CORRUPT", fill="#a33", font=font)
             else:
                 draw.rectangle(image_box, outline="#a33", width=2)
                 draw.text((x + 18, y + 110), "PREVIEW UNAVAILABLE", fill="#a33", font=font)
@@ -67,4 +87,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

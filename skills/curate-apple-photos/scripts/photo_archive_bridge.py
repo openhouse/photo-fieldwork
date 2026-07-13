@@ -9,11 +9,19 @@ import json
 import os
 import plistlib
 import re
+import shutil
 import sqlite3
 import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
+
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(REPO_ROOT / "src"))
+
+from photo_fieldwork.contracts import load_source_profile, seal_plan, verify_plan_digest  # noqa: E402
+from photo_fieldwork.workflow import transition_run_state  # noqa: E402
 
 
 APP = Path("/Applications/Jamie Photo Archive.app")
@@ -61,12 +69,29 @@ def safe_slug(value: str) -> str:
     return slug[:48] or "photo-field"
 
 
-def command_doctor(_: argparse.Namespace) -> int:
+def source_contract(args: argparse.Namespace) -> tuple[str, int, dict | None]:
+    profile_path = getattr(args, "source_profile", None)
+    if profile_path:
+        profile = load_source_profile(profile_path)
+        return str(profile["id"]), int(profile["expected_count"]), profile
+    return str(args.source_id), int(args.source_count), None
+
+
+def parse_meta_value(value: str):
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return value
+
+
+def command_doctor(args: argparse.Namespace) -> int:
+    source_id, source_count, profile = source_contract(args)
+    inventory_db = Path(profile.get("inventory_path") or INVENTORY_DB) if profile else INVENTORY_DB
     checks = {
         "permissioned_app": APP.is_dir(),
         "app_executable": APP_EXECUTABLE.is_file() and os.access(APP_EXECUTABLE, os.X_OK),
         "app_plist": APP_PLIST.is_file(),
-        "shared_inventory": INVENTORY_DB.exists(),
+        "shared_inventory": inventory_db.exists(),
         "photos_database": PHOTOS_DB.exists(),
         "workspace_root": WORKSPACE_ROOT.is_dir(),
         "photo_fieldwork_cli": Path(
@@ -82,25 +107,31 @@ def command_doctor(_: argparse.Namespace) -> int:
         bundle = plist.get("CFBundleIdentifier")
         version = plist.get("CFBundleShortVersionString")
         checks["stable_bundle_identifier"] = bundle == BUNDLE_ID
-    if INVENTORY_DB.exists():
-        conn = sqlite3.connect(f"file:{INVENTORY_DB}?mode=ro&immutable=1", uri=True)
-        inventory_meta = {key: json.loads(value) for key, value in conn.execute("SELECT key, value FROM meta")}
+    if inventory_db.exists():
+        conn = sqlite3.connect(f"file:{inventory_db}?mode=ro&immutable=1", uri=True)
+        inventory_meta = {key: parse_meta_value(value) for key, value in conn.execute("SELECT key, value FROM meta")}
         conn.close()
-        checks["inventory_source_identifier"] = inventory_meta.get("source_album_uuid") == base_identifier(SOURCE_ID)
-        checks["inventory_source_count"] = int(inventory_meta.get("source_album_count", 0)) == SOURCE_COUNT
+        inventory_source = inventory_meta.get("source_identifier") or inventory_meta.get("source_album_uuid")
+        inventory_count = inventory_meta.get("source_count") or inventory_meta.get("source_album_count")
+        checks["inventory_source_identifier"] = str(inventory_source) in {source_id, base_identifier(source_id)}
+        checks["inventory_source_count"] = int(inventory_count or 0) == source_count
     report = {
         "status": "PASS" if all(checks.values()) else "FAIL",
         "checks": checks,
         "bundle_id": bundle,
         "version": version,
         "inventory_generated_at": inventory_meta.get("generated_at"),
-        "inventory_source_count": inventory_meta.get("source_album_count"),
+        "active_source_identifier": source_id,
+        "active_source_count": source_count,
+        "source_profile_fingerprint": profile.get("fingerprint") if profile else None,
+        "inventory_source_count": inventory_meta.get("source_count") or inventory_meta.get("source_album_count"),
     }
     print(json.dumps(report, indent=2))
     return 0 if report["status"] == "PASS" else 2
 
 
 def command_init(args: argparse.Namespace) -> int:
+    source_id, source_count, profile = source_contract(args)
     stamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
     root = (args.workspace_root / f"{args.version}-{safe_slug(args.slug)}-{stamp}").resolve()
     if root.exists():
@@ -108,31 +139,41 @@ def command_init(args: argparse.Namespace) -> int:
     for name in ("inventory", "manifests", "reports", "logs", "previews", "contact-sheets", "scripts"):
         (root / name).mkdir(parents=True, exist_ok=False)
     state = {
-        "schema_version": 1,
+        "schema_version": 2,
         "run_id": root.name,
         "status": "initialized",
         "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "version": args.version,
         "target_count": args.target,
-        "source_album_identifier": args.source_id,
-        "expected_source_count": args.source_count,
+        "source": {
+            "id": source_id,
+            "expected_count": source_count,
+            "profile_fingerprint": profile.get("fingerprint") if profile else None,
+        },
         "phases": {
             "brief": "pending",
             "retrieval": "pending",
             "local_inspection": "pending",
             "recursive_evaluation": "pending",
+            "duplicate_audit": "pending",
+            "replacement_review": "pending",
             "validation": "pending",
+            "plan_lint": "pending",
             "write_test": "pending",
             "production_commit": "pending",
+            "idempotence_check": "pending",
             "independent_verification": "pending",
         },
+        "history": [],
     }
     dump_json(root / "run-state.json", state)
+    if profile:
+        dump_json(root / "source-profile.json", profile)
     (root / "README.md").write_text(
         f"# {args.version}: {args.slug}\n\n"
         f"- Target: {args.target:,} unique still photographs\n"
-        f"- Immutable source identifier: `{args.source_id}`\n"
-        f"- Expected source count: {args.source_count:,}\n"
+        f"- Immutable source identifier: `{source_id}`\n"
+        f"- Expected source count: {source_count:,}\n"
         "- Final publication edit performed: no\n"
         "- External image or metadata upload permitted: no\n",
         encoding="utf-8",
@@ -142,6 +183,7 @@ def command_init(args: argparse.Namespace) -> int:
 
 
 def command_inspection_plan(args: argparse.Namespace) -> int:
+    source_id, source_count, profile = source_contract(args)
     rows = read_csv(args.input)
     identifiers = list(dict.fromkeys(local_identifier(row["uuid"]) for row in rows))
     if args.limit:
@@ -152,8 +194,9 @@ def command_inspection_plan(args: argparse.Namespace) -> int:
         "schema_version": 1,
         "plan_id": args.plan_id,
         "safety_mode": "read-only-local-inspection-and-preview-export",
-        "source_album_identifier": args.source_id,
-        "expected_source_count": args.source_count,
+        "source_album_identifier": source_id,
+        "expected_source_count": source_count,
+        "source_profile_fingerprint": profile.get("fingerprint") if profile else None,
         "asset_identifiers": identifiers,
         "output_jsonl_path": str(root / "manifests" / f"{args.plan_id}-inspection.jsonl"),
         "receipt_path": str(root / "manifests" / f"{args.plan_id}-receipt.json"),
@@ -162,9 +205,12 @@ def command_inspection_plan(args: argparse.Namespace) -> int:
         "target_long_edge": args.target_long_edge,
         "export_previews": not args.no_previews,
         "ocr_all": not args.no_ocr,
+        "classify_all": not args.no_classify,
+        "detect_faces": not args.no_face_detection,
         "network_access_allowed": False,
+        "lint_status": "PASS",
     }
-    dump_json(args.output, plan)
+    dump_json(args.output, seal_plan(plan))
     print(f"inspection_assets={len(identifiers)}")
     print(f"plan={args.output}")
     return 0
@@ -215,19 +261,22 @@ def album(title: str, parent: str, uuids: list[str]) -> dict:
 
 
 def snapshot_plan(args: argparse.Namespace, plan_id: str, folders: list[dict], albums: list[dict], receipt: str) -> dict:
-    return {
+    source_id, source_count, profile = source_contract(args)
+    return seal_plan({
         "operation": "snapshot-membership",
         "schema_version": 1,
         "plan_id": plan_id,
         "safety_mode": "create-folders-albums-and-add-membership-only",
-        "source_album_identifier": args.source_id,
-        "expected_source_count": args.source_count,
+        "source_album_identifier": source_id,
+        "expected_source_count": source_count,
+        "source_profile_fingerprint": profile.get("fingerprint") if profile else None,
         "batch_size": args.batch_size,
         "log_path": str(args.workspace / "logs" / "jamie-photo-archive-app.log"),
         "receipt_path": str(args.workspace / "manifests" / receipt),
         "folders": folders,
         "albums": albums,
-    }
+        "lint_status": "PASS",
+    })
 
 
 def command_snapshot_plans(args: argparse.Namespace) -> int:
@@ -307,12 +356,24 @@ def command_snapshot_plans(args: argparse.Namespace) -> int:
 
 
 def command_run_plan(args: argparse.Namespace) -> int:
+    if bool(args.run_state) != bool(args.phase):
+        raise ValueError("--run-state and --phase must be provided together")
     plan_path = args.plan.resolve()
     plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    if plan.get("lint_status") != "PASS":
+        raise ValueError("plan has not passed pre-write linting")
+    if not verify_plan_digest(plan):
+        raise ValueError("plan is unsealed or its digest no longer matches")
     receipt_path = Path(plan["receipt_path"])
     if not APP.is_dir():
         raise ValueError(f"permissioned app not found: {APP}")
     before = receipt_path.stat().st_mtime_ns if receipt_path.exists() else None
+    previous_receipt = None
+    if receipt_path.exists():
+        previous_receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        stamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
+        archive = receipt_path.with_name(f"{receipt_path.stem}-previous-{stamp}{receipt_path.suffix}")
+        shutil.copy2(receipt_path, archive)
     command = ["/usr/bin/open", "-W", "-n", str(APP), "--args", "--plan", str(plan_path)]
     print("launching permissioned helper; this may run for a long time", flush=True)
     completed = subprocess.run(command, check=False)
@@ -324,7 +385,40 @@ def command_run_plan(args: argparse.Namespace) -> int:
     if before is not None and before == after:
         raise ValueError(f"receipt was not refreshed: {receipt_path}")
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    if previous_receipt and plan.get("operation") == "snapshot-membership":
+        previous_folders = {item["title"]: item["identifier"] for item in previous_receipt.get("folders", [])}
+        current_folders = {item["title"]: item["identifier"] for item in receipt.get("folders", [])}
+        previous_albums = {item["title"]: (item["identifier"], item["count"]) for item in previous_receipt.get("albums", [])}
+        current_albums = {item["title"]: (item["identifier"], item["count"]) for item in receipt.get("albums", [])}
+        idempotence = {
+            "status": "PASS" if previous_folders == current_folders and previous_albums == current_albums else "FAIL",
+            "stable_folder_identifiers": previous_folders == current_folders,
+            "stable_album_identifiers_and_counts": previous_albums == current_albums,
+            "first_receipt_completed_at": previous_receipt.get("completed_at"),
+            "second_receipt_completed_at": receipt.get("completed_at"),
+        }
+        idempotence_path = receipt_path.with_name(f"{receipt_path.stem}-idempotence.json")
+        dump_json(idempotence_path, idempotence)
+        if idempotence["status"] != "PASS":
+            raise ValueError(f"idempotence mismatch: {idempotence_path}")
+    if args.run_state and args.phase:
+        transition_run_state(args.run_state, args.phase, "completed", str(receipt_path))
     print(json.dumps(receipt, indent=2, ensure_ascii=False))
+    return 0
+
+
+def command_release_status(args: argparse.Namespace) -> int:
+    state = json.loads(args.run_state.read_text(encoding="utf-8"))
+    phases = state.get("phases") or {}
+    next_phase = next((name for name, status in phases.items() if status != "completed"), None)
+    report = {
+        "run_id": state.get("run_id"),
+        "status": state.get("status"),
+        "next_phase": next_phase,
+        "next_phase_status": phases.get(next_phase) if next_phase else None,
+        "complete": next_phase is None,
+    }
+    print(json.dumps(report, indent=2))
     return 0
 
 
@@ -333,6 +427,9 @@ def parser() -> argparse.ArgumentParser:
     sub = root.add_subparsers(dest="command", required=True)
 
     doctor = sub.add_parser("doctor", help="check the local integration without mutating Photos")
+    doctor.add_argument("--source-profile", type=Path)
+    doctor.add_argument("--source-id", default=SOURCE_ID)
+    doctor.add_argument("--source-count", type=int, default=SOURCE_COUNT)
     doctor.set_defaults(func=command_doctor)
 
     init = sub.add_parser("init-run", help="create a durable versioned run workspace")
@@ -342,6 +439,7 @@ def parser() -> argparse.ArgumentParser:
     init.add_argument("--workspace-root", type=Path, default=WORKSPACE_ROOT)
     init.add_argument("--source-id", default=SOURCE_ID)
     init.add_argument("--source-count", type=int, default=SOURCE_COUNT)
+    init.add_argument("--source-profile", type=Path)
     init.set_defaults(func=command_init)
 
     inspect = sub.add_parser("inspection-plan", help="build an exact plan for local PhotoKit inspection")
@@ -351,10 +449,13 @@ def parser() -> argparse.ArgumentParser:
     inspect.add_argument("--plan-id", required=True)
     inspect.add_argument("--source-id", default=SOURCE_ID)
     inspect.add_argument("--source-count", type=int, default=SOURCE_COUNT)
+    inspect.add_argument("--source-profile", type=Path)
     inspect.add_argument("--target-long-edge", type=int, default=1280)
     inspect.add_argument("--limit", type=int)
     inspect.add_argument("--no-previews", action="store_true")
     inspect.add_argument("--no-ocr", action="store_true")
+    inspect.add_argument("--no-classify", action="store_true")
+    inspect.add_argument("--no-face-detection", action="store_true")
     inspect.set_defaults(func=command_inspection_plan)
 
     plans = sub.add_parser("snapshot-plans", help="build test-first app plans from a validated master")
@@ -368,12 +469,19 @@ def parser() -> argparse.ArgumentParser:
     plans.add_argument("--config", type=Path)
     plans.add_argument("--source-id", default=SOURCE_ID)
     plans.add_argument("--source-count", type=int, default=SOURCE_COUNT)
+    plans.add_argument("--source-profile", type=Path)
     plans.add_argument("--batch-size", type=int, default=500)
     plans.set_defaults(func=command_snapshot_plans)
 
     run = sub.add_parser("run-plan", help="launch a plan through the stable permissioned app bundle")
     run.add_argument("--plan", type=Path, required=True)
+    run.add_argument("--run-state", type=Path)
+    run.add_argument("--phase")
     run.set_defaults(func=command_run_plan)
+
+    release = sub.add_parser("release-status", help="report the next incomplete resumable run phase")
+    release.add_argument("--run-state", type=Path, required=True)
+    release.set_defaults(func=command_release_status)
     return root
 
 

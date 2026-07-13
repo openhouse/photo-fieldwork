@@ -6,6 +6,7 @@ The brief is editorial authority. Preserve it verbatim in `brief.md`, then deriv
 
 ```json
 {
+  "schema_version": 1,
   "seed": 20260710,
   "candidate_multiplier": 1.75,
   "people_floor": 0.35,
@@ -26,6 +27,8 @@ The brief is editorial authority. Preserve it verbatim in `brief.md`, then deriv
 }
 ```
 
+Candidate allocation reserves every view before global truncation and records `reserved_view`. When earlier editor fields are useful retrieval indexes, set `prior_corpus_album_title` and `minimum_outside_prior_fraction`; do not suppress the prior trace or treat it as source provenance.
+
 Terms should include literal project names, alternate spellings, visible objects, actions, rooms, interfaces, buildings, and public event language. Dates are supporting constraints and should not be used alone to retrieve imported film.
 
 Use People names only when they already exist in Apple Photos or the brief names them as relevant. Do not infer identities.
@@ -39,6 +42,7 @@ Follow `/Volumes/16TB_SSD/Sites/photo-fieldwork/schemas/config.schema.json`.
 - Preserve both a named-people field and a meaningful person-free field.
 - Project views should say `Editor Hypothesis` until validated.
 - Default evaluation minimums: 0.80 precision and 0.90 coverage.
+- Default material-view minimum: 0.65 decisive precision, with explicit minimum coverage and decisive-example counts.
 - Default selection floors: `minimum_named_people_fraction` 0.35 and `minimum_person_free_fraction` 0.20, adjusted when the brief genuinely calls for a different balance.
 - Keep the random seed fixed for the run.
 

@@ -27,6 +27,7 @@ The goal is not to prove the selector is intelligent. The goal is to discover wh
 
 - Evaluation coverage meets the configured threshold.
 - Overall precision meets the configured threshold.
+- Every material view meets minimum coverage, decisive-example, and precision thresholds, unless a waiver is explicit in configuration.
 - No known safety regression appears in the master.
 - Every view has been sampled.
 - Every selected row has a reason.
@@ -35,3 +36,8 @@ The goal is not to prove the selector is intelligent. The goal is to discover wh
 
 Passing the gate means the corpus is ready for editors. It does not mean every category assignment is factually proven.
 
+## Closing a round
+
+Evaluation is not complete when a report is written. Apply explicit feedback to the full candidate pool, rebuild deterministically, and review every newly admitted or reassigned asset. A rejected sampled item often causes an unreviewed lower-ranked item to enter the master; the replacement manifest makes that consequence visible.
+
+Diagnostic rounds may be preserved without being represented as scored release rounds. Never lower a threshold merely to finish.

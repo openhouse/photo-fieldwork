@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Photo Fieldwork source profile",
+  "type": "object",
+  "required": ["schema_version", "id", "title", "kind", "expected_count"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "id": {"type": "string", "minLength": 1},
+    "title": {"type": "string", "minLength": 1},
+    "kind": {"enum": ["album", "visible-library-query", "filesystem", "dam"]},
+    "expected_count": {"type": "integer", "minimum": 1},
+    "snapshot_at": {"type": ["string", "null"]},
+    "predicate": {"type": ["string", "null"]},
+    "inventory_path": {"type": ["string", "null"]},
+    "catalog_fingerprint": {"type": ["string", "null"]},
+    "permitted_operations": {
+      "type": "array",
+      "items": {"enum": ["read-metadata", "inspect-local", "create-folders", "create-albums", "add-membership"]}
+    },
+    "protected_identifiers": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": true
+}

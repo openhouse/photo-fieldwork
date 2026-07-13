@@ -11,8 +11,14 @@
     "exploratory_fraction": {"type": "number", "minimum": 0, "maximum": 1},
     "minimum_eval_precision": {"type": "number", "minimum": 0, "maximum": 1},
     "minimum_eval_coverage": {"type": "number", "minimum": 0, "maximum": 1},
+    "minimum_view_precision": {"type": "number", "minimum": 0, "maximum": 1},
+    "minimum_view_coverage": {"type": "number", "minimum": 0, "maximum": 1},
+    "minimum_decisive_per_view": {"type": "integer", "minimum": 1},
+    "require_complete_feedback": {"type": "boolean"},
     "minimum_named_people_fraction": {"type": "number", "minimum": 0, "maximum": 1},
     "minimum_person_free_fraction": {"type": "number", "minimum": 0, "maximum": 1},
+    "require_pixel_availability": {"type": "boolean"},
+    "enforce_view_quotas": {"type": "boolean"},
     "views": {
       "type": "array",
       "minItems": 1,
@@ -22,7 +28,10 @@
         "properties": {
           "id": {"type": "string"},
           "label": {"type": "string"},
-          "quota": {"type": "integer", "minimum": 0}
+          "quota": {"type": "integer", "minimum": 0},
+          "material": {"type": "boolean"},
+          "quality_gate_waived": {"type": "boolean"},
+          "quality_gate_waiver_reason": {"type": "string"}
         }
       }
     }

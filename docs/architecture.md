@@ -6,22 +6,39 @@ Photo Fieldwork keeps archive-specific access separate from archive-independent 
 Catalog reader or filesystem scanner
               |
               v
-       inventory.csv
+ source-profile.json ---> inventory.csv
+              |
+              v
+ balanced retrieval allocation
+              |
+              v
+ local inspection ledger
+              |
+              v
+ relational safety policy ---> decision-ledger.jsonl
               |
               v
  deterministic selector ---> hold-sensitive.csv
               |
               v
    proposed-master.csv
-        |            |
-        v            v
- evaluation loop   catalog-plan.json
-                         |
-                         v
-                 catalog writer adapter
-                         |
-                         v
-                  independent verifier
+        |
+        v
+ recursive evaluation ---> feedback application
+        |                         |
+        |                         v
+        |                  replacement review
+        |                         |
+        +-------------------------+
+        |
+        v
+ sealed catalog-plan.json ---> plan lint
+        |
+        v
+ catalog writer adapter ---> idempotence receipt
+        |
+        v
+ independent verifier ---> completion report
 ```
 
 ## Core
@@ -29,6 +46,16 @@ Catalog reader or filesystem scanner
 The standard-library Python core reads a normalized CSV, applies immutable safety exclusions, reduces duplicate and burst clusters, assigns editor views, creates selection reasons, samples evaluations, measures results, validates invariants, and emits an adapter-neutral catalog plan.
 
 The core does not read a Photos database, open images, call a model, or mutate a catalog.
+
+The protocol layer validates source identity, normalizes rows and identifiers, preserves inspection and decision ledgers, enforces per-view quality gates, audits replacements and duplicates, seals plans, and derives completion reports. It remains standard-library Python and does not make editorial judgments.
+
+## Evidence types
+
+- `retrieval_index` explains why an asset entered the candidate field.
+- `visible_evidence` records generalized observations from local pixels.
+- `source_provenance` records traceable project or archival authority.
+- `editor_hypothesis` records provisional interpretation.
+- `publication_clearance` remains `not_assessed` unless a separate consent workflow establishes it.
 
 ## Reader adapters
 

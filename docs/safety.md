@@ -23,6 +23,20 @@ Any item marked `safety_status=hold`, hidden, or missing is excluded before rank
 
 The HOLD set should be private and access-controlled. It is not an editor album and must not be exported casually.
 
+## Relational propagation
+
+Some safety meaning is not visible in one frame. A declarative policy may conservatively propagate `needs-review` or HOLD through:
+
+- protected album families;
+- pre-existing People associations configured by the archive owner;
+- event and sequence clusters;
+- exact asset decisions;
+- generalized label classes.
+
+Every propagated decision records a rule ID, relation type, generalized reason, and timestamp. Existing human context and source face counts are preserved separately from local detector results; a detector returning zero cannot erase a positive source count. Overrides append a decision rather than rewriting history.
+
+Album membership is not publication permission. Named People metadata remains private archive structure unless separately approved for release.
+
 ## Catalog adapter contract
 
 A production adapter must:
@@ -36,4 +50,3 @@ A production adapter must:
 7. Support independent read-only verification.
 
 If an adapter cannot meet all seven conditions, it is not production-ready.
-

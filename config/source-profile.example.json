@@ -1,0 +1,20 @@
+{
+  "$schema": "../schemas/source-profile.schema.json",
+  "schema_version": 1,
+  "id": "visible-library-stills://v1",
+  "title": "Visible Apple Photos library - still photographs",
+  "kind": "visible-library-query",
+  "expected_count": 1,
+  "snapshot_at": null,
+  "predicate": "visible, non-hidden, non-trashed, primary-scope still photographs",
+  "inventory_path": null,
+  "catalog_fingerprint": null,
+  "permitted_operations": [
+    "read-metadata",
+    "inspect-local",
+    "create-folders",
+    "create-albums",
+    "add-membership"
+  ],
+  "protected_identifiers": []
+}

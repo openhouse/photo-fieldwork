@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Photo Fieldwork membership-only catalog plan",
+  "type": "object",
+  "required": ["schema_version", "plan_id", "safety_mode", "albums", "plan_digest"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "plan_id": {"type": "string"},
+    "safety_mode": {"const": "create-folders-albums-and-add-membership-only"},
+    "source_album_identifier": {"type": "string"},
+    "expected_source_count": {"type": "integer", "minimum": 1},
+    "albums": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["title"],
+        "properties": {
+          "title": {"type": "string"},
+          "asset_identifiers": {"type": "array", "items": {"type": "string"}},
+          "asset_ids": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "plan_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "additionalProperties": true
+}

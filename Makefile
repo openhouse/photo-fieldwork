@@ -7,9 +7,8 @@ test:
 	PYTHONPATH=src python3 -m unittest discover -s tests -v
 
 check: test
-	PYTHONPATH=src python3 -m compileall -q src tests
-	python3 -m json.tool config/starter.json >/dev/null
-	python3 -m json.tool schemas/config.schema.json >/dev/null
+	PYTHONPATH=src python3 -m compileall -q src tests skills/curate-apple-photos/scripts
+	for file in config/*.json schemas/*.json; do python3 -m json.tool "$$file" >/dev/null; done
 
 install-skill:
 	./bin/install-skill

@@ -1,0 +1,14 @@
+{
+  "$schema": "../schemas/safety-policy.schema.json",
+  "schema_version": 1,
+  "rules": [
+    {
+      "id": "protected-album-family",
+      "relation": "albums",
+      "match": "contains",
+      "values": ["PRIVATE REVIEW"],
+      "action": "hold",
+      "reason": "protected album family"
+    }
+  ]
+}

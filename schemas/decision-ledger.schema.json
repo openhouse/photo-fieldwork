@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Photo Fieldwork append-only decision row",
+  "type": "object",
+  "required": ["uuid", "decided_at"],
+  "properties": {
+    "uuid": {"type": "string", "minLength": 1},
+    "judgment": {"enum": ["", "fit", "reject", "uncertain"]},
+    "safety_status": {"enum": ["clear", "needs-review", "hold"]},
+    "rule_id": {"type": "string"},
+    "relation": {"type": "string"},
+    "visible_reason": {"type": "string"},
+    "error_category": {"type": "string"},
+    "round_id": {"type": "string"},
+    "reviewer_lens": {"type": "string"},
+    "decided_at": {"type": "string"}
+  },
+  "additionalProperties": true
+}
