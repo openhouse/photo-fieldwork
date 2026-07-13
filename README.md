@@ -4,6 +4,11 @@ Photo Fieldwork is a local-first practice and production workflow for reducing a
 
 It does not automate taste. It helps people automate retrieval, deduplication, balancing, safety review, provenance, evaluation, and reversible handoff while keeping final editorial judgment human.
 
+Version 0.2 binds retrieval, explicit view assignment, visual evaluation, and
+catalog plans to one hashed proposal. It also adds whole-visible-library source
+support, private run workspaces, WAL-aware read-only Photos verification, and a
+resumable phase and artifact ledger.
+
 ## Try it in two minutes
 
 Requirements: Python 3.11 or newer. The practice workflow has no third-party dependencies and does not access Apple Photos.
@@ -63,6 +68,7 @@ make check
 ./bin/photo-fieldwork plan \
   --master runs/my-run/manifests/proposed-master.csv \
   --config path/to/config.json \
+  --evaluation-report runs/my-run/reports/evaluation-report.json \
   --plan-id my-run-v01 \
   --source-title "Wide retrieval - do not edit" \
   --source-identifier SOURCE-ID \
@@ -87,8 +93,12 @@ Those are different questions. Photo Fieldwork keeps them different.
 - Named-people and visible-apparatus signals.
 - An unclassified editor field for honest uncertainty.
 - Stratified evaluation samples and precision thresholds.
+- Per-view evaluation gates and Wilson interval reporting.
+- Proposal hashes that bind assignments, evaluation, and catalog plans.
+- Private-by-default run artifacts and a resumable checksum ledger.
 - A fully synthetic practice run.
-- Apple Photos integration guidance and adapter contracts.
+- Album and whole-library Apple Photos source profiles.
+- WAL-aware read-only inventory and verification adapters.
 - A case study of how visual inspection changed a real workflow.
 
 ## What is not included
@@ -109,6 +119,12 @@ Install the bundled `curate-apple-photos` skill:
 make install-skill
 ```
 
+Before production use, copy
+`skills/curate-apple-photos/references/machine-profile.example.json` to the
+private path described in
+`skills/curate-apple-photos/references/machine-profile.md`. The completed file
+must remain outside git with mode `0600`.
+
 Restart Codex, open a new local chat, and invoke it with a brief such as:
 
 ```text
@@ -127,3 +143,10 @@ production album creation, and independent verification.
 ```
 
 The skill integrates with the installed `/Applications/Jamie Photo Archive.app`, preserving its stable Photos permission identity. Its reviewed source is retained under `integrations/jamie-photo-archive/`; replacing or rebuilding the installed app is a separate, explicit operation because macOS may request Photos authorization again.
+
+The app path and bundle identifier are now read from the private machine
+profile; the path above is an example of an existing installation, not a public
+configuration default.
+
+Read [the revision M implementation note](docs/revision-M.md) and
+[the recovery guide](docs/recovery.md) before running the Apple Photos adapter.

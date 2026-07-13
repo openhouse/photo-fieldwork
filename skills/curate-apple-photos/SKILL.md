@@ -10,7 +10,9 @@ Turn the user's brief into a locally inspected, recursively evaluated, versioned
 ## Start
 
 1. Keep requested role-play speakers visible in commentary and final discussion. Their judgments guide interpretation; scripts and receipts establish operational facts.
-2. Read [machine-profile.md](references/machine-profile.md), then run:
+2. Read [machine-profile.md](references/machine-profile.md), configure the
+   private machine profile outside git, freeze the source count and digest with
+   `freeze_source_profile.py`, then run:
 
 ```bash
 python3 scripts/photo_archive_bridge.py doctor
@@ -20,11 +22,16 @@ python3 scripts/photo_archive_bridge.py doctor
    - `brief.md`, preserving the user's words;
    - `retrieval.json`, defining views, terms, people, albums, places, and supporting date ranges;
    - `config.json`, defining target, quotas, seed, uncertainty view, and evaluation thresholds.
-4. Initialize a uniquely named run under `/Users/jburkart/Documents/Jamie-Photo-Archive-2026/` with `photo_archive_bridge.py init-run`. Never reuse or overwrite v00, v01, v02, or another run.
+4. Initialize a uniquely named run under the workspace root declared in the
+   private machine profile with `photo_archive_bridge.py init-run`. Never reuse
+   or overwrite v00, v01, v02, or another run.
 
 ## Governing invariants
 
-- Use the existing 124,484-item wide album as the default immutable source. Verify its identifier and current count before work.
+- Use the frozen source declared by the private machine profile. Both an album
+  source and `visible-library-stills://v1` are supported. Discover and freeze
+  count plus identifier digest before work; never encode a personal count in
+  reusable code.
 - Do not alter source albums, originals, metadata, faces, favorite status, dates, locations, or prior versions.
 - Never write Photos SQLite. The permissioned app may only inspect locally or create folders/albums and add existing membership.
 - Do not upload pixels, previews, OCR, faces, coordinates, or manifests.
@@ -44,7 +51,7 @@ Read [safety.md](references/safety.md) whenever a brief concerns private homes, 
 
 ```bash
 python3 scripts/retrieve_candidates.py \
-  --db /Users/jburkart/Documents/Jamie-Photo-Archive-2026/shared/wide-corpus.sqlite \
+  --db /private/path/from-machine-profile/inventory.sqlite \
   --retrieval RUN/retrieval.json \
   --target TARGET \
   --output RUN/manifests/candidate-pool.csv
@@ -53,7 +60,9 @@ python3 scripts/retrieve_candidates.py \
 2. Aim for 1.5-2.0 times the requested master size after metadata retrieval. Include named relationships, prior favorites/edits, person-free material context, and exploratory results.
 3. Generate a local inspection plan with `photo_archive_bridge.py inspection-plan`.
 4. Run the stable permissioned helper with `photo_archive_bridge.py run-plan`. Network access must remain false. Export 1280px previews into the private run workspace; raw OCR is never written.
-5. Merge the inspection JSONL into the candidate CSV using `merge_inspection.py`.
+5. Run `verify_preview_exports.py`. Corrupt, missing, over-permissioned, or
+   metadata-bearing previews block progress.
+6. Merge the inspection JSONL into the candidate CSV using `merge_inspection.py`.
 
 ## Select, look, evaluate, recurse
 
@@ -62,7 +71,7 @@ Read [evaluation-loop.md](references/evaluation-loop.md) before the first visual
 1. Run the project selector:
 
 ```bash
-/Volumes/16TB_SSD/Sites/photo-fieldwork/bin/photo-fieldwork select \
+photo-fieldwork select \
   --inventory RUN/manifests/ready-candidates.csv \
   --config RUN/config.json \
   --output RUN
@@ -88,11 +97,15 @@ Do not claim success from Vision labels or metadata alone. The recursive loop re
 ## Validate and commit
 
 1. Run `photo-fieldwork validate`. Save a PASS report.
-2. Generate test and production plans with `photo_archive_bridge.py snapshot-plans`.
+2. Generate test and production plans with `photo_archive_bridge.py
+   snapshot-plans`, passing the final evaluation report. The command refuses an
+   evaluation whose proposal hash differs from the exact master.
 3. Inspect the plans. Confirm the source count, target count, folder title, HOLD separation, and that operations are membership-only.
 4. Run the ten-item write test through the app. Independently verify it with `verify_photos_commit.py`.
 5. Run the production plan through the app. Rerun it once to confirm idempotence.
-6. Independently verify every album against the plan using read-only, immutable SQLite access.
+6. Independently verify every album against the plan. The verifier must create
+   a WAL-aware consistent snapshot from a live read-only connection before it
+   opens the frozen snapshot as immutable and query-only.
 7. Update `run-state.json` after each phase and write a completion report containing exact counts, identifiers, evaluation results, privacy facts, and unresolved uncertainty.
 
 The helper invocation may require a Codex permission approval for `open -W`; request a reusable approval scoped to `/Applications/Jamie Photo Archive.app`. The app's Photos permission itself should persist under its stable bundle identity.
@@ -109,4 +122,3 @@ Return:
 - links to the run README, master manifest, evaluation report, app receipt, and independent verification.
 
 State clearly that this is an editor-ready field, not the final publication edit.
-

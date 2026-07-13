@@ -21,3 +21,7 @@ The completed version contained exactly 8,000 unique stills. It preserved the so
 
 The transferable lesson is simple: metadata is excellent for constructing a field of attention. It is not a substitute for looking, provenance, or editorial judgment. A good workflow makes those differences operational.
 
+The later [whole-library fieldwork case study](case-study-v04-M.md) records how
+the workflow changed again after fresh inspection across a 603,137-still source,
+including proposal-bound evaluation, private workspaces, source digests, and
+WAL-aware independent verification.

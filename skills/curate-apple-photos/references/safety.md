@@ -22,6 +22,18 @@ Use `needs-review` for minors, intimate domestic scenes, vulnerable people, priv
 
 Album membership is not publication permission. Project hypotheses are not factual captions. Named People metadata is private archive structure unless separately approved for release.
 
+Keep these states distinct:
+
+- `automatic-hold` or `hold`: excluded before ranking;
+- `clear-automated`: local configured detectors found no HOLD trigger;
+- `human-needs-review`: an editor must assess dignity, context, and risk;
+- `human-cleared-for-editor-field`: eligible for private editorial review;
+- `publication-review-required`: default for every selected item;
+- `publication-approved` or `publication-denied`: explicit later decisions.
+
+Automated clear never means publication approved. A later HOLD release must
+preserve the original flag, reviewer, reason, and time.
+
 ## Mutation boundary
 
 Permitted:
@@ -38,4 +50,3 @@ Prohibited:
 - direct Photos database writes;
 - cloud analysis or external upload;
 - replacing or renaming prior versions.
-

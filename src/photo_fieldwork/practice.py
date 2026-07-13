@@ -6,7 +6,8 @@ from pathlib import Path
 
 
 FIELDS = [
-    "uuid", "filename", "candidate_views", "evidence_confidence", "visible_context",
+    "uuid", "filename", "candidate_views", "retrieval_basis", "evidence_confidence",
+    "visible_observation", "observation_source", "machine_visible_signals",
     "persons", "favorite", "edited", "safety_status", "safety_reason", "hidden",
     "missing", "duplicate_group", "burst_group", "aesthetic_score", "event_cluster",
     "date", "place", "local_path",
@@ -28,8 +29,11 @@ def create_demo_inventory(path: Path) -> None:
             "uuid": f"DEMO-{index:03d}",
             "filename": f"practice-{index:03d}.jpg",
             "candidate_views": view,
+            "retrieval_basis": f"{view}:synthetic-fixture" if view else "00:synthetic-fixture",
             "evidence_confidence": confidence,
-            "visible_context": context,
+            "visible_observation": context,
+            "observation_source": "reviewer",
+            "machine_visible_signals": "",
             "persons": people,
             "favorite": "true" if index % 7 == 0 else "false",
             "edited": "true" if index % 6 == 0 else "false",
@@ -46,11 +50,13 @@ def create_demo_inventory(path: Path) -> None:
             "local_path": "",
         }
         rows.append(row)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path.parent.chmod(0o700)
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=FIELDS)
         writer.writeheader()
         writer.writerows(rows)
+    path.chmod(0o600)
 
 
 def practice_feedback(sample_path: Path) -> None:
@@ -60,13 +66,19 @@ def practice_feedback(sample_path: Path) -> None:
     for index, row in enumerate(rows):
         row["judgment"] = "reject" if index == 3 else "fit"
         row["evaluation_note"] = "Synthetic practice judgment; inspect real pixels in production."
+        row["visible_reason"] = "Synthetic visible reason for workflow validation only."
+        row["reviewer_lens"] = "synthetic-practice"
+        row["error_category"] = "retrieval-mismatch" if index == 3 else "visible-fit"
     with sample_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
         writer.writerows(rows)
+    sample_path.chmod(0o600)
 
 
 def write_demo_readme(path: Path) -> None:
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path.parent.chmod(0o700)
     path.write_text(
         "# Practice run\n\n"
         "This workspace contains only synthetic records. It demonstrates the complete "
@@ -75,4 +87,4 @@ def write_demo_readme(path: Path) -> None:
         "safety and Apple Photos documentation.\n",
         encoding="utf-8",
     )
-
+    path.chmod(0o600)

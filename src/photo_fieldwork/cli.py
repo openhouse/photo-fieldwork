@@ -6,7 +6,18 @@ import shutil
 import sys
 from pathlib import Path
 
-from .pipeline import build_catalog_plan, evaluate, make_sample, read_config, read_csv, select, validate, write_csv
+from .pipeline import (
+    build_catalog_plan,
+    ensure_private_directory,
+    evaluate,
+    make_sample,
+    read_config,
+    read_csv,
+    select,
+    validate,
+    write_csv,
+    write_private_text,
+)
 from .practice import create_demo_inventory, practice_feedback, write_demo_readme
 
 
@@ -30,16 +41,16 @@ def command_select(args: argparse.Namespace) -> int:
     write_csv(output / "manifests" / "proposed-master.csv", master)
     write_csv(output / "manifests" / "hold-sensitive.csv", holds)
     reports = output / "reports"
-    reports.mkdir(parents=True, exist_ok=True)
-    (reports / "selection-summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
-    (reports / "selection-summary.md").write_text(markdown_report("Selection summary", summary), encoding="utf-8")
+    ensure_private_directory(reports)
+    write_private_text(reports / "selection-summary.json", json.dumps(summary, indent=2) + "\n")
+    write_private_text(reports / "selection-summary.md", markdown_report("Selection summary", summary))
     print(f"selected {len(master)}; held {len(holds)}; wrote {output}")
     return 0
 
 
 def command_sample(args: argparse.Namespace) -> int:
     master = read_csv(args.master)
-    sample = make_sample(master, args.per_view, args.seed)
+    sample = make_sample(master, args.per_view, args.seed, args.round_id)
     write_csv(args.output, sample)
     print(f"wrote {len(sample)} evaluation rows to {args.output}")
     return 0
@@ -49,9 +60,9 @@ def command_evaluate(args: argparse.Namespace) -> int:
     config = read_config(args.config)
     feedback = read_csv(args.feedback)
     report, passed = evaluate(feedback, config)
-    args.output.mkdir(parents=True, exist_ok=True)
-    (args.output / "evaluation-report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-    (args.output / "evaluation-report.md").write_text(markdown_report("Evaluation report", report), encoding="utf-8")
+    ensure_private_directory(args.output)
+    write_private_text(args.output / "evaluation-report.json", json.dumps(report, indent=2) + "\n")
+    write_private_text(args.output / "evaluation-report.md", markdown_report("Evaluation report", report))
     print(f"evaluation {'PASS' if passed else 'FAIL'}: precision={report['precision']}, coverage={report['coverage']}")
     return 0 if passed else 2
 
@@ -61,11 +72,11 @@ def command_validate(args: argparse.Namespace) -> int:
     master = read_csv(args.master)
     holds = read_csv(args.holds)
     errors, metrics = validate(master, holds, config)
-    args.output.mkdir(parents=True, exist_ok=True)
+    ensure_private_directory(args.output)
     report = dict(metrics)
     report["errors"] = errors
-    (args.output / "validation-report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-    (args.output / "validation-report.md").write_text(markdown_report("Validation report", report), encoding="utf-8")
+    write_private_text(args.output / "validation-report.json", json.dumps(report, indent=2) + "\n")
+    write_private_text(args.output / "validation-report.md", markdown_report("Validation report", report))
     print(f"validation {metrics['status']}")
     return 0 if not errors else 2
 
@@ -73,9 +84,16 @@ def command_validate(args: argparse.Namespace) -> int:
 def command_plan(args: argparse.Namespace) -> int:
     config = read_config(args.config)
     master = read_csv(args.master)
-    plan = build_catalog_plan(master, config, args.plan_id, args.source_title, args.source_identifier)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
+    evaluation_report = json.loads(args.evaluation_report.read_text(encoding="utf-8"))
+    plan = build_catalog_plan(
+        master,
+        config,
+        args.plan_id,
+        args.source_title,
+        args.source_identifier,
+        evaluation_report,
+    )
+    write_private_text(args.output, json.dumps(plan, indent=2) + "\n")
     print(f"wrote membership-only catalog plan to {args.output}")
     return 0
 
@@ -86,8 +104,9 @@ def command_demo(args: argparse.Namespace) -> int:
     inventory = workspace / "inventory" / "practice.csv"
     config = workspace / "config.json"
     create_demo_inventory(inventory)
-    config.parent.mkdir(parents=True, exist_ok=True)
+    ensure_private_directory(config.parent)
     shutil.copy2(root / "config" / "starter.json", config)
+    config.chmod(0o600)
     write_demo_readme(workspace / "README.md")
     command_select(argparse.Namespace(config=config, inventory=inventory, output=workspace))
     sample_path = workspace / "manifests" / "eval-sample.csv"
@@ -97,6 +116,7 @@ def command_demo(args: argparse.Namespace) -> int:
             output=sample_path,
             per_view=3,
             seed=20260710,
+            round_id="practice-round-01",
         )
     )
     practice_feedback(sample_path)
@@ -116,6 +136,7 @@ def command_demo(args: argparse.Namespace) -> int:
             plan_id="synthetic-practice-plan",
             source_title="Synthetic practice corpus",
             source_identifier="SYNTHETIC-ONLY",
+            evaluation_report=workspace / "reports" / "evaluation-report.json",
             output=workspace / "manifests" / "catalog-plan.json",
         )
     )
@@ -142,6 +163,7 @@ def parser() -> argparse.ArgumentParser:
     sample.add_argument("--output", type=Path, required=True)
     sample.add_argument("--per-view", type=int, default=3)
     sample.add_argument("--seed", type=int, default=20260710)
+    sample.add_argument("--round-id", default="round-01")
     sample.set_defaults(func=command_sample)
 
     evaluation = sub.add_parser("evaluate", help="measure labeled evaluation feedback")
@@ -163,6 +185,7 @@ def parser() -> argparse.ArgumentParser:
     plan.add_argument("--plan-id", required=True)
     plan.add_argument("--source-title", required=True)
     plan.add_argument("--source-identifier", required=True)
+    plan.add_argument("--evaluation-report", type=Path, required=True)
     plan.add_argument("--output", type=Path, required=True)
     plan.set_defaults(func=command_plan)
     return root

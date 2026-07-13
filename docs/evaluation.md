@@ -4,11 +4,13 @@ The goal is not to prove the selector is intelligent. The goal is to discover wh
 
 ## Minimum loop
 
-1. Sample at least three items per view: low, middle, and high score.
+1. Use low, middle, and high scores for calibration, then collect at least five
+   decisive judgments per material view when the view is large enough.
 2. Inspect the actual pixels, not filenames or metadata alone.
 3. Label each item `fit`, `reject`, or `uncertain`.
 4. Record one visible reason.
-5. Compute overall and per-view precision.
+5. Compute overall and per-view precision, sample size, coverage, uncertainty,
+   and 95% Wilson intervals.
 6. Read every rejection and a sample of uncertainties.
 7. Revise one part of the system and rerun deterministically.
 
@@ -27,11 +29,17 @@ The goal is not to prove the selector is intelligent. The goal is to discover wh
 
 - Evaluation coverage meets the configured threshold.
 - Overall precision meets the configured threshold.
+- Every material view meets its own precision and decisive-sample threshold.
+- Sparse hypotheses are labeled explicitly and still require coverage and
+  uncertainty review.
 - No known safety regression appears in the master.
-- Every view has been sampled.
+- Every configured non-empty view has been sampled.
 - Every selected row has a reason.
 - Uncertainty is represented explicitly.
 - A human editor is told that project views remain hypotheses where provenance is incomplete.
 
 Passing the gate means the corpus is ready for editors. It does not mean every category assignment is factually proven.
 
+An evaluation report is bound to the exact master membership and view
+assignments through `master_sha256` and `proposal_id`. A catalog plan is refused
+when the reviewed proposal does not match the current master.
