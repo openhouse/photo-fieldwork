@@ -7,26 +7,28 @@ Catalog reader or filesystem scanner
               |
               v
        inventory.csv
-              |
-              v
- deterministic selector ---> hold-sensitive.csv
-              |
-              v
-   proposed-master.csv
-        |            |
-        v            v
- evaluation loop   catalog-plan.json
-                         |
-                         v
-                 catalog writer adapter
-                         |
-                         v
-                  independent verifier
+        |          |
+        |          +------> hold-sensitive.csv
+        v
+ decision-aware selector <------ editorial-decisions.csv
+        |
+        v
+ proposed-master.csv
+    |          |                 |
+    v          v                 v
+ evaluation   catalog-plan.json  publication-clearance.csv
+    |          |
+    +----------+-----> catalog writer adapter
+                       |
+                       v
+                independent verifier
+
+ run-state.json + hashed receipts wrap every phase
 ```
 
 ## Core
 
-The standard-library Python core reads a normalized CSV, applies immutable safety exclusions, reduces duplicate and burst clusters, assigns editor views, creates selection reasons, samples evaluations, measures results, validates invariants, and emits an adapter-neutral catalog plan.
+The standard-library Python core reads a normalized CSV, applies immutable safety exclusions, reduces duplicate and burst clusters, solves exact view and diversity assignment, preserves editorial decisions, samples evaluations, enforces per-view gates, validates invariants, records version integrity, and emits adapter-neutral plans.
 
 The core does not read a Photos database, open images, call a model, or mutate a catalog.
 
@@ -68,3 +70,7 @@ Contributors can improve one layer at a time:
 - editor handoff formats.
 
 Every extension should include synthetic fixtures, a known failure case, and a statement of its privacy boundary.
+
+## Profiles
+
+Machine paths, source identifiers, protected album identifiers, and permissioned helper details belong in adapter profiles and `machine-profile.md`, not in selection logic. The public core remains usable without Apple Photos. The Jamie profile is intentionally explicit because it is operational documentation for one local system; other users should provide their own adapter values.

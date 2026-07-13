@@ -33,8 +33,8 @@ make check
 1. Copy `config/starter.json` and edit the views, quotas, and thresholds.
 2. Prepare a CSV using `schemas/inventory-fields.md`.
 3. Run the selection and create an evaluation sample.
-4. Inspect sampled images locally and record `fit`, `reject`, or `uncertain`.
-5. Evaluate, revise, and repeat until the agreed criteria pass.
+4. Build the offline review surface, inspect sampled images locally, and record `fit`, `reject`, or `uncertain`.
+5. Append feedback to the decision ledger, apply it to candidates, and repeat until every view passes.
 6. Generate a catalog write plan. Test ten items before any production write.
 7. Verify the committed album membership independently and read-only.
 
@@ -49,10 +49,20 @@ make check
   --output runs/my-run/manifests/eval-sample.csv \
   --per-view 3
 
+./bin/photo-fieldwork review \
+  --sample runs/my-run/manifests/eval-sample.csv \
+  --previews runs/my-run/previews \
+  --output runs/my-run/review
+
 ./bin/photo-fieldwork evaluate \
   --feedback runs/my-run/manifests/eval-sample.csv \
   --config path/to/config.json \
   --output runs/my-run/reports
+
+./bin/photo-fieldwork decisions-append \
+  --feedback runs/my-run/manifests/eval-sample.csv \
+  --ledger runs/my-run/manifests/editorial-decisions.csv \
+  --round-id round-01
 
 ./bin/photo-fieldwork validate \
   --master runs/my-run/manifests/proposed-master.csv \
@@ -82,11 +92,18 @@ Those are different questions. Photo Fieldwork keeps them different.
 ## What is included
 
 - A deterministic, configurable selection engine.
+- Exact multi-view quota assignment with named-people and person-free floors solved together.
 - Safety holds that cannot enter the master.
 - Duplicate and burst controls.
 - Named-people and visible-apparatus signals.
 - An unclassified editor field for honest uncertainty.
-- Stratified evaluation samples and precision thresholds.
+- Stratified evaluation samples with enforced overall and per-view evidence gates.
+- An append-only editorial decision ledger and replacement-entry audit.
+- Resumable phase state with hashed receipts.
+- Conflict-safe candidate and inspection batch utilities.
+- An offline local review surface that downloads compact feedback CSV.
+- Prior-version integrity registration and publication-clearance manifests.
+- A whole-visible-library Apple Photos inventory adapter.
 - A fully synthetic practice run.
 - Apple Photos integration guidance and adapter contracts.
 - A case study of how visual inspection changed a real workflow.

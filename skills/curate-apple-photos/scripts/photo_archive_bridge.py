@@ -5,13 +5,16 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import os
 import plistlib
 import re
+import shutil
 import sqlite3
 import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -30,6 +33,7 @@ SOURCE_COUNT = 124_484
 ROOT_FOLDER_ID = "92BBCF49-B077-478D-B9EE-DD94FAAFEAB5/L0/020"
 PRIVATE_FOLDER_ID = "1095845F-B6FA-41D0-8A22-D156C3071631/L0/020"
 AUDIT_FOLDER_ID = "7F9EB400-C06D-412C-9443-300A2C47CCE7/L0/020"
+VISIBLE_LIBRARY_STILLS = "visible-library-stills://v1"
 
 
 def dump_json(path: Path, value: object) -> None:
@@ -61,14 +65,31 @@ def safe_slug(value: str) -> str:
     return slug[:48] or "photo-field"
 
 
-def command_doctor(_: argparse.Namespace) -> int:
+def decode_meta(value: str) -> object:
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return value
+
+
+def file_hash(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while chunk := handle.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def command_doctor(args: argparse.Namespace) -> int:
+    free_gb = shutil.disk_usage(args.workspace_root).free / 1024**3 if args.workspace_root.exists() else 0
     checks = {
         "permissioned_app": APP.is_dir(),
         "app_executable": APP_EXECUTABLE.is_file() and os.access(APP_EXECUTABLE, os.X_OK),
         "app_plist": APP_PLIST.is_file(),
-        "shared_inventory": INVENTORY_DB.exists(),
-        "photos_database": PHOTOS_DB.exists(),
-        "workspace_root": WORKSPACE_ROOT.is_dir(),
+        "shared_inventory": args.inventory_db.exists(),
+        "photos_database": args.photos_db.exists(),
+        "workspace_root": args.workspace_root.is_dir(),
+        "workspace_free_space": free_gb >= args.minimum_free_gb,
         "photo_fieldwork_cli": Path(
             "/Volumes/16TB_SSD/Sites/photo-fieldwork/bin/photo-fieldwork"
         ).is_file(),
@@ -76,25 +97,51 @@ def command_doctor(_: argparse.Namespace) -> int:
     bundle = None
     version = None
     inventory_meta = {}
+    photos_visible_count = None
+    inventory_integrity = None
     if APP_PLIST.is_file():
         with APP_PLIST.open("rb") as handle:
             plist = plistlib.load(handle)
         bundle = plist.get("CFBundleIdentifier")
         version = plist.get("CFBundleShortVersionString")
         checks["stable_bundle_identifier"] = bundle == BUNDLE_ID
-    if INVENTORY_DB.exists():
-        conn = sqlite3.connect(f"file:{INVENTORY_DB}?mode=ro&immutable=1", uri=True)
-        inventory_meta = {key: json.loads(value) for key, value in conn.execute("SELECT key, value FROM meta")}
+    if args.inventory_db.exists():
+        conn = sqlite3.connect(f"file:{args.inventory_db}?mode=ro&immutable=1", uri=True)
+        inventory_meta = {key: decode_meta(value) for key, value in conn.execute("SELECT key, value FROM meta")}
+        inventory_integrity = conn.execute("PRAGMA quick_check").fetchone()[0]
         conn.close()
-        checks["inventory_source_identifier"] = inventory_meta.get("source_album_uuid") == base_identifier(SOURCE_ID)
-        checks["inventory_source_count"] = int(inventory_meta.get("source_album_count", 0)) == SOURCE_COUNT
+        inventory_source = inventory_meta.get("source_identifier") or inventory_meta.get("source_album_uuid")
+        inventory_count = inventory_meta.get("source_count") or inventory_meta.get("source_album_count")
+        expected_id = args.source_id if args.source_id == VISIBLE_LIBRARY_STILLS else base_identifier(args.source_id)
+        checks["inventory_integrity"] = inventory_integrity == "ok"
+        checks["inventory_source_identifier"] = inventory_source == expected_id
+        checks["inventory_source_count"] = int(inventory_count or 0) == args.source_count
+    if args.photos_db.exists():
+        conn = sqlite3.connect(f"file:{args.photos_db}?mode=ro&immutable=1", uri=True, timeout=30)
+        conn.execute("PRAGMA query_only=ON")
+        if args.source_id == VISIBLE_LIBRARY_STILLS:
+            photos_visible_count = conn.execute(
+                """
+                SELECT count(*) FROM ZASSET
+                WHERE ZKIND = 0 AND ZTRASHEDSTATE = 0 AND ZHIDDEN = 0
+                  AND ZVISIBILITYSTATE = 0 AND ZBUNDLESCOPE = 0
+                """
+            ).fetchone()[0]
+            checks["live_source_count"] = photos_visible_count == args.source_count
+        conn.close()
     report = {
         "status": "PASS" if all(checks.values()) else "FAIL",
         "checks": checks,
         "bundle_id": bundle,
         "version": version,
+        "app_executable_sha256": file_hash(APP_EXECUTABLE) if APP_EXECUTABLE.is_file() else None,
+        "workspace_free_gb": round(free_gb, 2),
+        "minimum_free_gb": args.minimum_free_gb,
+        "inventory_integrity": inventory_integrity,
         "inventory_generated_at": inventory_meta.get("generated_at"),
-        "inventory_source_count": inventory_meta.get("source_album_count"),
+        "inventory_source_identifier": inventory_meta.get("source_identifier") or inventory_meta.get("source_album_uuid"),
+        "inventory_source_count": inventory_meta.get("source_count") or inventory_meta.get("source_album_count"),
+        "live_visible_source_count": photos_visible_count,
     }
     print(json.dumps(report, indent=2))
     return 0 if report["status"] == "PASS" else 2
@@ -108,24 +155,16 @@ def command_init(args: argparse.Namespace) -> int:
     for name in ("inventory", "manifests", "reports", "logs", "previews", "contact-sheets", "scripts"):
         (root / name).mkdir(parents=True, exist_ok=False)
     state = {
-        "schema_version": 1,
+        "schema_version": 2,
         "run_id": root.name,
-        "status": "initialized",
+        "status": "active",
         "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "version": args.version,
         "target_count": args.target,
-        "source_album_identifier": args.source_id,
-        "expected_source_count": args.source_count,
-        "phases": {
-            "brief": "pending",
-            "retrieval": "pending",
-            "local_inspection": "pending",
-            "recursive_evaluation": "pending",
-            "validation": "pending",
-            "write_test": "pending",
-            "production_commit": "pending",
-            "independent_verification": "pending",
-        },
+        "source_identifier": args.source_id,
+        "phase": "briefed",
+        "updated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "history": [{"phase": "briefed", "recorded_at": datetime.now().astimezone().isoformat(timespec="seconds"), "receipts": []}],
     }
     dump_json(root / "run-state.json", state)
     (root / "README.md").write_text(
@@ -162,6 +201,8 @@ def command_inspection_plan(args: argparse.Namespace) -> int:
         "target_long_edge": args.target_long_edge,
         "export_previews": not args.no_previews,
         "ocr_all": not args.no_ocr,
+        "classify_all": not args.no_classify,
+        "detect_faces": not args.no_face_detection,
         "network_access_allowed": False,
     }
     dump_json(args.output, plan)
@@ -315,6 +356,7 @@ def command_run_plan(args: argparse.Namespace) -> int:
     before = receipt_path.stat().st_mtime_ns if receipt_path.exists() else None
     command = ["/usr/bin/open", "-W", "-n", str(APP), "--args", "--plan", str(plan_path)]
     print("launching permissioned helper; this may run for a long time", flush=True)
+    started = time.monotonic()
     completed = subprocess.run(command, check=False)
     if completed.returncode:
         raise ValueError(f"helper launcher failed with exit code {completed.returncode}")
@@ -324,6 +366,7 @@ def command_run_plan(args: argparse.Namespace) -> int:
     if before is not None and before == after:
         raise ValueError(f"receipt was not refreshed: {receipt_path}")
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["launcher_elapsed_seconds"] = round(time.monotonic() - started, 3)
     print(json.dumps(receipt, indent=2, ensure_ascii=False))
     return 0
 
@@ -333,6 +376,12 @@ def parser() -> argparse.ArgumentParser:
     sub = root.add_subparsers(dest="command", required=True)
 
     doctor = sub.add_parser("doctor", help="check the local integration without mutating Photos")
+    doctor.add_argument("--workspace-root", type=Path, default=WORKSPACE_ROOT)
+    doctor.add_argument("--inventory-db", type=Path, default=INVENTORY_DB)
+    doctor.add_argument("--photos-db", type=Path, default=PHOTOS_DB)
+    doctor.add_argument("--minimum-free-gb", type=float, default=20.0)
+    doctor.add_argument("--source-id", default=SOURCE_ID)
+    doctor.add_argument("--source-count", type=int, default=SOURCE_COUNT)
     doctor.set_defaults(func=command_doctor)
 
     init = sub.add_parser("init-run", help="create a durable versioned run workspace")
@@ -355,6 +404,8 @@ def parser() -> argparse.ArgumentParser:
     inspect.add_argument("--limit", type=int)
     inspect.add_argument("--no-previews", action="store_true")
     inspect.add_argument("--no-ocr", action="store_true")
+    inspect.add_argument("--no-classify", action="store_true")
+    inspect.add_argument("--no-face-detection", action="store_true")
     inspect.set_defaults(func=command_inspection_plan)
 
     plans = sub.add_parser("snapshot-plans", help="build test-first app plans from a validated master")

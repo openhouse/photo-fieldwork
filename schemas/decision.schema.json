@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Photo Fieldwork editorial decision",
+  "type": "object",
+  "required": ["decision_id", "uuid", "view_id", "judgment", "decision_at"],
+  "properties": {
+    "decision_id": {"type": "string", "minLength": 1},
+    "uuid": {"type": "string", "minLength": 1},
+    "view_id": {"type": "string"},
+    "judgment": {"enum": ["fit", "reject", "uncertain"]},
+    "visible_reason": {"type": "string"},
+    "error_category": {"type": "string"},
+    "safety_status": {"enum": ["clear", "hold"]},
+    "provenance_status": {"type": "string"},
+    "reviewer_actor": {"type": "string"},
+    "reviewer_lens": {"type": "string"},
+    "round_id": {"type": "string"},
+    "decision_at": {"type": "string", "format": "date-time"},
+    "supersedes": {"type": "string"}
+  },
+  "additionalProperties": true
+}

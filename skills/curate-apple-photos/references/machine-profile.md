@@ -27,6 +27,14 @@ open -W -n "/Applications/Jamie Photo Archive.app" --args --plan /absolute/path/
 - Inventory contains existing people, albums, labels, places, search text, favorite/edit status, duplicate and burst data, and Apple aesthetic fields.
 - The shared inventory is a snapshot. Rebuild or reconcile it when source count or Photos metadata materially changes.
 
+## Whole visible library source
+
+- Virtual source identifier: `visible-library-stills://v1`
+- Scope: visible, non-hidden, non-trashed, primary-scope still photographs.
+- Last observed during v04-E fieldwork on 2026-07-10: 603,137 stills. This count is historical, not a default; verify it live for every run.
+- Build a new private inventory with `scripts/build_visible_library_inventory.py`. The default `retrieval` profile redacts exact coordinates and the Photos database path from the output inventory.
+- The PhotoKit helper and independent verifier both understand the virtual source identifier.
+
 ## Photos database
 
 - Library: `/Volumes/apple-photos-8tb-external-ssd/Photos Library.photoslibrary`

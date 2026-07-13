@@ -8,10 +8,11 @@
 4. Render contact sheets with stable UUID labels.
 5. Inspect all sheets with `view_image`; open individual previews when needed.
 6. Record decisions in CSV.
-7. Compute coverage and precision.
-8. Read every rejection and representative uncertainty.
-9. State the observed failure pattern and one system change.
-10. Rebuild deterministically and repeat.
+7. Append decisions to the durable ledger and apply them to the next candidate field.
+8. Compute coverage and precision overall and for every configured view.
+9. Read every rejection and representative uncertainty.
+10. State the observed failure pattern and one system change.
+11. Rebuild deterministically and repeat.
 
 ## Required feedback fields
 
@@ -23,6 +24,8 @@
 - `error_category`
 - `round_id`
 - `reviewer_lens`
+- `reviewer_actor`
+- `provenance_status`
 
 ## Error categories
 
@@ -40,14 +43,15 @@
 
 - Zero known identity-document or private-record regressions in the master.
 - Every view sampled.
+- Every view has the configured minimum number of decisive judgments; low evidence is `insufficient-evidence`, never pass.
 - Coverage at or above configured minimum.
 - Overall decisive precision at or above configured minimum.
 - No material view remains below 0.65 decisive precision without being relabeled as uncertain/editor hypothesis.
 - Exact target, unique IDs, stills only, HOLD disjoint, all pixels locally available unless historically exceptional and explicitly recorded.
 - Generic social scenes do not dominate work evidence.
 - Named relationships and person-free material context both remain visible.
+- Every unevaluated final replacement entrant receives explicit review.
 
 ## Stop conditions
 
 Run up to five substantial rounds. Stop earlier when all gates pass and failure review reveals no new systematic issue. Do not lower thresholds merely to finish. If the same genuine blocker recurs, preserve the run and explain exactly what input or permission is missing.
-

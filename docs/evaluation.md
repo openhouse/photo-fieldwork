@@ -27,6 +27,8 @@ The goal is not to prove the selector is intelligent. The goal is to discover wh
 
 - Evaluation coverage meets the configured threshold.
 - Overall precision meets the configured threshold.
+- Every configured nonzero-quota view has at least `minimum_decisive_per_view` fit/reject judgments.
+- Every such view meets its configured or global per-view precision threshold.
 - No known safety regression appears in the master.
 - Every view has been sampled.
 - Every selected row has a reason.
@@ -35,3 +37,4 @@ The goal is not to prove the selector is intelligent. The goal is to discover wh
 
 Passing the gate means the corpus is ready for editors. It does not mean every category assignment is factually proven.
 
+`uncertain` contributes to coverage but not decisive precision. A view with too little decisive evidence is reported as `insufficient-evidence`; it cannot borrow confidence from stronger views or from the overall average.

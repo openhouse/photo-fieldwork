@@ -17,6 +17,8 @@ Use a documented tool such as `osxphotos` or a read-only library API to inventor
 
 Read installed local help before assuming command syntax. Do not upgrade tools during a production run.
 
+The bundled `build_visible_library_inventory.py` adapter can snapshot all visible, non-hidden, non-trashed stills through an immutable, query-only SQLite connection. Its default `retrieval` profile omits exact coordinates and source paths. Use the narrower stable album inventory when the brief calls for it; use `visible-library-stills://v1` when the user explicitly asks for the whole visible library. Record and verify the live count either way.
+
 ## Aesthetic scores
 
 Apple aesthetic scores may help choose among photographs already known to be near-identical members of the same burst or duplicate cluster. They should come after the default burst pick, favorite, and edited status as appropriate to the archive owner.
@@ -54,3 +56,4 @@ After writing, compare planned and actual memberships through an independent rea
 - no HOLD overlap;
 - source count unchanged.
 
+Run `verify_preview_exports.py` before contact-sheet or browser review. A receipt that says a preview was exported is not sufficient when the file is absent or undecodable.
