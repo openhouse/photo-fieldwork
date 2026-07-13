@@ -3,6 +3,32 @@ import AppKit
 import Photos
 import Vision
 
+let visibleLibraryStillsSourceIdentifier = "visible-library-stills://v1"
+let supportedPlanSchemaVersions = [1, 2]
+
+func helperVersion() -> String {
+    let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+    let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+    return [short, build].compactMap { $0 }.joined(separator: "+")
+}
+
+func fetchSourceAssets(identifier: String) throws -> (PHFetchResult<PHAsset>, String) {
+    if identifier == visibleLibraryStillsSourceIdentifier {
+        let options = PHFetchOptions()
+        options.includeHiddenAssets = false
+        return (
+            PHAsset.fetchAssets(with: .image, options: options),
+            "Visible Apple Photos library - still photographs"
+        )
+    }
+    guard let album = PHAssetCollection.fetchAssetCollections(
+        withLocalIdentifiers: [identifier], options: nil
+    ).firstObject else {
+        throw ArchiveError.unresolved("album \(identifier)")
+    }
+    return (PHAsset.fetchAssets(in: album, options: nil), album.localizedTitle ?? "source")
+}
+
 struct PlanHeader: Codable {
     let operation: String?
 }
@@ -25,9 +51,13 @@ struct SnapshotPlan: Codable {
     let operation: String?
     let schema_version: Int
     let plan_id: String
+    let proposal_id: String?
+    let master_sha256: String?
+    let audited_uuid_sha256: String?
     let safety_mode: String
     let source_album_identifier: String
     let expected_source_count: Int
+    let source_fingerprint: String?
     let batch_size: Int
     let log_path: String
     let receipt_path: String
@@ -50,6 +80,8 @@ struct InspectionPlan: Codable {
     let target_long_edge: Int
     let export_previews: Bool
     let ocr_all: Bool
+    let classify_all: Bool?
+    let detect_faces: Bool?
     let network_access_allowed: Bool
 }
 
@@ -74,6 +106,8 @@ struct InspectionRow: Codable {
 
 struct InspectionReceipt: Codable {
     let completed_at: String
+    let helper_version: String
+    let plan_schema_version: Int
     let plan_id: String
     let source_album_identifier: String
     let source_count: Int
@@ -102,9 +136,15 @@ struct AlbumReceipt: Codable {
 
 struct SnapshotReceipt: Codable {
     let completed_at: String
+    let helper_version: String
+    let plan_schema_version: Int
     let plan_id: String
+    let proposal_id: String?
+    let master_sha256: String?
+    let audited_uuid_sha256: String?
     let source_album_identifier: String
     let source_count: Int
+    let source_fingerprint: String?
     let safety_mode: String
     let folders: [FolderReceipt]
     let albums: [AlbumReceipt]
@@ -124,7 +164,7 @@ enum ArchiveError: Error, CustomStringConvertible {
     var description: String {
         switch self {
         case .usage:
-            return "Usage: JamiePhotoArchive --plan /absolute/path/plan.json"
+            return "Usage: JamiePhotoArchive --plan /absolute/path/plan.json | --capabilities"
         case .authorization(let status):
             return "Full Photos access unavailable; authorization status=\(status)"
         case .invalidPlan(let reason):
@@ -175,7 +215,7 @@ final class InspectionRunner {
     }
 
     func run() throws -> InspectionReceipt {
-        guard plan.schema_version == 1 else {
+        guard supportedPlanSchemaVersions.contains(plan.schema_version) else {
             throw ArchiveError.invalidPlan("unsupported inspection schema_version")
         }
         guard plan.operation == "inspect-local-images" else {
@@ -199,11 +239,10 @@ final class InspectionRunner {
         }
 
         try requireAuthorization()
-        let source = try fetchAlbum(identifier: plan.source_album_identifier)
-        let sourceFetch = PHAsset.fetchAssets(in: source, options: nil)
+        let (sourceFetch, sourceTitle) = try fetchSourceAssets(identifier: plan.source_album_identifier)
         guard sourceFetch.count == plan.expected_source_count else {
             throw ArchiveError.membershipMismatch(
-                source.localizedTitle ?? "source",
+                sourceTitle,
                 plan.expected_source_count,
                 sourceFetch.count
             )
@@ -226,7 +265,8 @@ final class InspectionRunner {
         if !FileManager.default.fileExists(atPath: outputURL.path) {
             FileManager.default.createFile(atPath: outputURL.path, contents: Data())
         }
-        let completed = try completedIdentifiers(at: outputURL)
+        let existingRows = try completedRows(at: outputURL)
+        let completed = Set(existingRows.map { $0.asset_identifier })
         let outputHandle = try FileHandle(forWritingTo: outputURL)
         defer { try? outputHandle.close() }
         try outputHandle.seekToEnd()
@@ -239,10 +279,10 @@ final class InspectionRunner {
         }
 
         var completedCount = completed.count
-        var pixelAvailableCount = 0
-        var previewExportedCount = 0
-        var sensitiveHoldCount = 0
-        var unavailableCount = 0
+        var pixelAvailableCount = existingRows.filter { $0.pixel_available }.count
+        var previewExportedCount = existingRows.filter { $0.preview_exported }.count
+        var sensitiveHoldCount = existingRows.filter { $0.safety_state == "hold" }.count
+        var unavailableCount = existingRows.filter { !$0.pixel_available }.count
         let fetch = PHAsset.fetchAssets(withLocalIdentifiers: plan.asset_identifiers, options: nil)
         guard fetch.count == plan.asset_identifiers.count else {
             throw ArchiveError.membershipMismatch("inspection fetch", plan.asset_identifiers.count, fetch.count)
@@ -275,6 +315,8 @@ final class InspectionRunner {
 
         return InspectionReceipt(
             completed_at: ISO8601DateFormatter().string(from: Date()),
+            helper_version: helperVersion(),
+            plan_schema_version: plan.schema_version,
             plan_id: plan.plan_id,
             source_album_identifier: plan.source_album_identifier,
             source_count: sourceFetch.count,
@@ -313,17 +355,23 @@ final class InspectionRunner {
         return album
     }
 
-    private func completedIdentifiers(at url: URL) throws -> Set<String> {
+    private func completedRows(at url: URL) throws -> [InspectionRow] {
         guard let contents = try? String(contentsOf: url, encoding: .utf8) else { return [] }
-        var identifiers = Set<String>()
-        for line in contents.split(separator: "\n") {
+        var rows: [InspectionRow] = []
+        for (index, line) in contents.split(separator: "\n", omittingEmptySubsequences: true).enumerated() {
             guard let data = line.data(using: .utf8),
                   let row = try? JSONDecoder().decode(InspectionRow.self, from: data) else {
-                continue
+                throw ArchiveError.inspection(
+                    "existing inspection JSONL contains an invalid row at line \(index + 1); repair it before resume"
+                )
             }
-            identifiers.insert(row.asset_identifier)
+            rows.append(row)
         }
-        return identifiers
+        let identifiers = Set(rows.map { $0.asset_identifier })
+        guard identifiers.count == rows.count else {
+            throw ArchiveError.inspection("existing inspection JSONL contains duplicate asset rows")
+        }
+        return rows
     }
 
     private func inspect(_ asset: PHAsset) -> InspectionRow {
@@ -355,14 +403,16 @@ final class InspectionRunner {
         var faceCount = 0
         var errors: [String] = []
 
-        do {
-            let request = VNClassifyImageRequest()
-            try VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])
-            let results = (request.results ?? []).filter { $0.confidence >= 0.05 }.prefix(20)
-            labels = results.map { $0.identifier }
-            confidences = results.map { $0.confidence }
-        } catch {
-            errors.append("classification unavailable")
+        if plan.classify_all ?? true {
+            do {
+                let request = VNClassifyImageRequest()
+                try VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])
+                let results = (request.results ?? []).filter { $0.confidence >= 0.05 }.prefix(20)
+                labels = results.map { $0.identifier }
+                confidences = results.map { $0.confidence }
+            } catch {
+                errors.append("classification unavailable")
+            }
         }
 
         if plan.ocr_all {
@@ -377,12 +427,14 @@ final class InspectionRunner {
             }
         }
 
-        do {
-            let request = VNDetectFaceRectanglesRequest()
-            try VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])
-            faceCount = request.results?.count ?? 0
-        } catch {
-            errors.append("face count unavailable")
+        if plan.detect_faces ?? true {
+            do {
+                let request = VNDetectFaceRectanglesRequest()
+                try VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])
+                faceCount = request.results?.count ?? 0
+            } catch {
+                errors.append("face count unavailable")
+            }
         }
 
         let recognizedText = textLines.joined(separator: " ")
@@ -506,7 +558,7 @@ final class ArchiveRunner {
     }
 
     func run() throws -> SnapshotReceipt {
-        guard plan.schema_version == 1 else {
+        guard supportedPlanSchemaVersions.contains(plan.schema_version) else {
             throw ArchiveError.invalidPlan("unsupported schema_version")
         }
         guard plan.safety_mode == "create-folders-albums-and-add-membership-only" else {
@@ -516,11 +568,11 @@ final class ArchiveRunner {
             throw ArchiveError.invalidPlan("batch_size outside 1...2000")
         }
         try requireAuthorization()
-        let source = try fetchAlbum(identifier: plan.source_album_identifier)
-        let sourceCount = PHAsset.fetchAssets(in: source, options: nil).count
+        let (sourceFetch, sourceTitle) = try fetchSourceAssets(identifier: plan.source_album_identifier)
+        let sourceCount = sourceFetch.count
         guard sourceCount == plan.expected_source_count else {
             throw ArchiveError.membershipMismatch(
-                source.localizedTitle ?? "source",
+                sourceTitle,
                 plan.expected_source_count,
                 sourceCount
             )
@@ -562,9 +614,15 @@ final class ArchiveRunner {
 
         return SnapshotReceipt(
             completed_at: ISO8601DateFormatter().string(from: Date()),
+            helper_version: helperVersion(),
+            plan_schema_version: plan.schema_version,
             plan_id: plan.plan_id,
+            proposal_id: plan.proposal_id,
+            master_sha256: plan.master_sha256,
+            audited_uuid_sha256: plan.audited_uuid_sha256,
             source_album_identifier: plan.source_album_identifier,
             source_count: sourceCount,
+            source_fingerprint: plan.source_fingerprint,
             safety_mode: plan.safety_mode,
             folders: folderReceipts,
             albums: albumReceipts
@@ -756,8 +814,33 @@ func writeReceipt(_ receipt: SnapshotReceipt, to path: String) throws {
     try data.write(to: url, options: .atomic)
 }
 
+func writeCapabilities() throws {
+    let payload: [String: Any] = [
+        "bundle_identifier": Bundle.main.bundleIdentifier ?? "unknown",
+        "helper_version": helperVersion(),
+        "supported_plan_schema_versions": supportedPlanSchemaVersions,
+        "supported_source_kinds": ["album", "visible-library-stills"],
+        "supported_operations": ["inspect-local-images", "snapshot-membership"],
+        "network_access_allowed": false,
+        "direct_photos_database_writes": false,
+        "inspection_capabilities": [
+            "preview-export",
+            "vision-classification",
+            "ephemeral-ocr-safety",
+            "face-count"
+        ]
+    ]
+    let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
+    FileHandle.standardOutput.write(data)
+    FileHandle.standardOutput.write(Data("\n".utf8))
+}
+
 do {
     let arguments = CommandLine.arguments
+    if arguments.contains("--capabilities") {
+        try writeCapabilities()
+        exit(0)
+    }
     guard let planIndex = arguments.firstIndex(of: "--plan"),
           arguments.indices.contains(planIndex + 1) else {
         throw ArchiveError.usage

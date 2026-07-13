@@ -7,6 +7,8 @@
 - Keep exact coordinates out of editor-facing manifests.
 - Store generalized safety flags, not detected private text.
 - Never publish archive manifests containing private local paths or named-person associations without review.
+- Label artifacts `private-operational`, `review-sensitive`, or `public-safe`. Use the
+  public-report linter before human publication review.
 
 ## Prohibited by default
 
@@ -19,7 +21,10 @@
 
 ## Safety hold contract
 
-Any item marked `safety_status=hold`, hidden, or missing is excluded before ranking. Validation fails if a hold ID appears in the proposed master.
+Any item whose safety status begins with `hold`, is `unavailable`, hidden, or missing is
+excluded before ranking. A preview that is missing, corrupt, or undecodable is unavailable,
+not clear. Human-sensitive machine labels such as `child` or `teen` trigger review rather
+than asserting an age or identity. Validation fails if any such ID appears in the master.
 
 The HOLD set should be private and access-controlled. It is not an editor album and must not be exported casually.
 
@@ -36,4 +41,3 @@ A production adapter must:
 7. Support independent read-only verification.
 
 If an adapter cannot meet all seven conditions, it is not production-ready.
-

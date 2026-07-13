@@ -6,8 +6,20 @@ import shutil
 import sys
 from pathlib import Path
 
-from .pipeline import build_catalog_plan, evaluate, make_sample, read_config, read_csv, select, validate, write_csv
+from .pipeline import (
+    apply_feedback,
+    build_catalog_plan,
+    evaluate,
+    make_sample,
+    read_config,
+    read_csv,
+    select,
+    validate,
+    validate_feedback,
+    write_csv,
+)
 from .practice import create_demo_inventory, practice_feedback, write_demo_readme
+from .run_state import audit_state, mark_phase
 
 
 def markdown_report(title: str, data: dict) -> str:
@@ -28,7 +40,7 @@ def command_select(args: argparse.Namespace) -> int:
     master, holds, summary = select(inventory, config)
     output = args.output
     write_csv(output / "manifests" / "proposed-master.csv", master)
-    write_csv(output / "manifests" / "hold-sensitive.csv", holds)
+    write_csv(output / "manifests" / "hold-sensitive.csv", holds, fieldnames=list(inventory[0]))
     reports = output / "reports"
     reports.mkdir(parents=True, exist_ok=True)
     (reports / "selection-summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
@@ -39,16 +51,28 @@ def command_select(args: argparse.Namespace) -> int:
 
 def command_sample(args: argparse.Namespace) -> int:
     master = read_csv(args.master)
-    sample = make_sample(master, args.per_view, args.seed)
+    views = set(args.view) if args.view else None
+    sample = make_sample(master, args.per_view, args.seed, views=views, round_id=args.round_id)
     write_csv(args.output, sample)
     print(f"wrote {len(sample)} evaluation rows to {args.output}")
     return 0
 
 
+def command_state(args: argparse.Namespace) -> int:
+    if args.action == "mark":
+        if not args.phase or not args.status:
+            raise ValueError("state mark requires --phase and --status")
+        mark_phase(args.workspace, args.phase, args.status, args.artifact)
+    report = audit_state(args.workspace)
+    print(json.dumps(report, indent=2))
+    return 0 if report["status"] == "PASS" else 2
+
+
 def command_evaluate(args: argparse.Namespace) -> int:
     config = read_config(args.config)
     feedback = read_csv(args.feedback)
-    report, passed = evaluate(feedback, config)
+    master = read_csv(args.master) if args.master else None
+    report, passed = evaluate(feedback, config, master=master)
     args.output.mkdir(parents=True, exist_ok=True)
     (args.output / "evaluation-report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     (args.output / "evaluation-report.md").write_text(markdown_report("Evaluation report", report), encoding="utf-8")
@@ -56,10 +80,27 @@ def command_evaluate(args: argparse.Namespace) -> int:
     return 0 if passed else 2
 
 
+def command_feedback_validate(args: argparse.Namespace) -> int:
+    report = validate_feedback(read_csv(args.feedback))
+    if args.output:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(report, indent=2))
+    return 0
+
+
+def command_feedback_apply(args: argparse.Namespace) -> int:
+    feedback = read_csv(args.feedback)
+    merged = apply_feedback(read_csv(args.sample), feedback)
+    write_csv(args.output, merged)
+    print(f"applied {len(feedback)} feedback rows to {args.output}")
+    return 0
+
+
 def command_validate(args: argparse.Namespace) -> int:
     config = read_config(args.config)
     master = read_csv(args.master)
-    holds = read_csv(args.holds)
+    holds = read_csv(args.holds, allow_empty=True)
     errors, metrics = validate(master, holds, config)
     args.output.mkdir(parents=True, exist_ok=True)
     report = dict(metrics)
@@ -73,7 +114,10 @@ def command_validate(args: argparse.Namespace) -> int:
 def command_plan(args: argparse.Namespace) -> int:
     config = read_config(args.config)
     master = read_csv(args.master)
-    plan = build_catalog_plan(master, config, args.plan_id, args.source_title, args.source_identifier)
+    evaluation_report = json.loads(args.evaluation_report.read_text(encoding="utf-8"))
+    plan = build_catalog_plan(
+        master, config, args.plan_id, args.source_title, args.source_identifier, evaluation_report
+    )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
     print(f"wrote membership-only catalog plan to {args.output}")
@@ -97,10 +141,17 @@ def command_demo(args: argparse.Namespace) -> int:
             output=sample_path,
             per_view=3,
             seed=20260710,
+            view=[],
+            round_id="practice-01",
         )
     )
     practice_feedback(sample_path)
-    eval_code = command_evaluate(argparse.Namespace(config=config, feedback=sample_path, output=workspace / "reports"))
+    eval_code = command_evaluate(argparse.Namespace(
+        config=config,
+        feedback=sample_path,
+        master=workspace / "manifests" / "proposed-master.csv",
+        output=workspace / "reports",
+    ))
     validation_code = command_validate(
         argparse.Namespace(
             config=config,
@@ -116,6 +167,7 @@ def command_demo(args: argparse.Namespace) -> int:
             plan_id="synthetic-practice-plan",
             source_title="Synthetic practice corpus",
             source_identifier="SYNTHETIC-ONLY",
+            evaluation_report=workspace / "reports" / "evaluation-report.json",
             output=workspace / "manifests" / "catalog-plan.json",
         )
     )
@@ -142,13 +194,27 @@ def parser() -> argparse.ArgumentParser:
     sample.add_argument("--output", type=Path, required=True)
     sample.add_argument("--per-view", type=int, default=3)
     sample.add_argument("--seed", type=int, default=20260710)
+    sample.add_argument("--view", action="append", default=[], help="sample only this view; repeat as needed")
+    sample.add_argument("--round-id", default="round-01")
     sample.set_defaults(func=command_sample)
 
     evaluation = sub.add_parser("evaluate", help="measure labeled evaluation feedback")
     evaluation.add_argument("--feedback", type=Path, required=True)
     evaluation.add_argument("--config", type=Path, required=True)
+    evaluation.add_argument("--master", type=Path, help="required to certify a full-master audit")
     evaluation.add_argument("--output", type=Path, required=True)
     evaluation.set_defaults(func=command_evaluate)
+
+    feedback = sub.add_parser("feedback-validate", help="validate structured evaluation feedback")
+    feedback.add_argument("--feedback", type=Path, required=True)
+    feedback.add_argument("--output", type=Path)
+    feedback.set_defaults(func=command_feedback_validate)
+
+    feedback_apply = sub.add_parser("feedback-apply", help="apply feedback to an evaluation sample")
+    feedback_apply.add_argument("--sample", type=Path, required=True)
+    feedback_apply.add_argument("--feedback", type=Path, required=True)
+    feedback_apply.add_argument("--output", type=Path, required=True)
+    feedback_apply.set_defaults(func=command_feedback_apply)
 
     validation = sub.add_parser("validate", help="validate a proposed master against invariants")
     validation.add_argument("--master", type=Path, required=True)
@@ -163,8 +229,17 @@ def parser() -> argparse.ArgumentParser:
     plan.add_argument("--plan-id", required=True)
     plan.add_argument("--source-title", required=True)
     plan.add_argument("--source-identifier", required=True)
+    plan.add_argument("--evaluation-report", type=Path, required=True)
     plan.add_argument("--output", type=Path, required=True)
     plan.set_defaults(func=command_plan)
+
+    state = sub.add_parser("state", help="inspect or update resumable run state")
+    state.add_argument("action", choices=["status", "resume", "audit", "mark"])
+    state.add_argument("--workspace", type=Path, required=True)
+    state.add_argument("--phase")
+    state.add_argument("--status", choices=["pending", "in-progress", "complete", "blocked"])
+    state.add_argument("--artifact", type=Path, action="append", default=[])
+    state.set_defaults(func=command_state)
     return root
 
 

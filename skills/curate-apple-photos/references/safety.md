@@ -12,11 +12,22 @@ Automated flags are conservative retrieval controls, not declarations about a pe
 - payment requests, invoices, and financial screens;
 - hidden, trashed, missing, corrupt, or unavailable assets.
 
+Preview-export receipts are not sufficient proof that pixels are usable. Decode every
+expected preview. Missing and corrupt previews are `unavailable` and fail closed.
+
 Store only generalized flags. Keep raw OCR ephemeral.
+
+Label run artifacts as `private-operational`, `review-sensitive`, or `public-safe`. Run
+`lint_public_report.py` before human publication review. A machine PASS is only a leak check,
+not consent or publication approval.
 
 ## Human-sensitive review
 
-Use `needs-review` for minors, intimate domestic scenes, vulnerable people, private homes, grief, health context, protest risk, or images whose publication could change someone's safety or dignity. Do not automatically include these in an editor-facing master.
+Use `hold-human-sensitive` for possible minors, intimate domestic scenes, vulnerable people,
+private homes, grief, health context, protest risk, or images whose publication could change
+someone's safety or dignity. Machine labels trigger review; they do not establish age,
+identity, or publication risk as fact. Do not automatically include these items in an
+editor-facing master.
 
 ## Public meaning
 
@@ -38,4 +49,3 @@ Prohibited:
 - direct Photos database writes;
 - cloud analysis or external upload;
 - replacing or renaming prior versions.
-

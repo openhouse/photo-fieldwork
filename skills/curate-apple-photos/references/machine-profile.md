@@ -18,7 +18,18 @@ Always launch plans through the app bundle so macOS uses its stable Photos permi
 open -W -n "/Applications/Jamie Photo Archive.app" --args --plan /absolute/path/plan.json
 ```
 
-## Immutable wide source
+## Source options
+
+The brief decides the source. Use a versioned `source.json` and verify its snapshot count and membership fingerprint.
+
+### Visible whole-library stills
+
+- Canonical identifier: `visible-library-stills://v1`
+- Predicate: visible, non-hidden, non-trashed, primary-scope still photographs
+- Builder: `scripts/build_visible_library_inventory.py`
+- Count: dynamic; record the value generated for the run rather than embedding a constant
+
+### Existing wide source album
 
 - Album title: `00 MASTER — PHOTO EDITORS — TARGET 5K`
 - Local identifier: `360ED78F-FB05-490A-8FFD-F3CB951D0D0A/L0/040`
@@ -31,7 +42,9 @@ open -W -n "/Applications/Jamie Photo Archive.app" --args --plan /absolute/path/
 
 - Library: `/Volumes/apple-photos-8tb-external-ssd/Photos Library.photoslibrary`
 - Database: `/Volumes/apple-photos-8tb-external-ssd/Photos Library.photoslibrary/database/Photos.sqlite`
-- Verification access must use SQLite URI `mode=ro&immutable=1` and `PRAGMA query_only=ON`.
+- Live inventory and verification access must use SQLite URI `mode=ro` and
+  `PRAGMA query_only=ON` so committed WAL state is visible. Use `immutable=1` only for the
+  bounded compact snapshot or another known checkpointed copy.
 - Never issue `INSERT`, `UPDATE`, `DELETE`, schema changes, or a non-read-only connection.
 
 ## Existing protected folders

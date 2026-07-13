@@ -28,15 +28,23 @@ Run the tests:
 make check
 ```
 
+The production Apple Photos scripts use Pillow for contact sheets and preview-integrity
+checks. Install the declared extra in an isolated environment with `pip install -e '.[photos]'`.
+
 ## Use it with your own inventory
 
 1. Copy `config/starter.json` and edit the views, quotas, and thresholds.
-2. Prepare a CSV using `schemas/inventory-fields.md`.
-3. Run the selection and create an evaluation sample.
-4. Inspect sampled images locally and record `fit`, `reject`, or `uncertain`.
-5. Evaluate, revise, and repeat until the agreed criteria pass.
-6. Generate a catalog write plan. Test ten items before any production write.
-7. Verify the committed album membership independently and read-only.
+2. Declare the source with `schemas/source.schema.json`. When the brief says the whole
+   Apple Photos library, use `visible-library-stills://v1`; do not silently substitute a
+   prior editor album.
+3. Prepare a CSV using `schemas/inventory-fields.md`. Keep retrieval hypotheses in
+   `candidate_views`; after looking, record the reviewed decision in `assigned_view`.
+4. Cluster local near-duplicates, run selection, and create an evaluation sample.
+5. Inspect sampled images locally and record `fit`, `reject`, or `uncertain`.
+6. Validate and apply structured feedback. Evaluate per view, revise weak views, and repeat.
+7. Freeze the master and fully audit every selected image. A targeted audit cannot authorize a write.
+8. Generate a hash-bound catalog plan. Test ten items before any production write.
+9. Verify the committed album membership independently and read-only.
 
 ```bash
 ./bin/photo-fieldwork select \
@@ -49,10 +57,23 @@ make check
   --output runs/my-run/manifests/eval-sample.csv \
   --per-view 3
 
+./bin/photo-fieldwork feedback-validate \
+  --feedback runs/my-run/manifests/eval-feedback.csv \
+  --output runs/my-run/reports/feedback-validation.json
+
+./bin/photo-fieldwork feedback-apply \
+  --sample runs/my-run/manifests/eval-sample.csv \
+  --feedback runs/my-run/manifests/eval-feedback.csv \
+  --output runs/my-run/manifests/eval-sample-labeled.csv
+
 ./bin/photo-fieldwork evaluate \
-  --feedback runs/my-run/manifests/eval-sample.csv \
+  --feedback runs/my-run/manifests/eval-sample-labeled.csv \
+  --master runs/my-run/manifests/proposed-master.csv \
   --config path/to/config.json \
   --output runs/my-run/reports
+
+# After an interruption, inspect artifact hashes and the next incomplete phase.
+./bin/photo-fieldwork state resume --workspace runs/my-run
 
 ./bin/photo-fieldwork validate \
   --master runs/my-run/manifests/proposed-master.csv \
@@ -66,6 +87,7 @@ make check
   --plan-id my-run-v01 \
   --source-title "Wide retrieval - do not edit" \
   --source-identifier SOURCE-ID \
+  --evaluation-report runs/my-run/reports/evaluation-report.json \
   --output runs/my-run/manifests/catalog-plan.json
 ```
 
@@ -83,12 +105,18 @@ Those are different questions. Photo Fieldwork keeps them different.
 
 - A deterministic, configurable selection engine.
 - Safety holds that cannot enter the master.
-- Duplicate and burst controls.
+- Exact, burst, and local perceptual duplicate controls.
 - Named-people and visible-apparatus signals.
 - An unclassified editor field for honest uncertainty.
 - Stratified evaluation samples and precision thresholds.
+- Per-view evaluation gates and targeted follow-up rounds.
+- Reviewed assignments separated from retrieval hypotheses.
+- Frozen proposal hashes, structured feedback, and full-master write authorization.
+- Inventory sensitivity profiles and a conservative public-report linter.
+- Resumable run state with artifact hashes.
 - A fully synthetic practice run.
-- Apple Photos integration guidance and adapter contracts.
+- Versioned source profiles, whole-library inventory support, and adapter capability checks.
+- Fail-closed preview validation and WAL-aware independent verification.
 - A case study of how visual inspection changed a real workflow.
 
 ## What is not included

@@ -13,16 +13,20 @@
 9. State the observed failure pattern and one system change.
 10. Rebuild deterministically and repeat.
 
+Iterative rounds can be targeted. After the last change, run a separate final audit that
+contains every selected UUID. Only this audit may authorize catalog plan generation.
+
 ## Required feedback fields
 
 - `uuid`
 - `primary_view`
 - `judgment`: `fit`, `reject`, or `uncertain`
 - `visible_reason`
-- `safety_status`: `clear`, `hold`, or `needs-review`
+- `evaluation_safety_state`: `clear`, a `hold-*` state, or `unavailable`
 - `error_category`
 - `round_id`
 - `reviewer_lens`
+- `proposal_id` and `master_sha256`
 
 ## Error categories
 
@@ -42,7 +46,10 @@
 - Every view sampled.
 - Coverage at or above configured minimum.
 - Overall decisive precision at or above configured minimum.
-- No material view remains below 0.65 decisive precision without being relabeled as uncertain/editor hypothesis.
+- Every material view meets its configured decisive-sample and precision thresholds; a weak
+  view gets a targeted follow-up round or is relabeled as uncertain/editor hypothesis.
+- Missing visible reasons, missing reject/uncertain error categories, and any safety regression fail the gate.
+- The final write-authorizing report has `full_master_audit: true` and matches the frozen master hash.
 - Exact target, unique IDs, stills only, HOLD disjoint, all pixels locally available unless historically exceptional and explicitly recorded.
 - Generic social scenes do not dominate work evidence.
 - Named relationships and person-free material context both remain visible.
@@ -50,4 +57,3 @@
 ## Stop conditions
 
 Run up to five substantial rounds. Stop earlier when all gates pass and failure review reveals no new systematic issue. Do not lower thresholds merely to finish. If the same genuine blocker recurs, preserve the run and explain exactly what input or permission is missing.
-
