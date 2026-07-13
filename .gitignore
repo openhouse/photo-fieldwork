@@ -10,4 +10,5 @@ previews/
 originals/
 private/
 *.photoslibrary/
-
+.photo-fieldwork.local.json
+config/local-profile.json

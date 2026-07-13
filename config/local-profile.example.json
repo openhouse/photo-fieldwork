@@ -1,0 +1,18 @@
+{
+  "$schema": "../schemas/local-profile.schema.json",
+  "workspace_root": "/path/to/private/photo-fieldwork-runs",
+  "photos_database": "/path/to/Photos Library.photoslibrary/database/Photos.sqlite",
+  "permissioned_app": "/Applications/Photo Fieldwork Archive.app",
+  "permissioned_app_bundle_id": "example.local.photo-fieldwork-archive",
+  "inventory_database": "/path/to/private/photo-fieldwork-inventory.sqlite",
+  "source": {
+    "kind": "album",
+    "identifier": "LOCAL-ALBUM-IDENTIFIER",
+    "expected_count": 1000
+  },
+  "folders": {
+    "root_identifier": "LOCAL-ROOT-FOLDER-IDENTIFIER",
+    "private_identifier": "LOCAL-PRIVATE-FOLDER-IDENTIFIER",
+    "audit_identifier": "LOCAL-AUDIT-FOLDER-IDENTIFIER"
+  }
+}

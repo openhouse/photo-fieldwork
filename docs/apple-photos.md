@@ -17,6 +17,10 @@ Use a documented tool such as `osxphotos` or a read-only library API to inventor
 
 Read installed local help before assuming command syntax. Do not upgrade tools during a production run.
 
+Machine paths, source identifiers, protected folder identifiers, and permissioned-app identity belong in a gitignored local profile. Commit only `config/local-profile.example.json` and its schema.
+
+For whole-library work, `visible-library-stills://v1` means visible, non-hidden, non-trashed, primary-scope still photographs. Snapshot the exact stable-ID membership and retain its SHA-256; count is not identity.
+
 ## Aesthetic scores
 
 Apple aesthetic scores may help choose among photographs already known to be near-identical members of the same burst or duplicate cluster. They should come after the default burst pick, favorite, and edited status as appropriate to the archive owner.
@@ -41,7 +45,7 @@ Keep the wide source album and every earlier version unchanged.
 
 ## Reusable permission helper
 
-For repeated local work, a small signed macOS application with a stable bundle identifier can request Photos permission once and execute reviewed album-membership plans. Renaming or changing the bundle identifier creates a new permission identity. The helper must display the plan ID, source count, intended mutations, and final receipt.
+For repeated local work, a small signed macOS application with a stable bundle identifier can request Photos permission once and execute reviewed album-membership plans. Renaming or changing the bundle identifier creates a new permission identity. The helper must display the plan ID, plan SHA-256, source count, intended mutations, and final receipt. The receipt must echo the exact plan digest consumed.
 
 ## Verification
 
@@ -52,5 +56,7 @@ After writing, compare planned and actual memberships through an independent rea
 - no unexpected IDs;
 - no members outside the source;
 - no HOLD overlap;
-- source count unchanged.
-
+- source count unchanged;
+- source membership SHA-256 unchanged;
+- every album membership SHA-256 matches the plan;
+- the receipt is bound to the exact plan SHA-256.

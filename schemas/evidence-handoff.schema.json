@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Public-safe visual corroboration handoff",
+  "type": "object",
+  "required": ["records"],
+  "properties": {
+    "records": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "public_safe_observation", "may_corroborate", "does_not_establish", "publication_boundary", "status", "reviewed_at"],
+        "properties": {
+          "id": {"type": "string"},
+          "public_safe_observation": {"type": "string"},
+          "may_corroborate": {"type": "array", "items": {"type": "string"}},
+          "does_not_establish": {"type": "array", "items": {"type": "string"}},
+          "publication_boundary": {"type": "string"},
+          "related_claim_ids": {"type": "array", "items": {"type": "string"}},
+          "status": {"enum": ["draft", "approved-for-handoff"]},
+          "reviewed_at": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

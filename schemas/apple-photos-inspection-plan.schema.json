@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Photo Fieldwork local inspection plan",
+  "type": "object",
+  "required": ["operation", "schema_version", "plan_id", "plan_sha256", "safety_mode", "source_album_identifier", "expected_source_count", "source_membership_sha256", "asset_identifiers", "output_jsonl_path", "receipt_path", "preview_directory", "network_access_allowed"],
+  "properties": {
+    "operation": {"const": "inspect-local-images"},
+    "schema_version": {"const": 1},
+    "plan_id": {"type": "string"},
+    "plan_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "safety_mode": {"const": "read-only-local-inspection-and-preview-export"},
+    "source_album_identifier": {"type": "string"},
+    "expected_source_count": {"type": "integer", "minimum": 1},
+    "source_membership_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "asset_identifiers": {"type": "array", "minItems": 1, "uniqueItems": true},
+    "output_jsonl_path": {"type": "string"},
+    "receipt_path": {"type": "string"},
+    "preview_directory": {"type": "string"},
+    "network_access_allowed": {"const": false}
+  }
+}

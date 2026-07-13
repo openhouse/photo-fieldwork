@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import shutil
 import sys
+from collections import Counter
 from pathlib import Path
 
+from .handoff import render_handoff
+from .integrity import membership_sha256
 from .pipeline import build_catalog_plan, evaluate, make_sample, read_config, read_csv, select, validate, write_csv
 from .practice import create_demo_inventory, practice_feedback, write_demo_readme
+from .review import render_review_workspace
+from .runstate import checkpoint, initialize_run, next_phase, load_state
 
 
 def markdown_report(title: str, data: dict) -> str:
@@ -20,6 +26,17 @@ def markdown_report(title: str, data: dict) -> str:
         else:
             lines.append(f"- **{key.replace('_', ' ').title()}:** {value}")
     return "\n".join(lines) + "\n"
+
+
+def read_id_column(path: Path, column: str) -> list[str]:
+    with path.open(newline="", encoding="utf-8-sig") as handle:
+        reader = csv.DictReader(handle)
+        if column not in (reader.fieldnames or []):
+            raise ValueError(f"missing identifier column {column}: {path}")
+        values = [row[column] for row in reader if row.get(column)]
+    if not values:
+        raise ValueError(f"no identifiers found in {path}")
+    return values
 
 
 def command_select(args: argparse.Namespace) -> int:
@@ -73,10 +90,128 @@ def command_validate(args: argparse.Namespace) -> int:
 def command_plan(args: argparse.Namespace) -> int:
     config = read_config(args.config)
     master = read_csv(args.master)
-    plan = build_catalog_plan(master, config, args.plan_id, args.source_title, args.source_identifier)
+    source_members = read_id_column(args.source_members, args.source_id_column)
+    plan = build_catalog_plan(
+        master,
+        config,
+        args.plan_id,
+        args.source_title,
+        args.source_identifier,
+        source_members,
+    )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
     print(f"wrote membership-only catalog plan to {args.output}")
+    return 0
+
+
+def command_apply_feedback(args: argparse.Namespace) -> int:
+    inventory = read_csv(args.inventory)
+    feedback = {row["uuid"].split("/", 1)[0]: row for row in read_csv(args.feedback)}
+    excluded = 0
+    held = 0
+    for row in inventory:
+        item = feedback.get(row["uuid"].split("/", 1)[0])
+        if not item:
+            row.setdefault("evaluation_exclusion", "false")
+            continue
+        row["evaluation_round"] = item.get("round_id", "")
+        row["evaluation_reason"] = item.get("visible_reason", "")
+        rejected = item.get("judgment", "").strip().lower() == "reject"
+        row["evaluation_exclusion"] = str(rejected).lower()
+        if rejected:
+            excluded += 1
+        safety_status = item.get("safety_status", "").strip().lower()
+        if safety_status in {"hold", "human-confirmed-hold"}:
+            row["safety_status"] = "human-confirmed-hold"
+            row["safety_reason"] = "human-sensitive visual review; private review required"
+            held += 1
+        elif safety_status in {"machine-suspected", "needs-review"}:
+            row["safety_status"] = "machine-suspected"
+            row["safety_reason"] = "local automated review; human confirmation required"
+            held += 1
+    write_csv(args.output, inventory)
+    print(f"evaluation_exclusions={excluded}")
+    print(f"safety_holds={held}")
+    return 0
+
+
+def command_compare(args: argparse.Namespace) -> int:
+    before = read_csv(args.before)
+    after = read_csv(args.after)
+    before_by_id = {row["uuid"].split("/", 1)[0]: row for row in before}
+    after_by_id = {row["uuid"].split("/", 1)[0]: row for row in after}
+    retained = set(before_by_id) & set(after_by_id)
+    report = {
+        "before_count": len(before_by_id),
+        "after_count": len(after_by_id),
+        "added_count": len(set(after_by_id) - set(before_by_id)),
+        "removed_count": len(set(before_by_id) - set(after_by_id)),
+        "retained_count": len(retained),
+        "retained_fraction": round(len(retained) / len(after_by_id), 4) if after_by_id else 0,
+        "reclassified_count": sum(
+            before_by_id[identifier].get("primary_view") != after_by_id[identifier].get("primary_view")
+            for identifier in retained
+        ),
+        "before_membership_sha256": membership_sha256(before_by_id),
+        "after_membership_sha256": membership_sha256(after_by_id),
+    }
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(report, indent=2))
+    return 0
+
+
+def command_digest(args: argparse.Namespace) -> int:
+    identifiers = read_id_column(args.input, args.id_column)
+    print(json.dumps({"count": len(set(identifiers)), "membership_sha256": membership_sha256(identifiers)}, indent=2))
+    return 0
+
+
+def command_run(args: argparse.Namespace) -> int:
+    state, created = initialize_run(args.workspace, args.brief, args.profile, args.version, args.target)
+    print(json.dumps({
+        "workspace": str(args.workspace.resolve()),
+        "created": created,
+        "status": state["status"],
+        "next_phase": next_phase(state),
+    }, indent=2))
+    return 0
+
+
+def command_checkpoint(args: argparse.Namespace) -> int:
+    state, changed = checkpoint(args.workspace, args.phase, args.artifact)
+    print(json.dumps({"changed": changed, "status": state["status"], "next_phase": next_phase(state)}, indent=2))
+    return 0
+
+
+def command_status(args: argparse.Namespace) -> int:
+    state = load_state(args.workspace)
+    summary = {
+        "run_id": state["run_id"],
+        "status": state["status"],
+        "next_phase": next_phase(state),
+        "phase_counts": dict(sorted(Counter(item["status"] for item in state["phases"].values()).items())),
+    }
+    print(json.dumps(summary, indent=2))
+    return 0
+
+
+def command_evidence_handoff(args: argparse.Namespace) -> int:
+    data = json.loads(args.input.read_text(encoding="utf-8"))
+    output = render_handoff(data)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(output, encoding="utf-8")
+    print(f"wrote public-safe evidence handoff to {args.output}")
+    return 0
+
+
+def command_review_pack(args: argparse.Namespace) -> int:
+    rows = read_csv(args.sample)
+    html = render_review_workspace(rows, args.previews, args.round_id, args.reviewer_lens)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(html, encoding="utf-8")
+    print(f"wrote offline review workspace to {args.output}")
     return 0
 
 
@@ -116,6 +251,8 @@ def command_demo(args: argparse.Namespace) -> int:
             plan_id="synthetic-practice-plan",
             source_title="Synthetic practice corpus",
             source_identifier="SYNTHETIC-ONLY",
+            source_members=inventory,
+            source_id_column="uuid",
             output=workspace / "manifests" / "catalog-plan.json",
         )
     )
@@ -163,8 +300,58 @@ def parser() -> argparse.ArgumentParser:
     plan.add_argument("--plan-id", required=True)
     plan.add_argument("--source-title", required=True)
     plan.add_argument("--source-identifier", required=True)
+    plan.add_argument("--source-members", type=Path, required=True)
+    plan.add_argument("--source-id-column", default="uuid")
     plan.add_argument("--output", type=Path, required=True)
     plan.set_defaults(func=command_plan)
+
+    feedback = sub.add_parser("apply-feedback", help="apply visual rejects and safety holds to an inventory")
+    feedback.add_argument("--inventory", type=Path, required=True)
+    feedback.add_argument("--feedback", type=Path, required=True)
+    feedback.add_argument("--output", type=Path, required=True)
+    feedback.set_defaults(func=command_apply_feedback)
+
+    compare = sub.add_parser("compare", help="compare two versioned master manifests")
+    compare.add_argument("--before", type=Path, required=True)
+    compare.add_argument("--after", type=Path, required=True)
+    compare.add_argument("--output", type=Path, required=True)
+    compare.set_defaults(func=command_compare)
+
+    digest = sub.add_parser("digest", help="compute a stable membership digest for a CSV")
+    digest.add_argument("--input", type=Path, required=True)
+    digest.add_argument("--id-column", default="uuid")
+    digest.set_defaults(func=command_digest)
+
+    run = sub.add_parser("run", help="initialize or resume a private versioned run")
+    run.add_argument("--workspace", type=Path, required=True)
+    run.add_argument("--brief", type=Path, required=True)
+    run.add_argument("--profile", type=Path, required=True)
+    run.add_argument("--version", required=True)
+    run.add_argument("--target", type=int, required=True)
+    run.set_defaults(func=command_run)
+
+    checkpoint_parser = sub.add_parser("checkpoint", help="complete one run phase with artifact digests")
+    checkpoint_parser.add_argument("--workspace", type=Path, required=True)
+    checkpoint_parser.add_argument("--phase", required=True)
+    checkpoint_parser.add_argument("--artifact", type=Path, action="append", default=[])
+    checkpoint_parser.set_defaults(func=command_checkpoint)
+
+    status = sub.add_parser("status", help="show resumable run status")
+    status.add_argument("--workspace", type=Path, required=True)
+    status.set_defaults(func=command_status)
+
+    handoff = sub.add_parser("evidence-handoff", help="render a public-safe visual corroboration handoff")
+    handoff.add_argument("--input", type=Path, required=True)
+    handoff.add_argument("--output", type=Path, required=True)
+    handoff.set_defaults(func=command_evidence_handoff)
+
+    review = sub.add_parser("review-pack", help="build a static, offline visual review workspace")
+    review.add_argument("--sample", type=Path, required=True)
+    review.add_argument("--previews", type=Path, required=True)
+    review.add_argument("--round-id", required=True)
+    review.add_argument("--reviewer-lens", required=True)
+    review.add_argument("--output", type=Path, required=True)
+    review.set_defaults(func=command_review_pack)
     return root
 
 

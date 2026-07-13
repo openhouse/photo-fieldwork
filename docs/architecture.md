@@ -9,24 +9,30 @@ Catalog reader or filesystem scanner
        inventory.csv
               |
               v
- deterministic selector ---> hold-sensitive.csv
+ feasibility preflight
+              |
+              v
+ capacity-flow selector ---> hold-sensitive.csv
               |
               v
    proposed-master.csv
         |            |
         v            v
- evaluation loop   catalog-plan.json
-                         |
-                         v
-                 catalog writer adapter
-                         |
-                         v
-                  independent verifier
+ offline review    digest-bound catalog-plan.json
+        |                    |
+        v                    v
+ feedback loop        catalog writer adapter
+                             |
+                             v
+                      bound writer receipt
+                             |
+                             v
+                    independent verifier
 ```
 
 ## Core
 
-The standard-library Python core reads a normalized CSV, applies immutable safety exclusions, reduces duplicate and burst clusters, assigns editor views, creates selection reasons, samples evaluations, measures results, validates invariants, and emits an adapter-neutral catalog plan.
+The standard-library Python core reads a normalized CSV, applies immutable safety and evaluation exclusions, reduces duplicate and burst clusters, assigns exact view quotas through deterministic capacity flow, creates selection reasons, samples evaluations, measures uncertainty, validates invariants, and emits an adapter-neutral digest-bound catalog plan.
 
 The core does not read a Photos database, open images, call a model, or mutate a catalog.
 
@@ -48,11 +54,19 @@ An inspector may add local visible-context, technical-quality, and generalized s
 
 ## Writer adapters
 
-A writer consumes `catalog-plan.json`. It may create version folders, create albums, and add existing stable IDs. It must not invent selection logic. It must emit a receipt and be safe to rerun.
+A writer consumes `catalog-plan.json`. It may create version folders, create albums, and add existing stable IDs. It must not invent selection logic. It must emit a receipt bound to the exact plan SHA-256 and be safe to rerun.
 
 ## Verifier adapters
 
-A verifier independently compares plan and catalog. It should be read-only and should not share mutation code with the writer.
+A verifier independently compares plan and catalog. It should be read-only and should not share mutation code with the writer. It recomputes source and destination membership digests; equal-count membership substitution must fail.
+
+## Private profiles and run state
+
+Machine paths and real catalog identifiers live in a gitignored local profile. A run stores the profile digest, not the profile. Thirteen ordered phases checkpoint artifact names, sizes, and SHA-256 values. Identical retries are idempotent; changed evidence behind a completed phase is rejected.
+
+## Review and projection
+
+The static local review workspace records category fit, visible reason, safety, public suitability, provenance, and error category separately. A public-safe evidence handoff may summarize approved observations, but it contains no asset IDs or private archive metadata and grants no publication approval.
 
 ## Extension points
 

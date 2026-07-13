@@ -35,7 +35,7 @@ make check
 3. Run the selection and create an evaluation sample.
 4. Inspect sampled images locally and record `fit`, `reject`, or `uncertain`.
 5. Evaluate, revise, and repeat until the agreed criteria pass.
-6. Generate a catalog write plan. Test ten items before any production write.
+6. Generate a digest-bound catalog write plan. Test ten items before any production write.
 7. Verify the committed album membership independently and read-only.
 
 ```bash
@@ -66,8 +66,50 @@ make check
   --plan-id my-run-v01 \
   --source-title "Wide retrieval - do not edit" \
   --source-identifier SOURCE-ID \
+  --source-members path/to/source-members.csv \
   --output runs/my-run/manifests/catalog-plan.json
 ```
+
+The selector uses deterministic capacity flow so overlapping candidate views can satisfy exact quotas when the candidate graph is feasible. Infeasible configurations report deficient views and candidate reach instead of silently backfilling another category.
+
+## Resume a private production run
+
+Keep machine paths and real catalog identifiers in a gitignored local profile based on `config/local-profile.example.json`.
+
+```bash
+./bin/photo-fieldwork run \
+  --workspace /private/path/to/runs/v05 \
+  --brief brief.md \
+  --profile /private/path/to/.photo-fieldwork.local.json \
+  --version v05 \
+  --target 4000
+
+./bin/photo-fieldwork checkpoint \
+  --workspace /private/path/to/runs/v05 \
+  --phase doctor \
+  --artifact /private/path/to/runs/v05/reports/doctor.json
+```
+
+Run state stores artifact digests, not the local profile. Repeating an identical checkpoint is safe; changing an artifact behind a completed checkpoint is rejected.
+
+## Review locally
+
+Build a static review instrument that opens with `file://` and starts no server:
+
+```bash
+./bin/photo-fieldwork review-pack \
+  --sample runs/v05/manifests/eval-sample.csv \
+  --previews runs/v05/previews/round-01 \
+  --round-id round-01 \
+  --reviewer-lens "delegated editorial review" \
+  --output runs/v05/contact-sheets/review-round-01.html
+```
+
+The review separates visible category fit, safety, public suitability, and provenance. Its export feeds `photo-fieldwork evaluate` and `photo-fieldwork apply-feedback`.
+
+## Hand off visual corroboration safely
+
+`photo-fieldwork evidence-handoff` converts reviewed, operator-authored summaries into a public-safe Markdown note. It rejects asset IDs, filenames, local paths, People associations, coordinates, raw OCR, email addresses, and real catalog identifiers. The generated note says explicitly that photographs do not establish authorship, causation, outcomes, endorsement, consent, credit, or publication rights.
 
 ## The central distinction
 
@@ -82,11 +124,16 @@ Those are different questions. Photo Fieldwork keeps them different.
 ## What is included
 
 - A deterministic, configurable selection engine.
+- Feasibility-aware exact-quota assignment with actionable diagnostics.
 - Safety holds that cannot enter the master.
 - Duplicate and burst controls.
 - Named-people and visible-apparatus signals.
 - An unclassified editor field for honest uncertainty.
 - Stratified evaluation samples and precision thresholds.
+- Wilson intervals, small-sample warnings, and separated review dimensions.
+- Resumable phase checkpoints and version-comparison reports.
+- Source, plan, album, and master membership digests.
+- A static offline review workspace and public-safe evidence handoff.
 - A fully synthetic practice run.
 - Apple Photos integration guidance and adapter contracts.
 - A case study of how visual inspection changed a real workflow.
@@ -126,4 +173,4 @@ production album creation, and independent verification.
 [PASTE TODAY'S BRIEF]
 ```
 
-The skill integrates with the installed `/Applications/Jamie Photo Archive.app`, preserving its stable Photos permission identity. Its reviewed source is retained under `integrations/jamie-photo-archive/`; replacing or rebuilding the installed app is a separate, explicit operation because macOS may request Photos authorization again.
+The skill integrates with the permissioned app declared in the private local profile, preserving its stable Photos permission identity. Reviewed helper source is retained under `integrations/jamie-photo-archive/`; replacing or rebuilding the installed app is a separate, explicit operation because macOS may request Photos authorization again.

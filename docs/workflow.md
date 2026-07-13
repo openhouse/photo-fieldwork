@@ -8,7 +8,7 @@ Write down what may be read, what may be created, where outputs live, and which 
 
 ## 1. Freeze a source corpus
 
-Give the broad retrieval corpus a stable name and count. Never alter it during a versioned run. Preserve v00, v01, and later runs as separate folders so selection logic can be compared rather than overwritten.
+Give the broad retrieval corpus a stable name, count, and membership SHA-256. Never alter it during a versioned run. A count alone cannot detect equal-count substitutions. Preserve v00, v01, and later runs as separate folders so selection logic can be compared rather than overwritten.
 
 ## 2. Build a compact inventory
 
@@ -38,11 +38,11 @@ People associations are first-class archive structure. Preserve named relationsh
 
 ## 8. Evaluate and loop
 
-Sample low, middle, and high-scoring images from each view. Measure coverage and precision. Read the rejected examples. Revise retrieval, scoring, holds, or labels, then rerun with the same seed. A metric without inspected failure cases is not enough.
+Sample low, middle, and high-scoring images from each view. Measure coverage and precision with denominators and small-sample warnings. Keep category fit, safety, public suitability, and provenance separate. Read the rejected examples, apply them as hard negatives, revise retrieval, scoring, holds, or labels, then rerun with the same seed. A metric without inspected failure cases is not enough.
 
 ## 9. Plan before writing
 
-Produce proposed-master, hold, membership, and decision manifests before touching the catalog. Every selected stable ID needs a reason. The plan must be idempotent.
+Produce proposed-master, hold, membership, and decision manifests before touching the catalog. Every selected stable ID needs a reason. Bind the plan to source, master, and per-album membership digests. The plan must be idempotent.
 
 ## 10. Commit narrowly
 
@@ -50,9 +50,12 @@ Write ten non-sensitive items to a uniquely named test album. Verify exact membe
 
 ## 11. Verify independently
 
-Use a read-only mechanism distinct from the writer to compare planned and actual membership. Report missing, unexpected, outside-source, and hold-overlap counts. Preserve receipts, configuration, scripts, and evaluation feedback with the version.
+Use a read-only mechanism distinct from the writer to compare planned and actual membership. Recompute source and destination digests. Report missing, unexpected, outside-source, and hold-overlap counts. Preserve receipts, configuration, scripts, and evaluation feedback with the version.
 
 ## 12. Hand off honestly
 
 Tell editors what the system did and did not do. The result is a contact field for human editing, not the final visual narrative.
 
+## 13. Checkpoint and project carefully
+
+Checkpoint every completed phase with artifact digests so the run can resume without trusting ambient state. Keep the private editor handoff separate from any public-safe visual corroboration note. Neither one makes an image publication-approved by default.

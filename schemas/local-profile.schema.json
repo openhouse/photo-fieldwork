@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Photo Fieldwork local profile",
+  "type": "object",
+  "required": ["workspace_root", "photos_database", "permissioned_app", "source", "folders"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "workspace_root": {"type": "string", "minLength": 1},
+    "photos_database": {"type": "string", "minLength": 1},
+    "permissioned_app": {"type": "string", "minLength": 1},
+    "permissioned_app_bundle_id": {"type": "string"},
+    "inventory_database": {"type": "string"},
+    "source": {
+      "type": "object",
+      "required": ["kind", "identifier", "expected_count"],
+      "properties": {
+        "kind": {"enum": ["album", "visible-library-stills"]},
+        "identifier": {"type": "string", "minLength": 1},
+        "expected_count": {"type": "integer", "minimum": 1}
+      },
+      "additionalProperties": false
+    },
+    "folders": {
+      "type": "object",
+      "required": ["root_identifier", "private_identifier", "audit_identifier"],
+      "properties": {
+        "root_identifier": {"type": "string", "minLength": 1},
+        "private_identifier": {"type": "string", "minLength": 1},
+        "audit_identifier": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
