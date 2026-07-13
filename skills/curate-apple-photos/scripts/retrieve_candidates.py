@@ -185,6 +185,7 @@ def main() -> None:
                 "uuid": uuid,
                 "filename": row.get("original_filename") or row.get("filename") or "",
                 "candidate_views": ";".join(view for view, _ in scores),
+                "candidate_view_scores": json.dumps(dict(scores), sort_keys=True, separators=(",", ":")),
                 "evidence_confidence": confidence,
                 "metadata_score": f"{metadata_score:.2f}",
                 "visible_context": "",

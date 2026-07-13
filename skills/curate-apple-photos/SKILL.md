@@ -16,11 +16,25 @@ Turn the user's brief into a locally inspected, recursively evaluated, versioned
 python3 scripts/photo_archive_bridge.py doctor
 ```
 
-3. Read [brief-contract.md](references/brief-contract.md). Convert the pasted brief into:
+3. Initialize a new run with `photo_archive_bridge.py init-run`. This creates an append-only `events.jsonl` and atomically materialized `run-state.json`. Do not edit either file by hand.
+4. Freeze the inventory used by the run:
+
+```bash
+/Volumes/16TB_SSD/Sites/photo-fieldwork/bin/photo-fieldwork source-profile \
+  --inventory SOURCE_INVENTORY.sqlite \
+  --id SOURCE_PROFILE_ID \
+  --kind photos-inventory \
+  --scope "EXACT SOURCE SCOPE" \
+  --output RUN/inventory/source-profile.json
+```
+
+The source count must be read from the inventory, never copied into reusable code. Keep both count and fingerprint stable through independent verification.
+
+5. Read [brief-contract.md](references/brief-contract.md). Convert the pasted brief into:
    - `brief.md`, preserving the user's words;
    - `retrieval.json`, defining views, terms, people, albums, places, and supporting date ranges;
    - `config.json`, defining target, quotas, seed, uncertainty view, and evaluation thresholds.
-4. Initialize a uniquely named run under `/Users/jburkart/Documents/Jamie-Photo-Archive-2026/` with `photo_archive_bridge.py init-run`. Never reuse or overwrite v00, v01, v02, or another run.
+6. Never reuse or overwrite v00, v01, v02, or another run.
 
 ## Governing invariants
 
@@ -31,6 +45,7 @@ python3 scripts/photo_archive_bridge.py doctor
 - Use existing People names. Never identify unnamed faces or infer sensitive traits.
 - Keep exact private locations and raw OCR out of reports.
 - A potential sensitive item enters HOLD before ranking and cannot enter the master.
+- Use the explicit safety states in [safety.md](references/safety.md). Automated code may escalate sensitivity but cannot grant editor or public clearance.
 - Preserve `Unclassified / Editor Field`. Do not force every photograph into a project story.
 - Label project-specific views `EDITOR HYPOTHESIS` unless visible evidence plus provenance supports stronger wording.
 - Apple aesthetic scores may break ties only inside true duplicate or burst clusters.
@@ -72,10 +87,11 @@ Read [evaluation-loop.md](references/evaluation-loop.md) before the first visual
 3. Build contact sheets with `make_contact_sheets.py`. Use `view_image` to inspect every page. Open individual previews when context or safety is unclear.
 4. Speak briefly as the requested peers. If Jamie cannot review, role-play Jamie using the supplied brief and voice references, while marking the judgment as delegated editorial inference rather than eyewitness fact.
 5. Record `fit`, `reject`, or `uncertain`, one visible reason, a safety state, and an error category in the evaluation CSV.
-6. Run `photo-fieldwork evaluate`. Read all rejections and a stratified uncertainty sample.
+6. Keep the UUID and generated `sample_hash` on every decision. Never apply feedback by row order. Run `photo-fieldwork evaluate`, then `photo-fieldwork apply-feedback`. Read all rejections and a stratified uncertainty sample.
 7. Change retrieval, assignments, penalties, quotas, or hold rules in response to observed errors. Keep the seed fixed. Save each round separately.
 8. Repeat until:
-   - evaluation coverage and precision meet `config.json`;
+   - evaluation coverage, decisive precision, fit rate, and uncertainty gates meet `config.json`;
+   - every material view meets its decisive-count, precision, and uncertainty gates;
    - every view has been visually sampled;
    - known safety regressions are absent;
    - generic social context is not standing in for professional evidence;
@@ -88,12 +104,13 @@ Do not claim success from Vision labels or metadata alone. The recursive loop re
 ## Validate and commit
 
 1. Run `photo-fieldwork validate`. Save a PASS report.
-2. Generate test and production plans with `photo_archive_bridge.py snapshot-plans`.
+2. Generate test and production plans with `photo_archive_bridge.py snapshot-plans --source-profile RUN/inventory/source-profile.json`.
 3. Inspect the plans. Confirm the source count, target count, folder title, HOLD separation, and that operations are membership-only.
 4. Run the ten-item write test through the app. Independently verify it with `verify_photos_commit.py`.
 5. Run the production plan through the app. Rerun it once to confirm idempotence.
-6. Independently verify every album against the plan using read-only, immutable SQLite access.
-7. Update `run-state.json` after each phase and write a completion report containing exact counts, identifiers, evaluation results, privacy facts, and unresolved uncertainty.
+6. Independently verify every album against the plan using read-only, immutable SQLite access. Emit both `verification-report.json` and `verification-report.md`; file extensions and content types must agree.
+7. After each phase succeeds, use `photo-fieldwork transition --status completed --artifact ARTIFACT --expected-revision REVISION`. Use `photo-fieldwork status RUN` to recover state from the event ledger after interruption. Never update `run-state.json` directly.
+8. Write a completion report containing exact counts, identifiers, source fingerprint, evaluation denominators, privacy facts, and unresolved uncertainty.
 
 The helper invocation may require a Codex permission approval for `open -W`; request a reusable approval scoped to `/Applications/Jamie Photo Archive.app`. The app's Photos permission itself should persist under its stable bundle identity.
 
@@ -109,4 +126,3 @@ Return:
 - links to the run README, master manifest, evaluation report, app receipt, and independent verification.
 
 State clearly that this is an editor-ready field, not the final publication edit.
-

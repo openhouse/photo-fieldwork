@@ -16,6 +16,12 @@ from datetime import datetime
 from pathlib import Path
 
 
+REPO_ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(REPO_ROOT / "src"))
+
+from photo_fieldwork.state import initialize_run  # noqa: E402
+
+
 APP = Path("/Applications/Jamie Photo Archive.app")
 APP_EXECUTABLE = APP / "Contents/MacOS/JamiePhotoArchive"
 APP_PLIST = APP / "Contents/Info.plist"
@@ -107,27 +113,26 @@ def command_init(args: argparse.Namespace) -> int:
         raise ValueError(f"workspace already exists: {root}")
     for name in ("inventory", "manifests", "reports", "logs", "previews", "contact-sheets", "scripts"):
         (root / name).mkdir(parents=True, exist_ok=False)
-    state = {
-        "schema_version": 1,
-        "run_id": root.name,
-        "status": "initialized",
-        "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-        "version": args.version,
-        "target_count": args.target,
-        "source_album_identifier": args.source_id,
-        "expected_source_count": args.source_count,
-        "phases": {
-            "brief": "pending",
-            "retrieval": "pending",
-            "local_inspection": "pending",
-            "recursive_evaluation": "pending",
-            "validation": "pending",
-            "write_test": "pending",
-            "production_commit": "pending",
-            "independent_verification": "pending",
+    initialize_run(
+        root,
+        run_id=root.name,
+        phases=[
+            "brief",
+            "retrieval",
+            "local_inspection",
+            "recursive_evaluation",
+            "validation",
+            "write_test",
+            "production_commit",
+            "independent_verification",
+        ],
+        metadata={
+            "version": args.version,
+            "target_count": args.target,
+            "source_album_identifier": args.source_id,
+            "expected_source_count": args.source_count,
         },
-    }
-    dump_json(root / "run-state.json", state)
+    )
     (root / "README.md").write_text(
         f"# {args.version}: {args.slug}\n\n"
         f"- Target: {args.target:,} unique still photographs\n"
@@ -204,9 +209,20 @@ def folder_specs(version_title: str, include_version: bool) -> list[dict]:
     return folders
 
 
-def album(title: str, parent: str, uuids: list[str]) -> dict:
+def album(
+    title: str,
+    parent: str,
+    uuids: list[str],
+    *,
+    key: str,
+    role: str,
+    visibility: str,
+) -> dict:
     identifiers = list(dict.fromkeys(local_identifier(value) for value in uuids))
     return {
+        "key": key,
+        "role": role,
+        "visibility": visibility,
         "title": title,
         "parent_folder_key": parent,
         "existing_identifier": None,
@@ -215,13 +231,34 @@ def album(title: str, parent: str, uuids: list[str]) -> dict:
 
 
 def snapshot_plan(args: argparse.Namespace, plan_id: str, folders: list[dict], albums: list[dict], receipt: str) -> dict:
+    source = (
+        json.loads(args.source_profile.read_text(encoding="utf-8"))
+        if getattr(args, "source_profile", None)
+        else {
+            "schema_version": 1,
+            "id": args.source_id,
+            "kind": "photos-album",
+            "scope": "configured immutable source album",
+            "actual_count": args.source_count,
+            "fingerprint": None,
+        }
+    )
+    if getattr(args, "source_profile", None):
+        if int(source["actual_count"]) != int(args.source_count):
+            raise ValueError(
+                f"source profile count {source['actual_count']} does not match adapter source count {args.source_count}"
+            )
+        if source.get("catalog_identifier") and source["catalog_identifier"] != args.source_id:
+            raise ValueError("source profile catalog_identifier does not match --source-id")
+    source["catalog_identifier"] = args.source_id
     return {
         "operation": "snapshot-membership",
-        "schema_version": 1,
+        "schema_version": 2 if getattr(args, "source_profile", None) else 1,
         "plan_id": plan_id,
         "safety_mode": "create-folders-albums-and-add-membership-only",
         "source_album_identifier": args.source_id,
         "expected_source_count": args.source_count,
+        "source": source,
         "batch_size": args.batch_size,
         "log_path": str(args.workspace / "logs" / "jamie-photo-archive-app.log"),
         "receipt_path": str(args.workspace / "manifests" / receipt),
@@ -274,20 +311,83 @@ def command_snapshot_plans(args: argparse.Namespace) -> int:
         args,
         f"{args.version}-write-test",
         folder_specs(args.folder_title, include_version=False),
-        [album(test_title, "audit", test_ids)],
+        [
+            album(
+                test_title,
+                "audit",
+                test_ids,
+                key="write-test",
+                role="write-test",
+                visibility="restricted-private",
+            )
+        ],
         f"{args.version}-write-test-receipt.json",
     )
-    production_albums = [album(f"00 MASTER — {args.target:,}", "version", master_ids)]
+    production_albums = [
+        album(
+            f"00 MASTER — {args.target:,}",
+            "version",
+            master_ids,
+            key="master",
+            role="editor-master",
+            visibility="private-editor",
+        )
+    ]
     for view, values in sorted(by_view.items()):
         label = view_labels.get(view, "EDITOR VIEW")
-        production_albums.append(album(f"{view} {label} — {len(values):,}", "version", values))
+        production_albums.append(
+            album(
+                f"{view} {label} — {len(values):,}",
+                "version",
+                values,
+                key=f"view-{view}",
+                role="editor-view",
+                visibility="private-editor",
+            )
+        )
     if named:
-        production_albums.append(album(f"90 PEOPLE / NAMED ASSOCIATIONS — {len(named):,}", "version", named))
+        production_albums.append(
+            album(
+                f"90 PEOPLE / NAMED ASSOCIATIONS — {len(named):,}",
+                "version",
+                named,
+                key="people-context",
+                role="people-context",
+                visibility="private-editor",
+            )
+        )
     if uncertain:
-        production_albums.append(album(f"91 CONTEXT UNCERTAIN — EDITOR REVIEW — {len(uncertain):,}", "version", uncertain))
+        production_albums.append(
+            album(
+                f"91 CONTEXT UNCERTAIN — EDITOR REVIEW — {len(uncertain):,}",
+                "version",
+                uncertain,
+                key="uncertainty",
+                role="uncertainty",
+                visibility="private-editor",
+            )
+        )
     if hold_ids:
-        production_albums.append(album(f"{args.version} — AUTOMATED SAFETY HOLD — {len(hold_ids):,}", "private", hold_ids))
-    production_albums.append(album(test_title, "audit", test_ids))
+        production_albums.append(
+            album(
+                f"{args.version} — AUTOMATED SAFETY HOLD — {len(hold_ids):,}",
+                "private",
+                hold_ids,
+                key="safety-hold",
+                role="safety-hold",
+                visibility="restricted-private",
+            )
+        )
+    production_albums.append(
+        album(
+            test_title,
+            "audit",
+            test_ids,
+            key="write-test",
+            role="write-test",
+            visibility="restricted-private",
+        )
+    )
     production = snapshot_plan(
         args,
         f"{args.version}-production",
@@ -368,6 +468,7 @@ def parser() -> argparse.ArgumentParser:
     plans.add_argument("--config", type=Path)
     plans.add_argument("--source-id", default=SOURCE_ID)
     plans.add_argument("--source-count", type=int, default=SOURCE_COUNT)
+    plans.add_argument("--source-profile", type=Path)
     plans.add_argument("--batch-size", type=int, default=500)
     plans.set_defaults(func=command_snapshot_plans)
 

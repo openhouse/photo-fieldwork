@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Photo Fieldwork semantic catalog plan",
+  "type": "object",
+  "required": ["schema_version", "plan_id", "source", "albums"],
+  "properties": {
+    "schema_version": {"const": 2},
+    "plan_id": {"type": "string", "minLength": 1},
+    "source": {"$ref": "source-profile.schema.json"},
+    "albums": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["key", "role", "visibility", "parent_folder_key", "title", "asset_identifiers"],
+        "properties": {
+          "key": {"type": "string", "minLength": 1},
+          "role": {
+            "enum": ["editor-master", "editor-view", "safety-hold", "write-test", "people-context", "uncertainty"]
+          },
+          "visibility": {"enum": ["private-editor", "restricted-private", "public-candidate"]},
+          "parent_folder_key": {"type": "string", "minLength": 1},
+          "title": {"type": "string", "minLength": 1},
+          "asset_identifiers": {"type": "array", "uniqueItems": true, "items": {"type": "string"}}
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

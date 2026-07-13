@@ -12,6 +12,8 @@ Non-negotiable invariants:
 - Treat project labels as retrieval hypotheses until visible evidence or external provenance supports them.
 - Use aesthetic scores only to choose among near-identical burst or duplicate-cluster members.
 - Require a small write test and read-only post-write verification before declaring a catalog commit complete.
+- Address feedback by UUID and sample hash. Never join editorial decisions by row position.
+- Treat `events.jsonl` as append-only and `run-state.json` as its recoverable materialized view.
+- Verify frozen sources by exact UUID fingerprint, not count alone.
 
 Run `make check` after changes. Keep the standard-library-only practice workflow working on a fresh Python 3.11+ installation.
-
