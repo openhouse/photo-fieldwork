@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Jamie Photo Archive inspection plan",
+  "type": "object",
+  "required": [
+    "operation", "schema_version", "plan_id", "workspace_path", "safety_mode",
+    "source_album_identifier", "expected_source_count", "asset_identifiers",
+    "output_jsonl_path", "receipt_path", "log_path", "preview_directory",
+    "target_long_edge", "export_previews", "ocr_all", "network_access_allowed"
+  ],
+  "properties": {
+    "operation": {"const": "inspect-local-images"},
+    "schema_version": {"const": 1},
+    "plan_id": {"type": "string", "minLength": 1},
+    "workspace_path": {"type": "string", "pattern": "^/"},
+    "safety_mode": {"const": "read-only-local-inspection-and-preview-export"},
+    "source_album_identifier": {"type": "string", "minLength": 1},
+    "expected_source_count": {"type": "integer", "minimum": 1},
+    "asset_identifiers": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+    "output_jsonl_path": {"type": "string", "pattern": "^/"},
+    "receipt_path": {"type": "string", "pattern": "^/"},
+    "log_path": {"type": "string", "pattern": "^/"},
+    "preview_directory": {"type": "string", "pattern": "^/"},
+    "target_long_edge": {"type": "integer", "minimum": 256, "maximum": 2400},
+    "export_previews": {"type": "boolean"},
+    "ocr_all": {"type": "boolean"},
+    "classify_all": {"type": "boolean"},
+    "detect_faces": {"type": "boolean"},
+    "network_access_allowed": {"const": false}
+  }
+}

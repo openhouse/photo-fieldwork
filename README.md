@@ -8,6 +8,12 @@ It does not automate taste. It helps people automate retrieval, deduplication, b
 
 Requirements: Python 3.11 or newer. The practice workflow has no third-party dependencies and does not access Apple Photos.
 
+The Apple Photos preview and contact-sheet tools use the optional `apple-photos` extra:
+
+```bash
+python3 -m pip install -e '.[apple-photos]'
+```
+
 ```bash
 make demo
 ```
@@ -63,10 +69,17 @@ make check
 ./bin/photo-fieldwork plan \
   --master runs/my-run/manifests/proposed-master.csv \
   --config path/to/config.json \
+  --evaluation-report runs/my-run/reports/evaluation-report.json \
   --plan-id my-run-v01 \
   --source-title "Wide retrieval - do not edit" \
   --source-identifier SOURCE-ID \
   --output runs/my-run/manifests/catalog-plan.json
+
+./bin/photo-fieldwork ledger \
+  --master runs/my-run/manifests/proposed-master.csv \
+  --holds runs/my-run/manifests/hold-sensitive.csv \
+  --feedback runs/my-run/manifests/eval-sample.csv \
+  --output runs/my-run/manifests/decision-ledger.jsonl
 ```
 
 ## The central distinction
@@ -87,8 +100,11 @@ Those are different questions. Photo Fieldwork keeps them different.
 - Named-people and visible-apparatus signals.
 - An unclassified editor field for honest uncertainty.
 - Stratified evaluation samples and precision thresholds.
+- Explicit decisive-precision, fit-rate, uncertainty, and population-weighted evaluation measures.
+- Exact-master hashes that bind evaluation to catalog plans.
 - A fully synthetic practice run.
 - Apple Photos integration guidance and adapter contracts.
+- Whole-visible-library inventory, preview-integrity, and WAL-safe verification tools.
 - A case study of how visual inspection changed a real workflow.
 
 ## What is not included
@@ -99,7 +115,13 @@ Those are different questions. Photo Fieldwork keeps them different.
 - Direct writes to Photos SQLite.
 - A claim that the generated corpus is the final edit.
 
-Read [the workflow](docs/workflow.md), [the architecture](docs/architecture.md), [the safety model](docs/safety.md), and [the Apple Photos guide](docs/apple-photos.md) before using a private archive.
+Read [the workflow](docs/workflow.md), [the architecture](docs/architecture.md), [the safety model](docs/safety.md), [the Apple Photos guide](docs/apple-photos.md), and [the editor handoff](docs/editor-handoff.md) before using a private archive. The [v04-N case study](docs/case-study-v04-n.md) records the failures that shaped the current gates.
+
+Before publishing changes to this public repository, run:
+
+```bash
+./bin/photo-fieldwork audit-public --root .
+```
 
 ## Use it as a Codex skill
 

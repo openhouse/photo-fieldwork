@@ -10,7 +10,10 @@
     "burst_limit": {"type": "integer", "minimum": 1},
     "exploratory_fraction": {"type": "number", "minimum": 0, "maximum": 1},
     "minimum_eval_precision": {"type": "number", "minimum": 0, "maximum": 1},
+    "minimum_eval_decisive_precision": {"type": "number", "minimum": 0, "maximum": 1},
+    "minimum_eval_decisive_precision_lower_bound": {"type": "number", "minimum": 0, "maximum": 1},
     "minimum_eval_coverage": {"type": "number", "minimum": 0, "maximum": 1},
+    "maximum_eval_uncertainty": {"type": "number", "minimum": 0, "maximum": 1},
     "minimum_named_people_fraction": {"type": "number", "minimum": 0, "maximum": 1},
     "minimum_person_free_fraction": {"type": "number", "minimum": 0, "maximum": 1},
     "views": {

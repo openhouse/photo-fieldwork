@@ -3,6 +3,25 @@ import AppKit
 import Photos
 import Vision
 
+let visibleLibraryStillsSourceIdentifier = "visible-library-stills://v1"
+
+func fetchSourceAssets(identifier: String) throws -> (PHFetchResult<PHAsset>, String) {
+    if identifier == visibleLibraryStillsSourceIdentifier {
+        let options = PHFetchOptions()
+        options.includeHiddenAssets = false
+        return (
+            PHAsset.fetchAssets(with: .image, options: options),
+            "Visible Apple Photos library - still photographs"
+        )
+    }
+    guard let album = PHAssetCollection.fetchAssetCollections(
+        withLocalIdentifiers: [identifier], options: nil
+    ).firstObject else {
+        throw ArchiveError.unresolved("album \(identifier)")
+    }
+    return (PHAsset.fetchAssets(in: album, options: nil), album.localizedTitle ?? "source")
+}
+
 struct PlanHeader: Codable {
     let operation: String?
 }
@@ -50,6 +69,8 @@ struct InspectionPlan: Codable {
     let target_long_edge: Int
     let export_previews: Bool
     let ocr_all: Bool
+    let classify_all: Bool?
+    let detect_faces: Bool?
     let network_access_allowed: Bool
 }
 
@@ -199,11 +220,10 @@ final class InspectionRunner {
         }
 
         try requireAuthorization()
-        let source = try fetchAlbum(identifier: plan.source_album_identifier)
-        let sourceFetch = PHAsset.fetchAssets(in: source, options: nil)
+        let (sourceFetch, sourceTitle) = try fetchSourceAssets(identifier: plan.source_album_identifier)
         guard sourceFetch.count == plan.expected_source_count else {
             throw ArchiveError.membershipMismatch(
-                source.localizedTitle ?? "source",
+                sourceTitle,
                 plan.expected_source_count,
                 sourceFetch.count
             )
@@ -355,14 +375,16 @@ final class InspectionRunner {
         var faceCount = 0
         var errors: [String] = []
 
-        do {
-            let request = VNClassifyImageRequest()
-            try VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])
-            let results = (request.results ?? []).filter { $0.confidence >= 0.05 }.prefix(20)
-            labels = results.map { $0.identifier }
-            confidences = results.map { $0.confidence }
-        } catch {
-            errors.append("classification unavailable")
+        if plan.classify_all ?? true {
+            do {
+                let request = VNClassifyImageRequest()
+                try VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])
+                let results = (request.results ?? []).filter { $0.confidence >= 0.05 }.prefix(20)
+                labels = results.map { $0.identifier }
+                confidences = results.map { $0.confidence }
+            } catch {
+                errors.append("classification unavailable")
+            }
         }
 
         if plan.ocr_all {
@@ -377,12 +399,14 @@ final class InspectionRunner {
             }
         }
 
-        do {
-            let request = VNDetectFaceRectanglesRequest()
-            try VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])
-            faceCount = request.results?.count ?? 0
-        } catch {
-            errors.append("face count unavailable")
+        if plan.detect_faces ?? true {
+            do {
+                let request = VNDetectFaceRectanglesRequest()
+                try VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])
+                faceCount = request.results?.count ?? 0
+            } catch {
+                errors.append("face count unavailable")
+            }
         }
 
         let recognizedText = textLines.joined(separator: " ")
@@ -438,17 +462,23 @@ final class InspectionRunner {
     private func exportPreview(_ image: CGImage, identifier: String) -> Bool {
         let safeName = identifier.replacingOccurrences(of: "/", with: "_") + ".jpg"
         let url = URL(fileURLWithPath: plan.preview_directory).appendingPathComponent(safeName)
-        if FileManager.default.fileExists(atPath: url.path) { return true }
+        if previewIsDecodable(url) { return true }
         let bitmap = NSBitmapImageRep(cgImage: image)
         guard let data = bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.82]) else {
             return false
         }
+        guard NSBitmapImageRep(data: data) != nil else { return false }
         do {
             try data.write(to: url, options: .atomic)
-            return true
+            return previewIsDecodable(url)
         } catch {
             return false
         }
+    }
+
+    private func previewIsDecodable(_ url: URL) -> Bool {
+        guard let data = try? Data(contentsOf: url), !data.isEmpty else { return false }
+        return NSBitmapImageRep(data: data) != nil
     }
 
     private func safetyFlags(text: String, labels: [String]) -> [String] {
@@ -516,11 +546,11 @@ final class ArchiveRunner {
             throw ArchiveError.invalidPlan("batch_size outside 1...2000")
         }
         try requireAuthorization()
-        let source = try fetchAlbum(identifier: plan.source_album_identifier)
-        let sourceCount = PHAsset.fetchAssets(in: source, options: nil).count
+        let (sourceFetch, sourceTitle) = try fetchSourceAssets(identifier: plan.source_album_identifier)
+        let sourceCount = sourceFetch.count
         guard sourceCount == plan.expected_source_count else {
             throw ArchiveError.membershipMismatch(
-                source.localizedTitle ?? "source",
+                sourceTitle,
                 plan.expected_source_count,
                 sourceCount
             )

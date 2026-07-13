@@ -1,0 +1,33 @@
+# Editor handoff
+
+An editor-ready field is the beginning of visual editing, not its conclusion. Preserve the broad field and add reversible downstream decisions.
+
+## Field ladder
+
+1. **Discovery field:** broad material and explicit uncertainty.
+2. **Review packets:** 100 to 250 images organized around one editorial question.
+3. **Project shortlists:** images with provenance and consent tasks visible.
+4. **Narrative sequences:** small arrangements for a specific page or audience.
+5. **Publication candidates:** separately reviewed for factual caption, dignity, and consent.
+
+## Meaning stays plural
+
+Keep three axes distinct:
+
+- `retrieval_hypotheses`: why metadata surfaced an image;
+- `visible_descriptions`: what a reviewer can see;
+- `verified_contexts`: project or event relationships supported by provenance.
+
+`primary_view` is a presentation choice for a packet. It is not the photograph's singular truth.
+
+## Useful uncertainty queues
+
+- needs project provenance;
+- needs consent review;
+- needs closer visual inspection;
+- relationship or atmosphere, not professional proof;
+- material context with no current story;
+- possible misattribution;
+- possible duplicate or weak frame.
+
+Every handoff should lead with the next decision an editor can make, followed by counts, identifiers, and audit evidence.

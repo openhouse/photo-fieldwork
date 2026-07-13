@@ -19,9 +19,11 @@
 
 ## Safety hold contract
 
-Any item marked `safety_status=hold`, hidden, or missing is excluded before ranking. Validation fails if a hold ID appears in the proposed master.
+Only `safety_state=clear_for_editor_field` or the legacy `safety_status=clear` state may enter ranking. `review_required`, `hold_automatic`, `hold_human`, `editor_only`, hidden, missing, and unknown non-empty states fail closed. Validation independently rejects a non-clear state even when a hold manifest is incomplete.
 
 The HOLD set should be private and access-controlled. It is not an editor album and must not be exported casually.
+
+Publication consent is separate from safety state. No editor-field state, album membership, or People association grants permission to publish.
 
 ## Catalog adapter contract
 
@@ -36,4 +38,3 @@ A production adapter must:
 7. Support independent read-only verification.
 
 If an adapter cannot meet all seven conditions, it is not production-ready.
-

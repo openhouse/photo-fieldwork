@@ -24,7 +24,7 @@ python3 scripts/photo_archive_bridge.py doctor
 
 ## Governing invariants
 
-- Use the existing 124,484-item wide album as the default immutable source. Verify its identifier and current count before work.
+- Use either the verified wide album or `visible-library-stills://v1` as an explicit immutable source. Whole-library work must build a fresh read-only inventory quality report. Verify the chosen source identifier and current count before work.
 - Do not alter source albums, originals, metadata, faces, favorite status, dates, locations, or prior versions.
 - Never write Photos SQLite. The permissioned app may only inspect locally or create folders/albums and add existing membership.
 - Do not upload pixels, previews, OCR, faces, coordinates, or manifests.
@@ -53,7 +53,8 @@ python3 scripts/retrieve_candidates.py \
 2. Aim for 1.5-2.0 times the requested master size after metadata retrieval. Include named relationships, prior favorites/edits, person-free material context, and exploratory results.
 3. Generate a local inspection plan with `photo_archive_bridge.py inspection-plan`.
 4. Run the stable permissioned helper with `photo_archive_bridge.py run-plan`. Network access must remain false. Export 1280px previews into the private run workspace; raw OCR is never written.
-5. Merge the inspection JSONL into the candidate CSV using `merge_inspection.py`.
+5. Run `verify_preview_exports.py` after every shard. Any missing, duplicate, or undecodable required preview blocks contact-sheet review and selection.
+6. Merge the inspection JSONL into the candidate CSV using `merge_inspection.py`.
 
 ## Select, look, evaluate, recurse
 
@@ -75,7 +76,7 @@ Read [evaluation-loop.md](references/evaluation-loop.md) before the first visual
 6. Run `photo-fieldwork evaluate`. Read all rejections and a stratified uncertainty sample.
 7. Change retrieval, assignments, penalties, quotas, or hold rules in response to observed errors. Keep the seed fixed. Save each round separately.
 8. Repeat until:
-   - evaluation coverage and precision meet `config.json`;
+   - evaluation coverage, decisive precision, and maximum uncertainty meet `config.json`;
    - every view has been visually sampled;
    - known safety regressions are absent;
    - generic social context is not standing in for professional evidence;
@@ -88,12 +89,13 @@ Do not claim success from Vision labels or metadata alone. The recursive loop re
 ## Validate and commit
 
 1. Run `photo-fieldwork validate`. Save a PASS report.
-2. Generate test and production plans with `photo_archive_bridge.py snapshot-plans`.
+2. Generate test and production plans with `photo_archive_bridge.py snapshot-plans --evaluation-report ...`. The report must pass and match the exact master hash.
 3. Inspect the plans. Confirm the source count, target count, folder title, HOLD separation, and that operations are membership-only.
 4. Run the ten-item write test through the app. Independently verify it with `verify_photos_commit.py`.
 5. Run the production plan through the app. Rerun it once to confirm idempotence.
-6. Independently verify every album against the plan using read-only, immutable SQLite access.
-7. Update `run-state.json` after each phase and write a completion report containing exact counts, identifiers, evaluation results, privacy facts, and unresolved uncertainty.
+6. Capture a compact verification database with `snapshot_photos_verification.py`. It reads the live database in a query-only transaction so committed WAL state is visible, never checkpoints Photos, and writes only a separate snapshot.
+7. Independently verify every album against that snapshot using read-only, immutable SQLite access.
+8. Update `run-state.json` after each phase. Use `photo_archive_bridge.py status --workspace RUN` to report the next incomplete phase. Write a completion report containing exact counts, identifiers, evaluation results, privacy facts, and unresolved uncertainty.
 
 The helper invocation may require a Codex permission approval for `open -W`; request a reusable approval scoped to `/Applications/Jamie Photo Archive.app`. The app's Photos permission itself should persist under its stable bundle identity.
 
@@ -109,4 +111,3 @@ Return:
 - links to the run README, master manifest, evaluation report, app receipt, and independent verification.
 
 State clearly that this is an editor-ready field, not the final publication edit.
-

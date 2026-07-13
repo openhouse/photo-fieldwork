@@ -6,6 +6,8 @@ import shutil
 import sys
 from pathlib import Path
 
+from .audit import audit_paths, repository_paths
+from .ledger import build_events
 from .pipeline import build_catalog_plan, evaluate, make_sample, read_config, read_csv, select, validate, write_csv
 from .practice import create_demo_inventory, practice_feedback, write_demo_readme
 
@@ -52,7 +54,11 @@ def command_evaluate(args: argparse.Namespace) -> int:
     args.output.mkdir(parents=True, exist_ok=True)
     (args.output / "evaluation-report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     (args.output / "evaluation-report.md").write_text(markdown_report("Evaluation report", report), encoding="utf-8")
-    print(f"evaluation {'PASS' if passed else 'FAIL'}: precision={report['precision']}, coverage={report['coverage']}")
+    print(
+        f"evaluation {'PASS' if passed else 'FAIL'}: "
+        f"decisive_precision={report['decisive_precision']}, "
+        f"uncertainty={report['uncertainty_rate']}, coverage={report['coverage']}"
+    )
     return 0 if passed else 2
 
 
@@ -73,7 +79,15 @@ def command_validate(args: argparse.Namespace) -> int:
 def command_plan(args: argparse.Namespace) -> int:
     config = read_config(args.config)
     master = read_csv(args.master)
-    plan = build_catalog_plan(master, config, args.plan_id, args.source_title, args.source_identifier)
+    evaluation_report = json.loads(args.evaluation_report.read_text(encoding="utf-8"))
+    plan = build_catalog_plan(
+        master,
+        config,
+        args.plan_id,
+        args.source_title,
+        args.source_identifier,
+        evaluation_report,
+    )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
     print(f"wrote membership-only catalog plan to {args.output}")
@@ -116,11 +130,38 @@ def command_demo(args: argparse.Namespace) -> int:
             plan_id="synthetic-practice-plan",
             source_title="Synthetic practice corpus",
             source_identifier="SYNTHETIC-ONLY",
+            evaluation_report=workspace / "reports" / "evaluation-report.json",
             output=workspace / "manifests" / "catalog-plan.json",
         )
     )
     print(f"practice workspace ready: {workspace}")
     return max(eval_code, validation_code)
+
+
+def command_audit_public(args: argparse.Namespace) -> int:
+    root = args.root.resolve()
+    failures = audit_paths(root, repository_paths(root))
+    if failures:
+        print("public-safety audit FAIL", file=sys.stderr)
+        for failure in failures:
+            print(f"- {failure}", file=sys.stderr)
+        return 2
+    print("public-safety audit PASS")
+    return 0
+
+
+def command_ledger(args: argparse.Namespace) -> int:
+    master = read_csv(args.master)
+    holds = read_csv(args.holds)
+    feedback = read_csv(args.feedback)
+    events = build_events(master, holds, feedback)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(
+        "".join(json.dumps(event, sort_keys=True, ensure_ascii=False) + "\n" for event in events),
+        encoding="utf-8",
+    )
+    print(f"wrote {len(events)} lineage events to {args.output}")
+    return 0
 
 
 def parser() -> argparse.ArgumentParser:
@@ -130,6 +171,17 @@ def parser() -> argparse.ArgumentParser:
     demo = sub.add_parser("demo", help="run the complete workflow on synthetic records")
     demo.add_argument("--workspace", type=Path, default=Path("runs/practice"))
     demo.set_defaults(func=command_demo)
+
+    audit = sub.add_parser("audit-public", help="reject likely private archive artifacts from the public repository")
+    audit.add_argument("--root", type=Path, default=Path.cwd())
+    audit.set_defaults(func=command_audit_public)
+
+    ledger = sub.add_parser("ledger", help="build a stable per-asset decision-lineage JSONL")
+    ledger.add_argument("--master", type=Path, required=True)
+    ledger.add_argument("--holds", type=Path, required=True)
+    ledger.add_argument("--feedback", type=Path, required=True)
+    ledger.add_argument("--output", type=Path, required=True)
+    ledger.set_defaults(func=command_ledger)
 
     selection = sub.add_parser("select", help="select a proposed master and safety holds")
     selection.add_argument("--inventory", type=Path, required=True)
@@ -163,6 +215,7 @@ def parser() -> argparse.ArgumentParser:
     plan.add_argument("--plan-id", required=True)
     plan.add_argument("--source-title", required=True)
     plan.add_argument("--source-identifier", required=True)
+    plan.add_argument("--evaluation-report", type=Path, required=True)
     plan.add_argument("--output", type=Path, required=True)
     plan.set_defaults(func=command_plan)
     return root

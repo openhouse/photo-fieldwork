@@ -30,6 +30,10 @@ The standard-library Python core reads a normalized CSV, applies immutable safet
 
 The core does not read a Photos database, open images, call a model, or mutate a catalog.
 
+## Decision lineage
+
+`photo-fieldwork ledger` emits stable JSONL events for selection, HOLD, and evaluation. Each event keeps retrieval hypotheses, visible descriptions, and verified contexts separate and carries the proposal and exact-master hash when available. Generated reports and editor packets should treat this ledger as their index rather than silently overwriting prior decisions.
+
 ## Reader adapters
 
 A reader converts a catalog or filesystem into `inventory.csv`. Reader development should preserve stable IDs and existing human metadata while minimizing sensitive exports.
