@@ -8,6 +8,9 @@ It does not automate taste. It helps people automate retrieval, deduplication, b
 
 Requirements: Python 3.11 or newer. The practice workflow has no third-party dependencies and does not access Apple Photos.
 
+The local contact-sheet and preview-verification tools require the optional
+review dependency: `pip install 'photo-fieldwork[review]'`.
+
 ```bash
 make demo
 ```
@@ -79,6 +82,34 @@ Provenance answers: "What can we responsibly claim about it?"
 
 Those are different questions. Photo Fieldwork keeps them different.
 
+## Freeze the source and preserve run state
+
+Version `0.2.0` distinguishes a dynamic source query from the immutable snapshot
+used by one run. Freeze source membership before selection:
+
+```bash
+./bin/photo-fieldwork source-snapshot \
+  --inventory path/to/inventory.csv \
+  --query-id "filesystem-stills://v1" \
+  --output runs/my-run/source-snapshot.json
+
+./bin/photo-fieldwork run-init \
+  --workspace runs/my-run \
+  --run-id my-run \
+  --target-count 4000 \
+  --source-snapshot runs/my-run/source-snapshot.json
+
+./bin/photo-fieldwork run-record \
+  --workspace runs/my-run \
+  --phase brief \
+  --status completed
+
+./bin/photo-fieldwork run-status --workspace runs/my-run
+```
+
+`events.jsonl` is append-only. `run-state.json` is derived from it and should
+not be edited by hand.
+
 ## What is included
 
 - A deterministic, configurable selection engine.
@@ -87,6 +118,9 @@ Those are different questions. Photo Fieldwork keeps them different.
 - Named-people and visible-apparatus signals.
 - An unclassified editor field for honest uncertainty.
 - Stratified evaluation samples and precision thresholds.
+- Enforced overall, per-view, coverage, decisive-sample, and uncertainty gates.
+- Frozen source membership digests and append-only run events.
+- Provenance-aware safety states and explicit human review.
 - A fully synthetic practice run.
 - Apple Photos integration guidance and adapter contracts.
 - A case study of how visual inspection changed a real workflow.
@@ -99,7 +133,7 @@ Those are different questions. Photo Fieldwork keeps them different.
 - Direct writes to Photos SQLite.
 - A claim that the generated corpus is the final edit.
 
-Read [the workflow](docs/workflow.md), [the architecture](docs/architecture.md), [the safety model](docs/safety.md), and [the Apple Photos guide](docs/apple-photos.md) before using a private archive.
+Read [the workflow](docs/workflow.md), [the architecture](docs/architecture.md), [the safety model](docs/safety.md), [the Apple Photos guide](docs/apple-photos.md), and [the roadmap](docs/roadmap.md) before using a private archive.
 
 ## Use it as a Codex skill
 
@@ -127,3 +161,7 @@ production album creation, and independent verification.
 ```
 
 The skill integrates with the installed `/Applications/Jamie Photo Archive.app`, preserving its stable Photos permission identity. Its reviewed source is retained under `integrations/jamie-photo-archive/`; replacing or rebuilding the installed app is a separate, explicit operation because macOS may request Photos authorization again.
+
+Production plans are content-addressed. The helper archives every execution as a
+separate attempt receipt, and the independent verifier checks exact membership,
+source digest, folder topology, plan integrity, and master/HOLD disjointness.

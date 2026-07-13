@@ -19,7 +19,7 @@
 - `primary_view`
 - `judgment`: `fit`, `reject`, or `uncertain`
 - `visible_reason`
-- `safety_status`: `clear`, `hold`, or `needs-review`
+- `safety_status`: `clear`, `auto-hold`, `needs-human-review`, `human-added-hold`, `confirmed-sensitive`, `cleared-false-positive`, `unavailable`, or `corrupt`
 - `error_category`
 - `round_id`
 - `reviewer_lens`
@@ -42,7 +42,8 @@
 - Every view sampled.
 - Coverage at or above configured minimum.
 - Overall decisive precision at or above configured minimum.
-- No material view remains below 0.65 decisive precision without being relabeled as uncertain/editor hypothesis.
+- Every represented view meets configured decisive-sample and precision minimums.
+- Overall uncertainty remains at or below the configured maximum.
 - Exact target, unique IDs, stills only, HOLD disjoint, all pixels locally available unless historically exceptional and explicitly recorded.
 - Generic social scenes do not dominate work evidence.
 - Named relationships and person-free material context both remain visible.
@@ -51,3 +52,4 @@
 
 Run up to five substantial rounds. Stop earlier when all gates pass and failure review reveals no new systematic issue. Do not lower thresholds merely to finish. If the same genuine blocker recurs, preserve the run and explain exactly what input or permission is missing.
 
+A corrective round must change the retrieval/selection policy, add relevant fresh evidence, or both. Re-scoring the same inspected candidates without a substantive change does not establish that a failure was resolved.

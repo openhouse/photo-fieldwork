@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Photo Fieldwork run event",
+  "type": "object",
+  "required": ["schema_version", "event_id", "event_type", "run_id", "at", "data"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "event_id": {"type": "string", "minLength": 1},
+    "event_type": {"enum": ["run.initialized", "phase.updated"]},
+    "run_id": {"type": "string", "minLength": 1},
+    "at": {"type": "string"},
+    "phase": {
+      "enum": [
+        "brief",
+        "retrieval",
+        "local_inspection",
+        "recursive_evaluation",
+        "validation",
+        "write_test",
+        "production_commit",
+        "independent_verification"
+      ]
+    },
+    "status": {"enum": ["pending", "in_progress", "completed", "failed"]},
+    "attempt_id": {"type": ["string", "null"]},
+    "data": {"type": "object"}
+  },
+  "additionalProperties": false
+}

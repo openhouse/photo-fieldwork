@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Photo Fieldwork source snapshot",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "query_id",
+    "query_definition_version",
+    "observed_count",
+    "membership_sha256",
+    "captured_at"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "query_id": {"type": "string", "minLength": 1},
+    "query_definition_version": {"type": "integer", "minimum": 1},
+    "observed_count": {"type": "integer", "minimum": 0},
+    "membership_sha256": {
+      "oneOf": [
+        {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        {"type": "null"}
+      ]
+    },
+    "captured_at": {"type": "string"},
+    "legacy_count_only": {"type": "boolean"}
+  },
+  "additionalProperties": false
+}

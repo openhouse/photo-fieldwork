@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import shutil
 import sys
 from pathlib import Path
 
+from . import __version__
+from .artifacts import build_source_snapshot, verify_source_snapshot
 from .pipeline import build_catalog_plan, evaluate, make_sample, read_config, read_csv, select, validate, write_csv
 from .practice import create_demo_inventory, practice_feedback, write_demo_readme
+from .run_ledger import PHASES, derive_state, initialize_run, next_phase, record_phase
 
 
 def markdown_report(title: str, data: dict) -> str:
@@ -73,10 +77,94 @@ def command_validate(args: argparse.Namespace) -> int:
 def command_plan(args: argparse.Namespace) -> int:
     config = read_config(args.config)
     master = read_csv(args.master)
-    plan = build_catalog_plan(master, config, args.plan_id, args.source_title, args.source_identifier)
+    source_snapshot_path = getattr(args, "source_snapshot", None)
+    source_snapshot = json.loads(source_snapshot_path.read_text(encoding="utf-8")) if source_snapshot_path else None
+    plan = build_catalog_plan(
+        master,
+        config,
+        args.plan_id,
+        args.source_title,
+        args.source_identifier,
+        source_snapshot,
+    )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
     print(f"wrote membership-only catalog plan to {args.output}")
+    return 0
+
+
+def inventory_ids(path: Path, id_column: str) -> list[str]:
+    with path.open(newline="", encoding="utf-8-sig") as handle:
+        rows = list(csv.DictReader(handle))
+    if not rows or id_column not in rows[0]:
+        raise ValueError(f"inventory requires {id_column} rows: {path}")
+    identifiers = [row[id_column].strip() for row in rows if row[id_column].strip()]
+    if not identifiers:
+        raise ValueError(f"inventory contains no {id_column} values: {path}")
+    return identifiers
+
+
+def command_source_snapshot(args: argparse.Namespace) -> int:
+    identifiers = inventory_ids(args.inventory, args.id_column)
+    snapshot = build_source_snapshot(
+        identifiers,
+        args.query_id,
+        query_definition_version=args.query_definition_version,
+    )
+    if args.expected_count is not None and snapshot["observed_count"] != args.expected_count:
+        raise ValueError(
+            f"source count changed: {snapshot['observed_count']} != {args.expected_count}"
+        )
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
+    print(f"source_count={snapshot['observed_count']}")
+    print(f"membership_sha256={snapshot['membership_sha256']}")
+    return 0
+
+
+def command_source_verify(args: argparse.Namespace) -> int:
+    identifiers = inventory_ids(args.inventory, args.id_column)
+    snapshot = json.loads(args.snapshot.read_text(encoding="utf-8"))
+    errors = verify_source_snapshot(identifiers, snapshot)
+    if errors:
+        for error in errors:
+            print(f"error: {error}", file=sys.stderr)
+        return 2
+    print(f"source verification PASS: {len(set(identifiers))} members")
+    return 0
+
+
+def command_run_init(args: argparse.Namespace) -> int:
+    snapshot = json.loads(args.source_snapshot.read_text(encoding="utf-8"))
+    initialize_run(args.workspace, args.run_id, args.target_count, snapshot, args.version)
+    print(args.workspace)
+    return 0
+
+
+def command_run_record(args: argparse.Namespace) -> int:
+    details = json.loads(args.details.read_text(encoding="utf-8")) if args.details else {}
+    event = record_phase(args.workspace, args.phase, args.status, details, args.attempt_id)
+    print(event["event_id"])
+    return 0
+
+
+def command_run_status(args: argparse.Namespace) -> int:
+    state = derive_state(args.workspace)
+    if args.json:
+        print(json.dumps(state, indent=2, ensure_ascii=False))
+    else:
+        print(f"run={state['run_id']}")
+        print(f"status={state['status']}")
+        print(f"events={state['event_count']}")
+        print(f"next={next_phase(state) or 'none'}")
+        for phase, status in state["phases"].items():
+            print(f"{phase}={status}")
+    return 0
+
+
+def command_run_next(args: argparse.Namespace) -> int:
+    phase = next_phase(derive_state(args.workspace))
+    print(phase or "complete")
     return 0
 
 
@@ -125,6 +213,7 @@ def command_demo(args: argparse.Namespace) -> int:
 
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(prog="photo-fieldwork", description="Build an auditable editor-ready photo corpus")
+    root.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = root.add_subparsers(dest="command", required=True)
 
     demo = sub.add_parser("demo", help="run the complete workflow on synthetic records")
@@ -163,8 +252,49 @@ def parser() -> argparse.ArgumentParser:
     plan.add_argument("--plan-id", required=True)
     plan.add_argument("--source-title", required=True)
     plan.add_argument("--source-identifier", required=True)
+    plan.add_argument("--source-snapshot", type=Path)
     plan.add_argument("--output", type=Path, required=True)
     plan.set_defaults(func=command_plan)
+
+    snapshot = sub.add_parser("source-snapshot", help="freeze source membership with a count and digest")
+    snapshot.add_argument("--inventory", type=Path, required=True)
+    snapshot.add_argument("--id-column", default="uuid")
+    snapshot.add_argument("--query-id", required=True)
+    snapshot.add_argument("--query-definition-version", type=int, default=1)
+    snapshot.add_argument("--expected-count", type=int)
+    snapshot.add_argument("--output", type=Path, required=True)
+    snapshot.set_defaults(func=command_source_snapshot)
+
+    source_verify = sub.add_parser("source-verify", help="compare an inventory with a frozen source snapshot")
+    source_verify.add_argument("--inventory", type=Path, required=True)
+    source_verify.add_argument("--id-column", default="uuid")
+    source_verify.add_argument("--snapshot", type=Path, required=True)
+    source_verify.set_defaults(func=command_source_verify)
+
+    run_init = sub.add_parser("run-init", help="initialize an append-only run ledger")
+    run_init.add_argument("--workspace", type=Path, required=True)
+    run_init.add_argument("--run-id", required=True)
+    run_init.add_argument("--target-count", type=int, required=True)
+    run_init.add_argument("--source-snapshot", type=Path, required=True)
+    run_init.add_argument("--version")
+    run_init.set_defaults(func=command_run_init)
+
+    run_record = sub.add_parser("run-record", help="append a phase event and refresh derived status")
+    run_record.add_argument("--workspace", type=Path, required=True)
+    run_record.add_argument("--phase", choices=PHASES, required=True)
+    run_record.add_argument("--status", choices=("pending", "in_progress", "completed", "failed"), required=True)
+    run_record.add_argument("--attempt-id")
+    run_record.add_argument("--details", type=Path)
+    run_record.set_defaults(func=command_run_record)
+
+    run_status = sub.add_parser("run-status", help="derive current status from the append-only run ledger")
+    run_status.add_argument("--workspace", type=Path, required=True)
+    run_status.add_argument("--json", action="store_true")
+    run_status.set_defaults(func=command_run_status)
+
+    run_next = sub.add_parser("run-next", help="print the next incomplete run phase")
+    run_next.add_argument("--workspace", type=Path, required=True)
+    run_next.set_defaults(func=command_run_next)
     return root
 
 

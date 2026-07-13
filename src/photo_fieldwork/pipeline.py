@@ -10,6 +10,19 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Iterable
 
+from .artifacts import object_digest
+
+
+BLOCKING_SAFETY_STATES = {
+    "hold",
+    "auto-hold",
+    "needs-human-review",
+    "human-added-hold",
+    "confirmed-sensitive",
+    "unavailable",
+    "corrupt",
+}
+
 
 def read_config(path: Path) -> dict:
     config = json.loads(path.read_text(encoding="utf-8"))
@@ -20,6 +33,20 @@ def read_config(path: Path) -> dict:
         raise ValueError("unclassified_view must name a configured view")
     if sum(int(view["quota"]) for view in config["views"]) != int(config["target_count"]):
         raise ValueError("view quotas must sum to target_count")
+    if int(config["target_count"]) < 1:
+        raise ValueError("target_count must be positive")
+    for name in (
+        "minimum_eval_precision",
+        "minimum_eval_coverage",
+        "minimum_view_precision",
+        "maximum_uncertain_fraction",
+        "minimum_named_people_fraction",
+        "minimum_person_free_fraction",
+    ):
+        if name in config and not 0 <= float(config[name]) <= 1:
+            raise ValueError(f"{name} must be between 0 and 1")
+    if int(config.get("minimum_decisive_samples_per_view", 0)) < 0:
+        raise ValueError("minimum_decisive_samples_per_view cannot be negative")
     return config
 
 
@@ -65,7 +92,7 @@ def stable_noise(seed: int, uuid: str) -> float:
 
 def is_hold(row: dict[str, str]) -> bool:
     return (
-        str(row.get("safety_status", "clear")).lower() == "hold"
+        str(row.get("safety_status", "clear")).strip().lower() in BLOCKING_SAFETY_STATES
         or truthy(row.get("hidden"))
         or truthy(row.get("missing"))
     )
@@ -269,16 +296,38 @@ def evaluate(feedback: list[dict[str, str]], config: dict) -> tuple[dict, bool]:
     uncertain = sum(row["judgment"].strip().lower() == "uncertain" for row in judged)
     coverage = len(judged) / len(feedback) if feedback else 0.0
     precision = fit / (fit + reject) if fit + reject else 0.0
+    uncertainty_rate = uncertain / len(judged) if judged else 0.0
+    minimum_view_precision = float(config.get("minimum_view_precision", 0.0))
+    minimum_decisive_samples = int(config.get("minimum_decisive_samples_per_view", 0))
+    maximum_uncertain_fraction = float(config.get("maximum_uncertain_fraction", 1.0))
     by_view = {}
+    view_failures = []
     for view in sorted({row.get("primary_view", "unknown") for row in feedback}):
         rows = [row for row in judged if row.get("primary_view", "unknown") == view]
         decisive = [row for row in rows if row["judgment"].strip().lower() in {"fit", "reject"}]
+        view_precision = sum(row["judgment"].strip().lower() == "fit" for row in decisive) / len(decisive) if decisive else None
+        view_uncertain = sum(row["judgment"].strip().lower() == "uncertain" for row in rows)
+        reasons = []
+        if len(decisive) < minimum_decisive_samples:
+            reasons.append(f"decisive sample {len(decisive)} below {minimum_decisive_samples}")
+        if view_precision is None or view_precision < minimum_view_precision:
+            reasons.append(f"precision {view_precision} below {minimum_view_precision}")
+        if reasons:
+            view_failures.append({"view": view, "reasons": reasons})
         by_view[view] = {
             "judged": len(rows),
-            "precision": sum(row["judgment"].strip().lower() == "fit" for row in decisive) / len(decisive) if decisive else None,
+            "decisive": len(decisive),
+            "fit": sum(row["judgment"].strip().lower() == "fit" for row in decisive),
+            "reject": sum(row["judgment"].strip().lower() == "reject" for row in decisive),
+            "uncertain": view_uncertain,
+            "uncertainty_rate": round(view_uncertain / len(rows), 4) if rows else None,
+            "precision": view_precision,
         }
-    passed = coverage >= float(config.get("minimum_eval_coverage", 0.8)) and precision >= float(
-        config.get("minimum_eval_precision", 0.75)
+    passed = (
+        coverage >= float(config.get("minimum_eval_coverage", 0.8))
+        and precision >= float(config.get("minimum_eval_precision", 0.75))
+        and uncertainty_rate <= maximum_uncertain_fraction
+        and not view_failures
     )
     report = {
         "sample_count": len(feedback),
@@ -288,8 +337,13 @@ def evaluate(feedback: list[dict[str, str]], config: dict) -> tuple[dict, bool]:
         "uncertain": uncertain,
         "coverage": round(coverage, 4),
         "precision": round(precision, 4),
+        "uncertainty_rate": round(uncertainty_rate, 4),
         "minimum_coverage": config.get("minimum_eval_coverage", 0.8),
         "minimum_precision": config.get("minimum_eval_precision", 0.75),
+        "minimum_view_precision": minimum_view_precision,
+        "minimum_decisive_samples_per_view": minimum_decisive_samples,
+        "maximum_uncertain_fraction": maximum_uncertain_fraction,
+        "view_failures": view_failures,
         "passed": passed,
         "by_view": by_view,
     }
@@ -307,6 +361,9 @@ def validate(master: list[dict[str, str]], holds: list[dict[str, str]], config: 
     overlap = set(ids) & hold_ids
     if overlap:
         errors.append(f"master overlaps safety holds by {len(overlap)} rows")
+    blocking_master = [row["uuid"] for row in master if is_hold(row)]
+    if blocking_master:
+        errors.append(f"master contains {len(blocking_master)} blocking safety states")
     if any(not row.get("selection_reason") for row in master):
         errors.append("one or more selected rows lack a selection reason")
     configured = {view["id"] for view in config["views"] if int(view["quota"]) > 0}
@@ -331,6 +388,7 @@ def build_catalog_plan(
     plan_id: str,
     source_title: str,
     source_identifier: str,
+    source_snapshot: dict | None = None,
 ) -> dict:
     """Build an adapter-neutral, membership-only catalog plan."""
     view_labels = {view["id"]: view["label"] for view in config["views"]}
@@ -350,12 +408,21 @@ def build_catalog_plan(
                 "asset_ids": asset_ids,
             }
         )
-    return {
+    source = {"title": source_title, "identifier": source_identifier}
+    if source_snapshot:
+        source.update(
+            {
+                "observed_count": int(source_snapshot["observed_count"]),
+                "membership_sha256": source_snapshot["membership_sha256"],
+                "query_definition_version": int(source_snapshot["query_definition_version"]),
+            }
+        )
+    plan = {
         "schema_version": 1,
         "plan_id": plan_id,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "safety_mode": "create-folders-albums-and-add-membership-only",
-        "source": {"title": source_title, "identifier": source_identifier},
+        "source": source,
         "expected_master_count": len(master),
         "write_test_count": min(10, len(master)),
         "albums": albums,
@@ -368,3 +435,5 @@ def build_catalog_plan(
             "source membership unchanged",
         ],
     }
+    plan["plan_sha256"] = object_digest(plan)
+    return plan

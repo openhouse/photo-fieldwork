@@ -2,7 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from photo_fieldwork.pipeline import build_catalog_plan, evaluate, make_sample, read_config, read_csv, select, validate
+from photo_fieldwork.artifacts import object_digest
+from photo_fieldwork.pipeline import build_catalog_plan, evaluate, is_hold, make_sample, read_config, read_csv, select, validate
 from photo_fieldwork.practice import create_demo_inventory
 
 
@@ -53,6 +54,35 @@ class PipelineTests(unittest.TestCase):
         _, passed = evaluate(sample, self.config)
         self.assertTrue(passed)
 
+    def test_evaluation_enforces_per_view_and_uncertainty_gates(self):
+        feedback = [
+            {"uuid": "A", "primary_view": "01", "judgment": "fit"},
+            {"uuid": "B", "primary_view": "01", "judgment": "fit"},
+            {"uuid": "C", "primary_view": "02", "judgment": "reject"},
+            {"uuid": "D", "primary_view": "02", "judgment": "reject"},
+        ]
+        config = {
+            "minimum_eval_coverage": 1.0,
+            "minimum_eval_precision": 0.4,
+            "minimum_view_precision": 0.65,
+            "minimum_decisive_samples_per_view": 2,
+            "maximum_uncertain_fraction": 0.2,
+        }
+        report, passed = evaluate(feedback, config)
+        self.assertFalse(passed)
+        self.assertEqual(report["view_failures"][0]["view"], "02")
+        feedback[2]["judgment"] = "fit"
+        feedback[3]["judgment"] = "uncertain"
+        report, passed = evaluate(feedback, {**config, "minimum_decisive_samples_per_view": 1})
+        self.assertFalse(passed)
+        self.assertGreater(report["uncertainty_rate"], config["maximum_uncertain_fraction"])
+
+    def test_provenance_aware_safety_states_block_selection(self):
+        self.assertTrue(is_hold({"safety_status": "auto-hold"}))
+        self.assertTrue(is_hold({"safety_status": "needs-human-review"}))
+        self.assertTrue(is_hold({"safety_status": "human-added-hold"}))
+        self.assertFalse(is_hold({"safety_status": "cleared-false-positive"}))
+
     def test_validation_enforces_invariants(self):
         master, holds, _ = select(self.inventory, self.config)
         errors, metrics = validate(master, holds, self.config)
@@ -66,6 +96,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(plan["expected_master_count"], 12)
         self.assertEqual(plan["write_test_count"], 10)
         self.assertEqual(len(plan["albums"][0]["asset_ids"]), 12)
+        self.assertEqual(plan["plan_sha256"], object_digest(plan, {"plan_sha256"}))
 
 
 if __name__ == "__main__":

@@ -27,6 +27,8 @@ The goal is not to prove the selector is intelligent. The goal is to discover wh
 
 - Evaluation coverage meets the configured threshold.
 - Overall precision meets the configured threshold.
+- Every represented view meets configured precision and decisive-sample thresholds.
+- Uncertainty does not exceed the configured maximum.
 - No known safety regression appears in the master.
 - Every view has been sampled.
 - Every selected row has a reason.
@@ -35,3 +37,9 @@ The goal is not to prove the selector is intelligent. The goal is to discover wh
 
 Passing the gate means the corpus is ready for editors. It does not mean every category assignment is factually proven.
 
+## Fresh evidence
+
+Track how many candidates were newly inspected in each round. Reusing an old
+inspection can be legitimate, but it cannot by itself demonstrate that a
+retrieval failure was resolved. Preserve each sample, decision file, and report
+as a separate round artifact.

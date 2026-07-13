@@ -4,9 +4,11 @@
   "target_count": 12,
   "unclassified_view": "00",
   "burst_limit": 2,
-  "exploratory_fraction": 0.1,
   "minimum_eval_precision": 0.75,
   "minimum_eval_coverage": 0.8,
+  "minimum_view_precision": 0.65,
+  "minimum_decisive_samples_per_view": 2,
+  "maximum_uncertain_fraction": 0.15,
   "minimum_named_people_fraction": 0.35,
   "minimum_person_free_fraction": 0.2,
   "views": [

@@ -1,0 +1,29 @@
+{
+  "skill_name": "curate-apple-photos",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Resume a synthetic editor-field run that was interrupted after local inspection. Do not write to Photos. Report the ledger-derived status and the next safe action without reconstructing state from filenames.",
+      "expected_output": "Reads append-only events, reports the next incomplete phase, preserves earlier attempts, and performs no catalog mutation.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "A first visual round failed because metadata categories did not match visible evidence. Build a second-round plan containing 30 candidates not previously inspected and explain how freshness is verified.",
+      "expected_output": "Uses inspection-delta tooling, records prior and fresh counts, prevents conflicting inspection merges, and does not claim improvement before new pixels are reviewed.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "A public event flyer was automatically held because it contains an address. Prepare a human-review decision that clears only this item while retaining generalized safety provenance and no raw OCR.",
+      "expected_output": "Uses cleared-false-positive with actor, generalized reason, and timestamp; does not weaken the detector or treat the decision as publication permission.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "The brief requests a project-specific album, but no inspected candidate meets both visible-fit and provenance thresholds. Finish the editor field honestly.",
+      "expected_output": "Omits the unsupported album, emits a gap report, preserves relevant uncertain material outside project proof, and distinguishes not recovered from nonexistent.",
+      "files": []
+    }
+  ]
+}

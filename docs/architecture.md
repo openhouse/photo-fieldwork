@@ -24,6 +24,11 @@ Catalog reader or filesystem scanner
                   independent verifier
 ```
 
+Every production run also has two durable control artifacts:
+
+- `source-snapshot.json` freezes the source query, observed count, and sorted-membership digest;
+- `events.jsonl` records append-only phase and attempt events from which status is derived.
+
 ## Core
 
 The standard-library Python core reads a normalized CSV, applies immutable safety exclusions, reduces duplicate and burst clusters, assigns editor views, creates selection reasons, samples evaluations, measures results, validates invariants, and emits an adapter-neutral catalog plan.
@@ -68,3 +73,10 @@ Contributors can improve one layer at a time:
 - editor handoff formats.
 
 Every extension should include synthetic fixtures, a known failure case, and a statement of its privacy boundary.
+
+## Contract boundary
+
+Retrieval reason, visible fit, provenance, safety state, and publication approval
+are separate dimensions. An adapter may translate a core catalog plan into a
+catalog-specific plan, but both plans must retain stable IDs, source snapshot
+identity, and a content digest. A receipt binds to the exact plan it executed.

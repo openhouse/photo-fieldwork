@@ -1,23 +1,34 @@
-# Case study: how looking changed the system
+# Case study: how looking changed a whole-library field
 
-This project emerged from a versioned reduction of a 124,484-photo source corpus into an 8,000-photo working field for professional editors.
+Photo Fieldwork was used to reduce a 603,137-item visible still-photo source into
+a 4,000-photo editor field for a professional portfolio. The run remained local:
+no pixels, OCR, faces, coordinates, or manifests were uploaded.
 
-The first approach relied heavily on Apple Photos metadata, people associations, dates, places, labels, favorites, edits, and project retrieval dictionaries. That produced plausible categories, but plausibility was not enough.
+The first 7,000 candidates came from albums, existing People associations,
+dates, places, labels, favorites, edits, filenames, and project retrieval
+dictionaries. The first visual evaluation failed. Its decisive precision was
+0.3542. Plausible metadata had again been mistaken for visible project evidence.
 
-A 36-image calibration sample was opened and visually inspected across the proposed views. Only 10 visibly supported the category that metadata had assigned. The problem was structural: retrieval-album membership had been mistaken for visible project evidence.
+The system changed in response:
 
-The workflow changed in response:
+- 2,027 previously uninspected candidates were added rather than recycling the first field;
+- visual fit and provenance predicates were tightened separately;
+- automated and human-reviewed safety decisions were kept out of the master;
+- project views with weak attribution lost quota instead of receiving filler;
+- an unclassified editor field preserved material that did not support a project claim;
+- one desired project view was omitted because no inspected candidate met the visible-evidence and provenance threshold.
 
-- project views were relabeled as editor hypotheses;
-- an unclassified editor field was introduced;
-- visible people-plus-apparatus became distinct from generic social context;
-- potential sensitive material was quarantined;
-- score-stratified visual audits were repeated after revisions;
-- every selected image received a reason;
-- catalog writing waited until validation passed;
-- an independent read-only verifier compared the final plan with Apple Photos.
+Three recursive rounds produced decisive precision of 0.3542, 0.7869, and
+0.8889. The final round judged all 77 sampled items, reached 1.0 coverage, and
+kept every represented view at or above 0.6667 decisive precision.
 
-The completed version contained exactly 8,000 unique stills. It preserved the source corpus, created separate versioned albums, quarantined 3,394 candidates, and produced zero missing, unexpected, outside-source, or hold-overlap memberships in final verification.
+The completed version contained exactly 4,000 unique stills and a disjoint
+485-item safety HOLD. A ten-item write test passed before production. Sixteen
+production albums and 10,898 planned memberships were then independently
+verified with zero missing, unexpected, outside-source, or HOLD-overlap
+memberships. An idempotence rerun resolved to the same catalog identifiers.
 
-The transferable lesson is simple: metadata is excellent for constructing a field of attention. It is not a substitute for looking, provenance, or editorial judgment. A good workflow makes those differences operational.
-
+The most important output was a documented absence: the requested project view
+that did not survive review. The run reported a retrieval gap rather than using
+generic imagery as proof. Metadata constructed a field of attention; looking,
+provenance, and human judgment determined what the field could responsibly say.

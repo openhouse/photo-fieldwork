@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
+import importlib.util
 import json
 import os
 import plistlib
@@ -12,8 +14,18 @@ import re
 import sqlite3
 import subprocess
 import sys
+import uuid
 from datetime import datetime
 from pathlib import Path
+
+
+PROJECT_SRC = Path(__file__).resolve().parents[3] / "src"
+if not PROJECT_SRC.is_dir():
+    PROJECT_SRC = Path("/Volumes/16TB_SSD/Sites/photo-fieldwork/src")
+if str(PROJECT_SRC) not in sys.path:
+    sys.path.insert(0, str(PROJECT_SRC))
+
+from photo_fieldwork.run_ledger import initialize_run, record_phase
 
 
 APP = Path("/Applications/Jamie Photo Archive.app")
@@ -27,6 +39,7 @@ PHOTOS_DB = Path(
 )
 SOURCE_ID = "360ED78F-FB05-490A-8FFD-F3CB951D0D0A/L0/040"
 SOURCE_COUNT = 124_484
+VISIBLE_LIBRARY_STILLS = "visible-library-stills://v1"
 ROOT_FOLDER_ID = "92BBCF49-B077-478D-B9EE-DD94FAAFEAB5/L0/020"
 PRIVATE_FOLDER_ID = "1095845F-B6FA-41D0-8A22-D156C3071631/L0/020"
 AUDIT_FOLDER_ID = "7F9EB400-C06D-412C-9443-300A2C47CCE7/L0/020"
@@ -61,17 +74,25 @@ def safe_slug(value: str) -> str:
     return slug[:48] or "photo-field"
 
 
-def command_doctor(_: argparse.Namespace) -> int:
+def decoded_meta(value: str) -> object:
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return value
+
+
+def command_doctor(args: argparse.Namespace) -> int:
     checks = {
         "permissioned_app": APP.is_dir(),
         "app_executable": APP_EXECUTABLE.is_file() and os.access(APP_EXECUTABLE, os.X_OK),
         "app_plist": APP_PLIST.is_file(),
-        "shared_inventory": INVENTORY_DB.exists(),
+        "shared_inventory": args.inventory_db.exists(),
         "photos_database": PHOTOS_DB.exists(),
         "workspace_root": WORKSPACE_ROOT.is_dir(),
         "photo_fieldwork_cli": Path(
             "/Volumes/16TB_SSD/Sites/photo-fieldwork/bin/photo-fieldwork"
         ).is_file(),
+        "review_dependencies": importlib.util.find_spec("PIL") is not None,
     }
     bundle = None
     version = None
@@ -82,19 +103,23 @@ def command_doctor(_: argparse.Namespace) -> int:
         bundle = plist.get("CFBundleIdentifier")
         version = plist.get("CFBundleShortVersionString")
         checks["stable_bundle_identifier"] = bundle == BUNDLE_ID
-    if INVENTORY_DB.exists():
-        conn = sqlite3.connect(f"file:{INVENTORY_DB}?mode=ro&immutable=1", uri=True)
-        inventory_meta = {key: json.loads(value) for key, value in conn.execute("SELECT key, value FROM meta")}
+    if args.inventory_db.exists():
+        conn = sqlite3.connect(f"file:{args.inventory_db}?mode=ro&immutable=1", uri=True)
+        inventory_meta = {key: decoded_meta(value) for key, value in conn.execute("SELECT key, value FROM meta")}
         conn.close()
-        checks["inventory_source_identifier"] = inventory_meta.get("source_album_uuid") == base_identifier(SOURCE_ID)
-        checks["inventory_source_count"] = int(inventory_meta.get("source_album_count", 0)) == SOURCE_COUNT
+        inventory_source = inventory_meta.get("source_identifier") or inventory_meta.get("source_album_uuid")
+        expected_source = args.source_id if args.source_id == VISIBLE_LIBRARY_STILLS else base_identifier(args.source_id)
+        inventory_count = inventory_meta.get("source_count") or inventory_meta.get("source_album_count") or 0
+        checks["inventory_source_identifier"] = inventory_source == expected_source
+        checks["inventory_source_count"] = int(inventory_count) == args.source_count
     report = {
         "status": "PASS" if all(checks.values()) else "FAIL",
         "checks": checks,
         "bundle_id": bundle,
         "version": version,
         "inventory_generated_at": inventory_meta.get("generated_at"),
-        "inventory_source_count": inventory_meta.get("source_album_count"),
+        "inventory_source_count": inventory_meta.get("source_count") or inventory_meta.get("source_album_count"),
+        "inventory_source_membership_sha256": inventory_meta.get("source_membership_sha256"),
     }
     print(json.dumps(report, indent=2))
     return 0 if report["status"] == "PASS" else 2
@@ -107,27 +132,19 @@ def command_init(args: argparse.Namespace) -> int:
         raise ValueError(f"workspace already exists: {root}")
     for name in ("inventory", "manifests", "reports", "logs", "previews", "contact-sheets", "scripts"):
         (root / name).mkdir(parents=True, exist_ok=False)
-    state = {
-        "schema_version": 1,
-        "run_id": root.name,
-        "status": "initialized",
-        "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-        "version": args.version,
-        "target_count": args.target,
-        "source_album_identifier": args.source_id,
-        "expected_source_count": args.source_count,
-        "phases": {
-            "brief": "pending",
-            "retrieval": "pending",
-            "local_inspection": "pending",
-            "recursive_evaluation": "pending",
-            "validation": "pending",
-            "write_test": "pending",
-            "production_commit": "pending",
-            "independent_verification": "pending",
-        },
-    }
-    dump_json(root / "run-state.json", state)
+    if args.source_snapshot:
+        source_snapshot = json.loads(args.source_snapshot.read_text(encoding="utf-8"))
+    else:
+        source_snapshot = {
+            "schema_version": 1,
+            "query_id": args.source_id,
+            "query_definition_version": 1,
+            "observed_count": args.source_count,
+            "membership_sha256": None,
+            "captured_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "legacy_count_only": True,
+        }
+    initialize_run(root, root.name, args.target, source_snapshot, args.version)
     (root / "README.md").write_text(
         f"# {args.version}: {args.slug}\n\n"
         f"- Target: {args.target:,} unique still photographs\n"
@@ -162,8 +179,12 @@ def command_inspection_plan(args: argparse.Namespace) -> int:
         "target_long_edge": args.target_long_edge,
         "export_previews": not args.no_previews,
         "ocr_all": not args.no_ocr,
+        "classify_all": not args.no_classify,
+        "detect_faces": not args.no_face_detection,
         "network_access_allowed": False,
     }
+    encoded = json.dumps(plan, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    plan["plan_sha256"] = hashlib.sha256(encoded).hexdigest()
     dump_json(args.output, plan)
     print(f"inspection_assets={len(identifiers)}")
     print(f"plan={args.output}")
@@ -215,19 +236,23 @@ def album(title: str, parent: str, uuids: list[str]) -> dict:
 
 
 def snapshot_plan(args: argparse.Namespace, plan_id: str, folders: list[dict], albums: list[dict], receipt: str) -> dict:
-    return {
+    plan = {
         "operation": "snapshot-membership",
         "schema_version": 1,
         "plan_id": plan_id,
         "safety_mode": "create-folders-albums-and-add-membership-only",
         "source_album_identifier": args.source_id,
         "expected_source_count": args.source_count,
+        "expected_source_membership_sha256": args.source_sha256,
         "batch_size": args.batch_size,
         "log_path": str(args.workspace / "logs" / "jamie-photo-archive-app.log"),
         "receipt_path": str(args.workspace / "manifests" / receipt),
         "folders": folders,
         "albums": albums,
     }
+    encoded = json.dumps(plan, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    plan["plan_sha256"] = hashlib.sha256(encoded).hexdigest()
+    return plan
 
 
 def command_snapshot_plans(args: argparse.Namespace) -> int:
@@ -286,7 +311,7 @@ def command_snapshot_plans(args: argparse.Namespace) -> int:
     if uncertain:
         production_albums.append(album(f"91 CONTEXT UNCERTAIN — EDITOR REVIEW — {len(uncertain):,}", "version", uncertain))
     if hold_ids:
-        production_albums.append(album(f"{args.version} — AUTOMATED SAFETY HOLD — {len(hold_ids):,}", "private", hold_ids))
+        production_albums.append(album(f"{args.version} — SAFETY HOLD — {len(hold_ids):,}", "private", hold_ids))
     production_albums.append(album(test_title, "audit", test_ids))
     production = snapshot_plan(
         args,
@@ -309,6 +334,13 @@ def command_snapshot_plans(args: argparse.Namespace) -> int:
 def command_run_plan(args: argparse.Namespace) -> int:
     plan_path = args.plan.resolve()
     plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    expected_digest = plan.get("plan_sha256")
+    digest_value = {key: value for key, value in plan.items() if key != "plan_sha256"}
+    actual_digest = hashlib.sha256(
+        json.dumps(digest_value, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    if not expected_digest or actual_digest != expected_digest:
+        raise ValueError("plan_sha256 is missing or does not match the plan")
     receipt_path = Path(plan["receipt_path"])
     if not APP.is_dir():
         raise ValueError(f"permissioned app not found: {APP}")
@@ -324,6 +356,68 @@ def command_run_plan(args: argparse.Namespace) -> int:
     if before is not None and before == after:
         raise ValueError(f"receipt was not refreshed: {receipt_path}")
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    if receipt.get("plan_sha256") not in {None, expected_digest}:
+        raise ValueError("receipt plan_sha256 does not match the executed plan")
+    attempt_id = f"{datetime.now().astimezone().strftime('%Y%m%dT%H%M%S%z')}-{uuid.uuid4().hex[:8]}"
+    attempt = {
+        "schema_version": 1,
+        "attempt_id": attempt_id,
+        "captured_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "plan_id": plan["plan_id"],
+        "plan_sha256": expected_digest,
+        "receipt": receipt,
+    }
+    attempts_dir = args.attempts_dir or receipt_path.parent / "receipts" / plan["plan_id"]
+    attempts_dir.mkdir(parents=True, exist_ok=True)
+    attempt_path = attempts_dir / f"{attempt_id}.json"
+    dump_json(attempt_path, attempt)
+    previous = sorted(
+        path
+        for path in attempts_dir.glob("*.json")
+        if path != attempt_path and not path.name.endswith("-comparison.json")
+    )
+    if previous:
+        prior = json.loads(previous[-1].read_text(encoding="utf-8"))["receipt"]
+        if "albums" in receipt:
+            prior_binding = {"folders": prior.get("folders", []), "albums": prior.get("albums", [])}
+            current_binding = {"folders": receipt.get("folders", []), "albums": receipt.get("albums", [])}
+        else:
+            ignored = {"completed_at", "resumed_count"}
+            prior_binding = {key: value for key, value in prior.items() if key not in ignored}
+            current_binding = {key: value for key, value in receipt.items() if key not in ignored}
+        comparison = {
+            "schema_version": 1,
+            "plan_id": plan["plan_id"],
+            "prior_attempt": previous[-1].name,
+            "current_attempt": attempt_path.name,
+            "same_catalog_bindings": prior_binding == current_binding,
+        }
+        dump_json(attempts_dir / f"{attempt_id}-comparison.json", comparison)
+        if not comparison["same_catalog_bindings"]:
+            raise ValueError("idempotence comparison failed: catalog bindings changed")
+    workspace = receipt_path.parent.parent
+    if (workspace / "events.jsonl").exists():
+        operation = plan.get("operation")
+        phase = (
+            "local_inspection"
+            if operation == "inspect-local-images"
+            else "write_test"
+            if "write-test" in plan["plan_id"]
+            else "production_commit"
+        )
+        record_phase(
+            workspace,
+            phase,
+            "completed",
+            {
+                "plan_id": plan["plan_id"],
+                "plan_sha256": expected_digest,
+                "attempt_receipt": str(attempt_path),
+                "receipt": str(receipt_path),
+            },
+            attempt_id,
+        )
+    print(f"attempt_receipt={attempt_path}")
     print(json.dumps(receipt, indent=2, ensure_ascii=False))
     return 0
 
@@ -333,6 +427,9 @@ def parser() -> argparse.ArgumentParser:
     sub = root.add_subparsers(dest="command", required=True)
 
     doctor = sub.add_parser("doctor", help="check the local integration without mutating Photos")
+    doctor.add_argument("--inventory-db", type=Path, default=INVENTORY_DB)
+    doctor.add_argument("--source-id", default=SOURCE_ID)
+    doctor.add_argument("--source-count", type=int, default=SOURCE_COUNT)
     doctor.set_defaults(func=command_doctor)
 
     init = sub.add_parser("init-run", help="create a durable versioned run workspace")
@@ -342,6 +439,7 @@ def parser() -> argparse.ArgumentParser:
     init.add_argument("--workspace-root", type=Path, default=WORKSPACE_ROOT)
     init.add_argument("--source-id", default=SOURCE_ID)
     init.add_argument("--source-count", type=int, default=SOURCE_COUNT)
+    init.add_argument("--source-snapshot", type=Path)
     init.set_defaults(func=command_init)
 
     inspect = sub.add_parser("inspection-plan", help="build an exact plan for local PhotoKit inspection")
@@ -355,6 +453,8 @@ def parser() -> argparse.ArgumentParser:
     inspect.add_argument("--limit", type=int)
     inspect.add_argument("--no-previews", action="store_true")
     inspect.add_argument("--no-ocr", action="store_true")
+    inspect.add_argument("--no-classify", action="store_true")
+    inspect.add_argument("--no-face-detection", action="store_true")
     inspect.set_defaults(func=command_inspection_plan)
 
     plans = sub.add_parser("snapshot-plans", help="build test-first app plans from a validated master")
@@ -368,11 +468,13 @@ def parser() -> argparse.ArgumentParser:
     plans.add_argument("--config", type=Path)
     plans.add_argument("--source-id", default=SOURCE_ID)
     plans.add_argument("--source-count", type=int, default=SOURCE_COUNT)
+    plans.add_argument("--source-sha256")
     plans.add_argument("--batch-size", type=int, default=500)
     plans.set_defaults(func=command_snapshot_plans)
 
     run = sub.add_parser("run-plan", help="launch a plan through the stable permissioned app bundle")
     run.add_argument("--plan", type=Path, required=True)
+    run.add_argument("--attempts-dir", type=Path)
     run.set_defaults(func=command_run_plan)
     return root
 
