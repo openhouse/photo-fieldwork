@@ -10,9 +10,8 @@ from datetime import datetime
 from pathlib import Path
 
 
-DEFAULT_DB = Path(
-    "/Volumes/apple-photos-8tb-external-ssd/Photos Library.photoslibrary/database/Photos.sqlite"
-)
+DEFAULT_DB = Path.home() / "Pictures/Photos Library.photoslibrary/database/Photos.sqlite"
+VISIBLE_LIBRARY_STILLS = "visible-library-stills://v1"
 
 
 def base(value: str) -> str:
@@ -41,6 +40,39 @@ def members(conn: sqlite3.Connection, album_pk: int) -> set[str]:
     }
 
 
+def require_photos_schema(conn: sqlite3.Connection) -> None:
+    required = {
+        "ZASSET": {"ZUUID", "ZKIND", "ZTRASHEDSTATE", "ZHIDDEN", "ZVISIBILITYSTATE", "ZBUNDLESCOPE"},
+        "ZGENERICALBUM": {"Z_PK", "ZUUID", "ZTITLE"},
+        "Z_30ASSETS": {"Z_3ASSETS", "Z_30ALBUMS"},
+    }
+    for table, columns in required.items():
+        actual = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        missing = columns - actual
+        if missing:
+            raise RuntimeError(
+                f"unsupported Photos schema: {table} missing {', '.join(sorted(missing))}"
+            )
+
+
+def source_members(conn: sqlite3.Connection, identifier: str) -> tuple[set[str], str]:
+    if identifier == VISIBLE_LIBRARY_STILLS:
+        rows = conn.execute(
+            """
+            SELECT ZUUID
+            FROM ZASSET
+            WHERE ZKIND = 0
+              AND ZTRASHEDSTATE = 0
+              AND ZHIDDEN = 0
+              AND ZVISIBILITYSTATE = 0
+              AND ZBUNDLESCOPE = 0
+            """
+        )
+        return {row[0] for row in rows}, "Visible Apple Photos library — still photographs"
+    source_pk, source_title = album_record(conn, identifier)
+    return members(conn, source_pk), source_title
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--plan", type=Path, required=True)
@@ -62,8 +94,8 @@ def main() -> None:
     uri = f"file:{args.photos_db}?mode=ro&immutable=1"
     conn = sqlite3.connect(uri, uri=True, timeout=30)
     conn.execute("PRAGMA query_only=ON")
-    source_pk, source_title = album_record(conn, plan["source_album_identifier"])
-    source = members(conn, source_pk)
+    require_photos_schema(conn)
+    source, source_title = source_members(conn, plan["source_album_identifier"])
     if len(source) != plan["expected_source_count"]:
         raise RuntimeError(f"source count changed: {len(source)} != {plan['expected_source_count']}")
 
@@ -108,4 +140,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -7,6 +7,8 @@
 - Keep exact coordinates out of editor-facing manifests.
 - Store generalized safety flags, not detected private text.
 - Never publish archive manifests containing private local paths or named-person associations without review.
+- Create run workspaces with mode `0700` and writer ID files with mode `0600`.
+- Define a retention decision for previews, contact sheets, review storage, and HOLD manifests.
 
 ## Prohibited by default
 
@@ -20,6 +22,10 @@
 ## Safety hold contract
 
 Any item marked `safety_status=hold`, hidden, or missing is excluded before ranking. Validation fails if a hold ID appears in the proposed master.
+
+Items marked `needs-review` or `unavailable` are also ineligible for automatic
+master selection. Human review may clarify their state, but selection logic does
+not silently treat ambiguity as clearance.
 
 The HOLD set should be private and access-controlled. It is not an editor album and must not be exported casually.
 
@@ -37,3 +43,11 @@ A production adapter must:
 
 If an adapter cannot meet all seven conditions, it is not production-ready.
 
+## Publication boundary
+
+Safety clearance does not establish rights, consent, caption accuracy, or public
+readiness. Those states remain separate. Public projections are allowlisted and
+must not contain archive UUIDs, People associations, private paths, exact
+locations, OCR, HOLD membership, or safety reasons.
+
+Read [the threat model](threat-model.md) before a production archive run.

@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install --editable .
+      - run: make check
+
+  swift-contract:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: swiftc -typecheck integrations/jamie-photo-archive/JamiePhotoArchive.swift
+        env:
+          CLANG_MODULE_CACHE_PATH: ${{ runner.temp }}/clang-module-cache
+          SWIFT_MODULECACHE_PATH: ${{ runner.temp }}/swift-module-cache

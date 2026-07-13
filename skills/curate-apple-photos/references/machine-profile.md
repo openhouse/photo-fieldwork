@@ -1,48 +1,64 @@
-# Jamie's local photo system
+# Local Apple Photos profile
 
-Use these as defaults, then verify them live.
+Live Apple Photos operations require a private JSON profile conforming to the
+public `schemas/profile.schema.json`. Begin with `profiles/profile.example.json`,
+store the completed file outside the repository, and pass it explicitly with
+`--profile`.
+
+`photo_archive_bridge.py init-profile --help` creates the private file with mode
+`0600` and refuses to overwrite an existing profile.
+
+The private profile contains:
+
+- the stable permissioned app path, executable name, and bundle identifier;
+- the durable private workspace root;
+- the compact inventory and immutable Photos database paths;
+- the intended source identifier and frozen count;
+- protected root, private-review, and write-audit folder titles and identifiers;
+- the installed `photo-fieldwork` CLI path.
+
+Do not put a real profile, asset identifier, protected folder identifier, People
+manifest, or library count in the public repository.
 
 ## Permissioned helper
 
-- App: `/Applications/Jamie Photo Archive.app`
-- Executable: `/Applications/Jamie Photo Archive.app/Contents/MacOS/JamiePhotoArchive`
-- Bundle identifier: `art.jamieburkart.jamiephotoarchive`
-- Installed app version reported on 2026-07-10: 1.0. Capabilities and stable bundle identifier are authoritative; do not replace the app merely for a version-label mismatch.
-- Supported operations:
-  - `inspect-local-images`: local PhotoKit image retrieval, Vision labels, face counts, ephemeral OCR-based safety flags, optional private previews;
-  - snapshot plans: create folders/albums and add existing asset membership only.
-
-Always launch plans through the app bundle so macOS uses its stable Photos permission identity:
+Always launch plans through the installed app bundle so macOS uses its stable
+Photos permission identity. Before inventory, inspection, or writing, run:
 
 ```bash
-open -W -n "/Applications/Jamie Photo Archive.app" --args --plan /absolute/path/plan.json
+python3 scripts/photo_archive_bridge.py doctor \
+  --profile /private/path/profile.json \
+  --live
 ```
 
-## Immutable wide source
+The `preflight-read-only` operation must confirm the authorization state observed
+by the launched process, resolve the intended source, match its frozen count,
+and fetch one local sample with network access disabled. It performs no catalog
+mutation and writes a diagnostic receipt even when a check fails.
 
-- Album title: `00 MASTER — PHOTO EDITORS — TARGET 5K`
-- Local identifier: `360ED78F-FB05-490A-8FFD-F3CB951D0D0A/L0/040`
-- Verified 2026-07-10 count: 124,484 unique still photographs
-- Shared compact inventory: `/Users/jburkart/Documents/Jamie-Photo-Archive-2026/shared/wide-corpus.sqlite`
-- Inventory contains existing people, albums, labels, places, search text, favorite/edit status, duplicate and burst data, and Apple aesthetic fields.
-- The shared inventory is a snapshot. Rebuild or reconcile it when source count or Photos metadata materially changes.
+Replacing, renaming, cloning, rebuilding, or re-signing the helper may create a
+new TCC identity. Treat that as an explicit operation, not a troubleshooting loop.
+
+## Source scopes
+
+An immutable source can be a physical Photos album or the virtual
+`visible-library-stills://v1` scope. The virtual source means visible, non-hidden,
+non-trashed, primary-scope still photographs.
+
+The whole-library inventory builder derives the count it observes. Freeze that
+count in the private run and every subsequent plan. Never compile a previously
+observed library count into the builder.
 
 ## Photos database
 
-- Library: `/Volumes/apple-photos-8tb-external-ssd/Photos Library.photoslibrary`
-- Database: `/Volumes/apple-photos-8tb-external-ssd/Photos Library.photoslibrary/database/Photos.sqlite`
-- Verification access must use SQLite URI `mode=ro&immutable=1` and `PRAGMA query_only=ON`.
-- Never issue `INSERT`, `UPDATE`, `DELETE`, schema changes, or a non-read-only connection.
-
-## Existing protected folders
-
-- Root: `JAMIE PHOTO EDIT — 2026`, identifier `92BBCF49-B077-478D-B9EE-DD94FAAFEAB5/L0/020`
-- Private review: `90 PRIVATE REVIEW — DO NOT SHARE`, identifier `1095845F-B6FA-41D0-8A22-D156C3071631/L0/020`
-- Audit: `99 WRITE TESTS / AUDIT`, identifier `7F9EB400-C06D-412C-9443-300A2C47CCE7/L0/020`
+Inventory and verification access must use SQLite URI `mode=ro&immutable=1` and
+`PRAGMA query_only=ON`. Never issue `INSERT`, `UPDATE`, `DELETE`, schema changes,
+or a non-read-only connection against Photos.sqlite.
 
 ## Workspaces
 
-- Durable root: `/Users/jburkart/Documents/Jamie-Photo-Archive-2026`
-- Workflow source: `/Volumes/16TB_SSD/Sites/photo-fieldwork`
-- Reviewed helper source: `/Volumes/16TB_SSD/Sites/photo-fieldwork/integrations/jamie-photo-archive`
 - Preserve every version as its own durable workspace and Photos folder.
+- Create run directories with mode `0700`.
+- Create writer ID files with mode `0600`.
+- Keep previews, People associations, HOLD, OCR-derived flags, and writer plans
+  outside public repositories and shared web roots.

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Private Apple Photos album lineage overrides",
+  "type": "object",
+  "properties": {
+    "$schema": {"type": "string"},
+    "album_ids": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/lineage"}
+    },
+    "title_terms": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/lineage"}
+    }
+  },
+  "$defs": {
+    "lineage": {
+      "enum": [
+        "human_source",
+        "project_source",
+        "fieldwork_generated",
+        "private_review",
+        "write_audit",
+        "unknown"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

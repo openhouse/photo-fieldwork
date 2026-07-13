@@ -1,0 +1,23 @@
+{
+  "$schema": "../schemas/profile.schema.json",
+  "schema_version": 1,
+  "workspace_root": "/Users/example/Documents/Photo-Fieldwork",
+  "photo_fieldwork_cli": "/path/to/photo-fieldwork/bin/photo-fieldwork",
+  "inventory_database": "/Users/example/Documents/Photo-Fieldwork/shared/inventory.sqlite",
+  "photos_database": "/path/to/Photos Library.photoslibrary/database/Photos.sqlite",
+  "app": {
+    "path": "/Applications/Photo Fieldwork Helper.app",
+    "bundle_identifier": "example.photo-fieldwork-helper",
+    "executable": "PhotoFieldworkHelper"
+  },
+  "source": {
+    "identifier": "visible-library-stills://v1",
+    "expected_count": null,
+    "title": "Visible Apple Photos library - still photographs"
+  },
+  "protected_folders": {
+    "root": {"title": "PHOTO FIELDWORK", "identifier": "REPLACE-ME"},
+    "private": {"title": "PRIVATE REVIEW", "identifier": "REPLACE-ME"},
+    "audit": {"title": "WRITE TESTS", "identifier": "REPLACE-ME"}
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "$schema": "../schemas/album-lineage.schema.json",
+  "album_ids": {
+    "SYNTHETIC-SOURCE-ALBUM-ID": "project_source",
+    "SYNTHETIC-FIELDWORK-ALBUM-ID": "fieldwork_generated"
+  },
+  "title_terms": {
+    "PRIVATE REVIEW": "private_review",
+    "WRITE TEST": "write_audit"
+  }
+}

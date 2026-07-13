@@ -11,8 +11,16 @@
     "exploratory_fraction": {"type": "number", "minimum": 0, "maximum": 1},
     "minimum_eval_precision": {"type": "number", "minimum": 0, "maximum": 1},
     "minimum_eval_coverage": {"type": "number", "minimum": 0, "maximum": 1},
+    "minimum_view_sampling_coverage": {"type": "number", "minimum": 0, "maximum": 1},
+    "minimum_final_wilson_lower_bound": {"type": "number", "minimum": 0, "maximum": 1},
     "minimum_named_people_fraction": {"type": "number", "minimum": 0, "maximum": 1},
     "minimum_person_free_fraction": {"type": "number", "minimum": 0, "maximum": 1},
+    "minimum_outside_prior_final_fraction": {"type": "number", "minimum": 0, "maximum": 1},
+    "enforce_view_quotas": {"type": "boolean"},
+    "event_cluster_caps": {
+      "type": "object",
+      "additionalProperties": {"type": "integer", "minimum": 1}
+    },
     "views": {
       "type": "array",
       "minItems": 1,
@@ -22,9 +30,14 @@
         "properties": {
           "id": {"type": "string"},
           "label": {"type": "string"},
-          "quota": {"type": "integer", "minimum": 0}
+          "quota": {"type": "integer", "minimum": 0},
+          "intent_quota": {"type": "integer", "minimum": 0},
+          "status": {
+            "enum": ["active", "unsupported", "deferred", "empty-by-editorial-decision"]
+          }
         }
       }
     }
-  }
+  },
+  "additionalProperties": true
 }

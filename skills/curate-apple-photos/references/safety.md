@@ -22,6 +22,9 @@ Use `needs-review` for minors, intimate domestic scenes, vulnerable people, priv
 
 Album membership is not publication permission. Project hypotheses are not factual captions. Named People metadata is private archive structure unless separately approved for release.
 
+Track rights, scoped consent, claim support, and publication readiness separately
+from safety. A clear safety state does not authorize public use.
+
 ## Mutation boundary
 
 Permitted:
@@ -39,3 +42,6 @@ Prohibited:
 - cloud analysis or external upload;
 - replacing or renaming prior versions.
 
+Run workspaces and writer ID directories must be private. Public handoffs are
+allowlisted projections and must exclude stable archive IDs, People, local paths,
+exact locations, OCR, safety reasons, and HOLD membership.

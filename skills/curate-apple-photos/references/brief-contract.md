@@ -32,15 +32,19 @@ Use People names only when they already exist in Apple Photos or the brief names
 
 ## config.json
 
-Follow `/Volumes/16TB_SSD/Sites/photo-fieldwork/schemas/config.schema.json`.
+Follow the repository's `schemas/config.schema.json`.
 
 - Quotas must sum exactly to the requested target.
 - Reserve 8-12% for `Unclassified / Editor Field` unless the brief gives a reason not to.
 - Preserve both a named-people field and a meaningful person-free field.
 - Project views should say `Editor Hypothesis` until validated.
-- Default evaluation minimums: 0.80 precision and 0.90 coverage.
+- Default evaluation minimums: 0.80 decisive fit rate and 0.90 review completion.
+- In v0.2 terminology these are decisive fit rate and review completion. Require
+  1.0 view sampling coverage by default and configure a final Wilson lower bound.
 - Default selection floors: `minimum_named_people_fraction` 0.35 and `minimum_person_free_fraction` 0.20, adjusted when the brief genuinely calls for a different balance.
 - Keep the random seed fixed for the run.
+- Record requested quotas in the intent config. Derive effective final quotas
+  from the frozen master and preserve unsupported or deliberately empty views.
 
 ## Peer panel
 
