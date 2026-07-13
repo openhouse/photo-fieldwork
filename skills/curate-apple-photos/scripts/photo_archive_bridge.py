@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import os
 import plistlib
@@ -20,6 +21,7 @@ APP = Path("/Applications/Jamie Photo Archive.app")
 APP_EXECUTABLE = APP / "Contents/MacOS/JamiePhotoArchive"
 APP_PLIST = APP / "Contents/Info.plist"
 BUNDLE_ID = "art.jamieburkart.jamiephotoarchive"
+MIN_APP_VERSION = "3.0"
 WORKSPACE_ROOT = Path("/Users/jburkart/Documents/Jamie-Photo-Archive-2026")
 INVENTORY_DB = WORKSPACE_ROOT / "shared/wide-corpus.sqlite"
 PHOTOS_DB = Path(
@@ -30,11 +32,71 @@ SOURCE_COUNT = 124_484
 ROOT_FOLDER_ID = "92BBCF49-B077-478D-B9EE-DD94FAAFEAB5/L0/020"
 PRIVATE_FOLDER_ID = "1095845F-B6FA-41D0-8A22-D156C3071631/L0/020"
 AUDIT_FOLDER_ID = "7F9EB400-C06D-412C-9443-300A2C47CCE7/L0/020"
+PHASE_ORDER = [
+    "brief",
+    "retrieval",
+    "local_inspection",
+    "recursive_evaluation",
+    "validation",
+    "write_test",
+    "production_commit",
+    "independent_verification",
+]
+
+
+def apply_profile(path: Path | None) -> None:
+    """Apply a local, untracked machine profile without publishing private paths or IDs."""
+    if path is None:
+        return
+    profile = json.loads(path.expanduser().read_text(encoding="utf-8"))
+    global APP, APP_EXECUTABLE, APP_PLIST, BUNDLE_ID, WORKSPACE_ROOT, INVENTORY_DB
+    global PHOTOS_DB, SOURCE_ID, SOURCE_COUNT, ROOT_FOLDER_ID, PRIVATE_FOLDER_ID, AUDIT_FOLDER_ID
+    APP = Path(profile["app_path"]).expanduser()
+    APP_EXECUTABLE = APP / "Contents/MacOS" / profile.get("app_executable", "JamiePhotoArchive")
+    APP_PLIST = APP / "Contents/Info.plist"
+    BUNDLE_ID = str(profile["bundle_id"])
+    WORKSPACE_ROOT = Path(profile["workspace_root"]).expanduser()
+    INVENTORY_DB = Path(profile["inventory_db"]).expanduser()
+    PHOTOS_DB = Path(profile["photos_db"]).expanduser()
+    SOURCE_ID = str(profile["source_identifier"])
+    SOURCE_COUNT = int(profile["source_count"])
+    ROOT_FOLDER_ID = str(profile["root_folder_identifier"])
+    PRIVATE_FOLDER_ID = str(profile["private_folder_identifier"])
+    AUDIT_FOLDER_ID = str(profile["audit_folder_identifier"])
 
 
 def dump_json(path: Path, value: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def dump_json_atomic(path: Path, value: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    temporary.replace(path)
+
+
+def content_sha256(value: dict, digest_field: str = "plan_sha256") -> str:
+    payload = dict(value)
+    payload.pop(digest_field, None)
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while chunk := handle.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def decode_meta_value(value: str) -> object:
+    try:
+        return json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        return value
 
 
 def local_identifier(value: str) -> str:
@@ -48,10 +110,12 @@ def base_identifier(value: str) -> str:
     return value.split("/", 1)[0]
 
 
-def read_csv(path: Path) -> list[dict[str, str]]:
+def read_csv(path: Path, allow_empty: bool = False) -> list[dict[str, str]]:
     with path.open(newline="", encoding="utf-8-sig") as handle:
-        rows = list(csv.DictReader(handle))
-    if not rows or "uuid" not in rows[0]:
+        reader = csv.DictReader(handle)
+        rows = list(reader)
+        columns = set(reader.fieldnames or [])
+    if "uuid" not in columns or (not rows and not allow_empty):
         raise ValueError(f"CSV requires uuid rows: {path}")
     return rows
 
@@ -82,19 +146,27 @@ def command_doctor(_: argparse.Namespace) -> int:
         bundle = plist.get("CFBundleIdentifier")
         version = plist.get("CFBundleShortVersionString")
         checks["stable_bundle_identifier"] = bundle == BUNDLE_ID
+        checks["plan_digest_receipt_contract"] = version == MIN_APP_VERSION
     if INVENTORY_DB.exists():
         conn = sqlite3.connect(f"file:{INVENTORY_DB}?mode=ro&immutable=1", uri=True)
-        inventory_meta = {key: json.loads(value) for key, value in conn.execute("SELECT key, value FROM meta")}
+        inventory_meta = {key: decode_meta_value(value) for key, value in conn.execute("SELECT key, value FROM meta")}
         conn.close()
-        checks["inventory_source_identifier"] = inventory_meta.get("source_album_uuid") == base_identifier(SOURCE_ID)
-        checks["inventory_source_count"] = int(inventory_meta.get("source_album_count", 0)) == SOURCE_COUNT
+        observed_identifier = inventory_meta.get("source_identifier") or inventory_meta.get("source_album_uuid")
+        observed_count = inventory_meta.get("source_count") or inventory_meta.get("source_album_count", 0)
+        expected_identifier = (
+            SOURCE_ID
+            if SOURCE_ID.startswith("visible-library-stills://")
+            else base_identifier(SOURCE_ID.removeprefix("album://"))
+        )
+        checks["inventory_source_identifier"] = observed_identifier == expected_identifier
+        checks["inventory_source_count"] = int(observed_count) == SOURCE_COUNT
     report = {
         "status": "PASS" if all(checks.values()) else "FAIL",
         "checks": checks,
         "bundle_id": bundle,
         "version": version,
         "inventory_generated_at": inventory_meta.get("generated_at"),
-        "inventory_source_count": inventory_meta.get("source_album_count"),
+        "inventory_source_count": inventory_meta.get("source_count") or inventory_meta.get("source_album_count"),
     }
     print(json.dumps(report, indent=2))
     return 0 if report["status"] == "PASS" else 2
@@ -108,7 +180,7 @@ def command_init(args: argparse.Namespace) -> int:
     for name in ("inventory", "manifests", "reports", "logs", "previews", "contact-sheets", "scripts"):
         (root / name).mkdir(parents=True, exist_ok=False)
     state = {
-        "schema_version": 1,
+        "schema_version": 2,
         "run_id": root.name,
         "status": "initialized",
         "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
@@ -141,6 +213,98 @@ def command_init(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_status(args: argparse.Namespace) -> int:
+    state_path = args.workspace / "run-state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    print(json.dumps(state, indent=2, ensure_ascii=False))
+    return 0
+
+
+def command_resume(args: argparse.Namespace) -> int:
+    state_path = args.workspace / "run-state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    next_phase = next(
+        (phase for phase in PHASE_ORDER if state.get("phases", {}).get(phase) != "completed"),
+        None,
+    )
+    report = {
+        "run_id": state.get("run_id"),
+        "status": state.get("status"),
+        "next_phase": next_phase,
+        "sealed": bool(state.get("seal_sha256")),
+        "resume_is_safe": state.get("status") != "failed",
+    }
+    print(json.dumps(report, indent=2))
+    return 0 if report["resume_is_safe"] else 2
+
+
+def command_set_phase(args: argparse.Namespace) -> int:
+    state_path = args.workspace / "run-state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    if args.phase not in state.get("phases", {}):
+        raise ValueError(f"unknown run phase: {args.phase}")
+    if args.phase_status == "completed":
+        position = PHASE_ORDER.index(args.phase)
+        incomplete_prior = [
+            phase for phase in PHASE_ORDER[:position]
+            if state.get("phases", {}).get(phase) != "completed"
+        ]
+        if incomplete_prior:
+            raise ValueError(f"cannot complete {args.phase} before: {', '.join(incomplete_prior)}")
+    state["phases"][args.phase] = args.phase_status
+    state["status"] = args.phase if args.phase_status == "completed" else args.phase_status
+    state["updated_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
+    dump_json_atomic(state_path, state)
+    print(json.dumps(state, indent=2, ensure_ascii=False))
+    return 0
+
+
+def command_seal(args: argparse.Namespace) -> int:
+    state_path = args.workspace / "run-state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    required_phases = {"retrieval", "local_inspection", "recursive_evaluation", "validation"}
+    incomplete = sorted(phase for phase in required_phases if state.get("phases", {}).get(phase) != "completed")
+    if incomplete:
+        raise ValueError(f"cannot seal with incomplete phases: {', '.join(incomplete)}")
+    inputs = []
+    for path in args.input:
+        resolved = path.resolve()
+        if not resolved.is_file():
+            raise ValueError(f"seal input is not a file: {resolved}")
+        inputs.append({"path": str(resolved), "sha256": file_sha256(resolved), "bytes": resolved.stat().st_size})
+    if not inputs:
+        raise ValueError("seal requires at least one --input manifest or plan")
+    app_bundle = BUNDLE_ID
+    app_version = "unknown"
+    if APP_PLIST.is_file():
+        with APP_PLIST.open("rb") as handle:
+            plist = plistlib.load(handle)
+        app_bundle = str(plist.get("CFBundleIdentifier", app_bundle))
+        app_version = str(plist.get("CFBundleShortVersionString", app_version))
+    seal = {
+        "schema_version": 1,
+        "run_id": state["run_id"],
+        "sealed_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "source_album_identifier": state["source_album_identifier"],
+        "expected_source_count": state["expected_source_count"],
+        "target_count": state["target_count"],
+        "writer_bundle_id": app_bundle,
+        "writer_build_version": app_version,
+        "writer_executable_sha256": file_sha256(APP_EXECUTABLE) if APP_EXECUTABLE.is_file() else None,
+        "inputs": inputs,
+    }
+    seal["seal_sha256"] = content_sha256(seal, "seal_sha256")
+    output = args.output or args.workspace / "manifests" / "release-seal.json"
+    dump_json_atomic(output, seal)
+    state["status"] = "sealed"
+    state["seal_sha256"] = seal["seal_sha256"]
+    state["seal_path"] = str(output.resolve())
+    state["updated_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
+    dump_json_atomic(state_path, state)
+    print(json.dumps(seal, indent=2, ensure_ascii=False))
+    return 0
+
+
 def command_inspection_plan(args: argparse.Namespace) -> int:
     rows = read_csv(args.input)
     identifiers = list(dict.fromkeys(local_identifier(row["uuid"]) for row in rows))
@@ -162,8 +326,11 @@ def command_inspection_plan(args: argparse.Namespace) -> int:
         "target_long_edge": args.target_long_edge,
         "export_previews": not args.no_previews,
         "ocr_all": not args.no_ocr,
+        "classify_all": not args.no_classify,
+        "detect_faces": not args.no_face_detection,
         "network_access_allowed": False,
     }
+    plan["plan_sha256"] = content_sha256(plan)
     dump_json(args.output, plan)
     print(f"inspection_assets={len(identifiers)}")
     print(f"plan={args.output}")
@@ -215,11 +382,12 @@ def album(title: str, parent: str, uuids: list[str]) -> dict:
 
 
 def snapshot_plan(args: argparse.Namespace, plan_id: str, folders: list[dict], albums: list[dict], receipt: str) -> dict:
-    return {
+    plan = {
         "operation": "snapshot-membership",
-        "schema_version": 1,
+        "schema_version": 2,
         "plan_id": plan_id,
         "safety_mode": "create-folders-albums-and-add-membership-only",
+        "adapter": {"name": "apple-photos-photokit", "contract_version": 1},
         "source_album_identifier": args.source_id,
         "expected_source_count": args.source_count,
         "batch_size": args.batch_size,
@@ -228,11 +396,13 @@ def snapshot_plan(args: argparse.Namespace, plan_id: str, folders: list[dict], a
         "folders": folders,
         "albums": albums,
     }
+    plan["plan_sha256"] = content_sha256(plan)
+    return plan
 
 
 def command_snapshot_plans(args: argparse.Namespace) -> int:
     master_rows = read_csv(args.master)
-    hold_rows = read_csv(args.holds)
+    hold_rows = read_csv(args.holds, allow_empty=True)
     master_ids = [base_identifier(row["uuid"]) for row in master_rows]
     hold_ids = [base_identifier(row["uuid"]) for row in hold_rows]
     if len(master_ids) != args.target or len(set(master_ids)) != args.target:
@@ -309,7 +479,27 @@ def command_snapshot_plans(args: argparse.Namespace) -> int:
 def command_run_plan(args: argparse.Namespace) -> int:
     plan_path = args.plan.resolve()
     plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    expected_digest = content_sha256(plan)
+    if plan.get("plan_sha256") != expected_digest:
+        raise ValueError("plan_sha256 is missing or does not match plan content")
     receipt_path = Path(plan["receipt_path"])
+    state_path = plan_path.parent.parent / "run-state.json"
+    state = None
+    if plan.get("operation") == "snapshot-membership":
+        if not state_path.is_file():
+            raise ValueError(f"snapshot plan is outside a versioned run: {state_path}")
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        if state.get("status") not in {"sealed", "test-written", "production-written", "independently-verified"}:
+            raise ValueError(f"run must be sealed before Photos writing; status={state.get('status')}")
+        seal_path = Path(state.get("seal_path", ""))
+        if not seal_path.is_file():
+            raise ValueError("sealed run is missing release-seal.json")
+        seal = json.loads(seal_path.read_text(encoding="utf-8"))
+        sealed_inputs = {item["path"]: item["sha256"] for item in seal.get("inputs", [])}
+        if sealed_inputs.get(str(plan_path)) != file_sha256(plan_path):
+            raise ValueError("snapshot plan is not present unchanged in the release seal")
+        if "production" in str(plan.get("plan_id", "")) and state.get("status") == "sealed":
+            raise ValueError("production write requires a completed write test")
     if not APP.is_dir():
         raise ValueError(f"permissioned app not found: {APP}")
     before = receipt_path.stat().st_mtime_ns if receipt_path.exists() else None
@@ -324,12 +514,29 @@ def command_run_plan(args: argparse.Namespace) -> int:
     if before is not None and before == after:
         raise ValueError(f"receipt was not refreshed: {receipt_path}")
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    if receipt.get("plan_sha256") != expected_digest:
+        raise ValueError("receipt plan_sha256 does not match the executed plan")
+    if state is not None:
+        production = "production" in str(plan.get("plan_id", ""))
+        if production:
+            state["status"] = "production-written"
+        elif state.get("status") in {"sealed", "test-written"}:
+            state["status"] = "test-written"
+        state["phases"]["production_commit" if production else "write_test"] = "completed"
+        state["updated_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
+        dump_json_atomic(state_path, state)
     print(json.dumps(receipt, indent=2, ensure_ascii=False))
     return 0
 
 
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(description=__doc__)
+    root.add_argument(
+        "--profile",
+        type=Path,
+        default=Path(os.environ["PHOTO_FIELDWORK_PROFILE"]) if os.environ.get("PHOTO_FIELDWORK_PROFILE") else None,
+        help="local machine/source profile; may also be set with PHOTO_FIELDWORK_PROFILE",
+    )
     sub = root.add_subparsers(dest="command", required=True)
 
     doctor = sub.add_parser("doctor", help="check the local integration without mutating Photos")
@@ -344,6 +551,26 @@ def parser() -> argparse.ArgumentParser:
     init.add_argument("--source-count", type=int, default=SOURCE_COUNT)
     init.set_defaults(func=command_init)
 
+    status = sub.add_parser("status", help="print durable run state")
+    status.add_argument("--workspace", type=Path, required=True)
+    status.set_defaults(func=command_status)
+
+    resume = sub.add_parser("resume", help="report the next unmet phase from durable run state")
+    resume.add_argument("--workspace", type=Path, required=True)
+    resume.set_defaults(func=command_resume)
+
+    phase = sub.add_parser("set-phase", help="atomically record a run phase result")
+    phase.add_argument("--workspace", type=Path, required=True)
+    phase.add_argument("--phase", required=True)
+    phase.add_argument("--phase-status", choices=["pending", "completed", "failed"], required=True)
+    phase.set_defaults(func=command_set_phase)
+
+    seal = sub.add_parser("seal", help="hash release inputs and freeze a validated run before writing")
+    seal.add_argument("--workspace", type=Path, required=True)
+    seal.add_argument("--input", type=Path, action="append", required=True)
+    seal.add_argument("--output", type=Path)
+    seal.set_defaults(func=command_seal)
+
     inspect = sub.add_parser("inspection-plan", help="build an exact plan for local PhotoKit inspection")
     inspect.add_argument("--input", type=Path, required=True)
     inspect.add_argument("--workspace", type=Path, required=True)
@@ -355,6 +582,8 @@ def parser() -> argparse.ArgumentParser:
     inspect.add_argument("--limit", type=int)
     inspect.add_argument("--no-previews", action="store_true")
     inspect.add_argument("--no-ocr", action="store_true")
+    inspect.add_argument("--no-classify", action="store_true")
+    inspect.add_argument("--no-face-detection", action="store_true")
     inspect.set_defaults(func=command_inspection_plan)
 
     plans = sub.add_parser("snapshot-plans", help="build test-first app plans from a validated master")
@@ -378,6 +607,14 @@ def parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
+    preliminary = argparse.ArgumentParser(add_help=False)
+    preliminary.add_argument(
+        "--profile",
+        type=Path,
+        default=Path(os.environ["PHOTO_FIELDWORK_PROFILE"]) if os.environ.get("PHOTO_FIELDWORK_PROFILE") else None,
+    )
+    known, _ = preliminary.parse_known_args()
+    apply_profile(known.profile)
     args = parser().parse_args()
     try:
         return args.func(args)

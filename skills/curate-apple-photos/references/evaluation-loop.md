@@ -20,6 +20,7 @@
 - `judgment`: `fit`, `reject`, or `uncertain`
 - `visible_reason`
 - `safety_status`: `clear`, `hold`, or `needs-review`
+- `safety_clearance`: only `true` when an identified human reviewer explicitly clears a prior `needs-review` state; HOLD is permanent for the run
 - `error_category`
 - `round_id`
 - `reviewer_lens`
@@ -50,4 +51,3 @@
 ## Stop conditions
 
 Run up to five substantial rounds. Stop earlier when all gates pass and failure review reveals no new systematic issue. Do not lower thresholds merely to finish. If the same genuine blocker recurs, preserve the run and explain exactly what input or permission is missing.
-

@@ -7,13 +7,16 @@
   "exploratory_fraction": 0.1,
   "minimum_eval_precision": 0.75,
   "minimum_eval_coverage": 0.8,
+  "minimum_view_eval_precision": 0.65,
+  "minimum_view_eval_sample": 2,
+  "maximum_eval_uncertainty": 0.25,
   "minimum_named_people_fraction": 0.35,
   "minimum_person_free_fraction": 0.2,
   "views": [
     {"id": "00", "label": "Unclassified / Editor Field", "quota": 2},
     {"id": "01", "label": "People / Presence", "quota": 3},
     {"id": "02", "label": "Work / Apparatus", "quota": 3},
-    {"id": "03", "label": "Project Evidence - Editor Hypothesis", "quota": 2},
+    {"id": "03", "label": "Project Evidence - Editor Hypothesis", "quota": 2, "evaluation_mode": "sparse-hypothesis"},
     {"id": "04", "label": "Places / Thresholds / Traces", "quota": 2}
   ]
 }

@@ -32,10 +32,10 @@ make check
 
 1. Copy `config/starter.json` and edit the views, quotas, and thresholds.
 2. Prepare a CSV using `schemas/inventory-fields.md`.
-3. Run the selection and create an evaluation sample.
+3. Normalize retrieval hypotheses into image-view evidence and run exact constrained assignment.
 4. Inspect sampled images locally and record `fit`, `reject`, or `uncertain`.
 5. Evaluate, revise, and repeat until the agreed criteria pass.
-6. Generate a catalog write plan. Test ten items before any production write.
+6. Generate an evaluated catalog write plan, seal the release inputs, and test ten items before any production write.
 7. Verify the committed album membership independently and read-only.
 
 ```bash
@@ -44,15 +44,37 @@ make check
   --config path/to/config.json \
   --output runs/my-run
 
+# Later rounds may provide an explicit edge manifest and cumulative feedback.
+./bin/photo-fieldwork assign \
+  --inventory path/to/inventory.csv \
+  --edges runs/my-run/manifests/candidate-view-evidence.csv \
+  --feedback runs/my-run/manifests/evaluation-ledger.csv \
+  --config path/to/config.json \
+  --output runs/my-run
+
 ./bin/photo-fieldwork sample \
   --master runs/my-run/manifests/proposed-master.csv \
   --output runs/my-run/manifests/eval-sample.csv \
+  --per-view 3
+
+# Guarantee a fresh round instead of reusing previously reviewed IDs.
+./bin/photo-fieldwork sample \
+  --master runs/my-run/manifests/proposed-master.csv \
+  --exclude-feedback runs/my-run/manifests/evaluation-ledger.csv \
+  --novel-only \
+  --output runs/my-run/manifests/eval-round-02.csv \
   --per-view 3
 
 ./bin/photo-fieldwork evaluate \
   --feedback runs/my-run/manifests/eval-sample.csv \
   --config path/to/config.json \
   --output runs/my-run/reports
+
+./bin/photo-fieldwork apply-feedback \
+  --sample runs/my-run/manifests/eval-round-02.csv \
+  --feedback runs/my-run/manifests/eval-round-02-decisions.csv \
+  --output runs/my-run/manifests/eval-round-02-reviewed.csv \
+  --ledger runs/my-run/manifests/evaluation-ledger.csv
 
 ./bin/photo-fieldwork validate \
   --master runs/my-run/manifests/proposed-master.csv \
@@ -66,6 +88,7 @@ make check
   --plan-id my-run-v01 \
   --source-title "Wide retrieval - do not edit" \
   --source-identifier SOURCE-ID \
+  --evaluation-report runs/my-run/reports/evaluation-report.json \
   --output runs/my-run/manifests/catalog-plan.json
 ```
 
@@ -81,12 +104,16 @@ Those are different questions. Photo Fieldwork keeps them different.
 
 ## What is included
 
-- A deterministic, configurable selection engine.
+- A deterministic, overlap-aware constrained assignment engine with exact quotas.
+- First-class image-view evidence and edge-specific feedback.
 - Safety holds that cannot enter the master.
+- A protected `needs-review` state and canonical ID comparisons.
 - Duplicate and burst controls.
 - Named-people and visible-apparatus signals.
 - An unclassified editor field for honest uncertainty.
-- Stratified evaluation samples and precision thresholds.
+- Novel, stratified evaluation samples with overall and per-view release gates.
+- Content-hashed plans, durable run state, and release seals.
+- A generated local-only editor review surface with shortlist, caption, rights, consent, and public-safety fields.
 - A fully synthetic practice run.
 - Apple Photos integration guidance and adapter contracts.
 - A case study of how visual inspection changed a real workflow.
@@ -100,6 +127,8 @@ Those are different questions. Photo Fieldwork keeps them different.
 - A claim that the generated corpus is the final edit.
 
 Read [the workflow](docs/workflow.md), [the architecture](docs/architecture.md), [the safety model](docs/safety.md), and [the Apple Photos guide](docs/apple-photos.md) before using a private archive.
+
+For Apple Photos, copy `config/source-profile.example.json` to an untracked local location and pass it with `photo_archive_bridge.py --profile ...`. Machine paths, collection identifiers, and source counts belong in that local profile, not in shared workflow data.
 
 ## Use it as a Codex skill
 

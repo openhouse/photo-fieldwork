@@ -1,0 +1,13 @@
+{
+  "app_path": "/Applications/Your Photo Archive.app",
+  "app_executable": "PhotoArchive",
+  "bundle_id": "org.example.photoarchive",
+  "workspace_root": "/Users/you/Documents/Photo-Fieldwork-Runs",
+  "inventory_db": "/Users/you/Documents/Photo-Fieldwork-Runs/shared/source.sqlite",
+  "photos_db": "/path/to/Photos Library.photoslibrary/database/Photos.sqlite",
+  "source_identifier": "visible-library-stills://v1",
+  "source_count": 100000,
+  "root_folder_identifier": "ROOT-COLLECTION-ID/L0/020",
+  "private_folder_identifier": "PRIVATE-COLLECTION-ID/L0/020",
+  "audit_folder_identifier": "AUDIT-COLLECTION-ID/L0/020"
+}

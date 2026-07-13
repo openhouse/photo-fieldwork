@@ -8,19 +8,47 @@ import csv
 import math
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from PIL import Image, ImageDraw, ImageFont, ImageOps, UnidentifiedImageError
 
 
-def preview_path(directory: Path, uuid: str) -> Path | None:
-    base = uuid.split("/", 1)[0]
-    candidates = [directory / f"{base}_L0_001.jpg", directory / f"{base}.jpg", directory / f"{uuid.replace('/', '_')}.jpg"]
-    return next((path for path in candidates if path.exists()), None)
+def canonical_id(value: str) -> str:
+    return value.strip().split("/", 1)[0]
+
+
+def recursive_preview_index(directories: list[Path]) -> dict[str, Path]:
+    index: dict[str, Path] = {}
+    collisions: dict[str, list[Path]] = {}
+    for directory in directories:
+        for path in sorted(candidate for candidate in directory.rglob("*") if candidate.suffix.lower() in {".jpg", ".jpeg"}):
+            stem = path.stem
+            base = stem[:-7] if stem.endswith("_L0_001") else stem.split("_L0_", 1)[0]
+            if base in index and index[base].resolve() != path.resolve():
+                collisions.setdefault(base, [index[base]]).append(path)
+            else:
+                index[base] = path
+    if collisions:
+        example, paths = next(iter(collisions.items()))
+        raise ValueError(f"duplicate preview paths for {example}: {', '.join(str(path) for path in paths[:3])}")
+    return index
+
+
+def read_preview_index(path: Path) -> dict[str, Path]:
+    with path.open(newline="", encoding="utf-8-sig") as handle:
+        rows = list(csv.DictReader(handle))
+    required = {"uuid", "preview_path", "decode_status"}
+    if not rows or required - set(rows[0]):
+        raise ValueError(f"preview index requires {', '.join(sorted(required))}: {path}")
+    invalid = [row for row in rows if row["decode_status"] != "ok"]
+    if invalid:
+        raise ValueError(f"preview index contains {len(invalid)} invalid rows")
+    return {canonical_id(row["uuid"]): Path(row["preview_path"]) for row in rows}
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sample", type=Path, required=True)
-    parser.add_argument("--previews", type=Path, required=True)
+    parser.add_argument("--previews", type=Path, action="append", default=[], help="preview root; repeatable and recursive")
+    parser.add_argument("--preview-index", type=Path, help="verified preview-index.csv")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--columns", type=int, default=4)
     parser.add_argument("--rows", type=int, default=3)
@@ -30,6 +58,12 @@ def main() -> None:
 
     with args.sample.open(newline="", encoding="utf-8-sig") as handle:
         records = list(csv.DictReader(handle))
+    if not args.preview_index and not args.previews:
+        parser.error("provide --preview-index or at least one --previews root")
+    previews = read_preview_index(args.preview_index) if args.preview_index else recursive_preview_index(args.previews)
+    missing = [record["uuid"] for record in records if canonical_id(record["uuid"]) not in previews]
+    if missing:
+        raise ValueError(f"{len(missing)} sample rows lack a verified preview; first={missing[0]}")
     args.output.mkdir(parents=True, exist_ok=True)
     per_page = args.columns * args.rows
     pages = math.ceil(len(records) / per_page)
@@ -43,28 +77,49 @@ def main() -> None:
         for index, record in enumerate(batch):
             x = (index % args.columns) * args.cell_width
             y = (index // args.columns) * args.cell_height
-            path = preview_path(args.previews, record["uuid"])
+            path = previews[canonical_id(record["uuid"])]
             image_box = (x + 8, y + 8, x + args.cell_width - 8, y + args.cell_height - 62)
-            if path:
+            try:
                 with Image.open(path) as source:
                     image = ImageOps.exif_transpose(source).convert("RGB")
                     image.thumbnail((args.cell_width - 16, args.cell_height - 70))
                     px = x + (args.cell_width - image.width) // 2
                     py = y + 8 + (args.cell_height - 70 - image.height) // 2
                     canvas.paste(image, (px, py))
-            else:
-                draw.rectangle(image_box, outline="#a33", width=2)
-                draw.text((x + 18, y + 110), "PREVIEW UNAVAILABLE", fill="#a33", font=font)
+            except (UnidentifiedImageError, OSError) as error:
+                raise ValueError(f"preview failed during render for {record['uuid']}: {error}") from error
             view = record.get("primary_view") or record.get("assigned_bucket") or "?"
             score = record.get("score_total") or record.get("editorial_score") or "?"
-            draw.text((x + 10, y + args.cell_height - 51), f"{record['uuid'][:12]}  view {view}", fill="#111", font=font)
-            draw.text((x + 10, y + args.cell_height - 29), f"score {score}", fill="#444", font=small)
+            tile = page_index * per_page + index + 1
+            badge = "DIRECT" if record.get("direct_provenance", "").lower() in {"1", "true", "yes"} else "HYPOTHESIS"
+            safety = record.get("safety_status", "clear").upper()
+            draw.text((x + 10, y + args.cell_height - 51), f"#{tile:04d}  {record['uuid'][:12]}  view {view}", fill="#111", font=font)
+            draw.text((x + 10, y + args.cell_height - 29), f"{badge}  {safety}  score {score}", fill="#444", font=small)
             draw.rectangle((x, y, x + args.cell_width - 1, y + args.cell_height - 1), outline="#bbb", width=1)
         output = args.output / f"contact-sheet-{page_index + 1:02d}.jpg"
         canvas.save(output, "JPEG", quality=88)
         print(output)
 
+    sidecar = args.output / "contact-sheet-index.csv"
+    with sidecar.open("w", newline="", encoding="utf-8") as handle:
+        fields = ["tile", "page", "uuid", "preview_path", "primary_view", "score_total", "provenance_badge", "safety_status"]
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        for index, record in enumerate(records):
+            writer.writerow(
+                {
+                    "tile": index + 1,
+                    "page": index // per_page + 1,
+                    "uuid": record["uuid"],
+                    "preview_path": str(previews[canonical_id(record["uuid"])]),
+                    "primary_view": record.get("primary_view", ""),
+                    "score_total": record.get("score_total", ""),
+                    "provenance_badge": "direct" if record.get("direct_provenance", "").lower() in {"1", "true", "yes"} else "hypothesis",
+                    "safety_status": record.get("safety_status", "clear"),
+                }
+            )
+    print(sidecar)
+
 
 if __name__ == "__main__":
     main()
-

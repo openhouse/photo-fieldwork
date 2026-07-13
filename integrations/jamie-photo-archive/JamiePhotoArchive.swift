@@ -3,6 +3,28 @@ import AppKit
 import Photos
 import Vision
 
+let visibleLibraryStillsSourceIdentifier = "visible-library-stills://v1"
+
+func fetchSourceAssets(identifier: String) throws -> (PHFetchResult<PHAsset>, String) {
+    if identifier == visibleLibraryStillsSourceIdentifier {
+        let options = PHFetchOptions()
+        options.includeHiddenAssets = false
+        return (
+            PHAsset.fetchAssets(with: .image, options: options),
+            "Visible Apple Photos library — still photographs"
+        )
+    }
+    let albumIdentifier = identifier.hasPrefix("album://")
+        ? String(identifier.dropFirst("album://".count))
+        : identifier
+    guard let album = PHAssetCollection.fetchAssetCollections(
+        withLocalIdentifiers: [albumIdentifier], options: nil
+    ).firstObject else {
+        throw ArchiveError.unresolved("album \(identifier)")
+    }
+    return (PHAsset.fetchAssets(in: album, options: nil), album.localizedTitle ?? "source")
+}
+
 struct PlanHeader: Codable {
     let operation: String?
 }
@@ -25,6 +47,7 @@ struct SnapshotPlan: Codable {
     let operation: String?
     let schema_version: Int
     let plan_id: String
+    let plan_sha256: String
     let safety_mode: String
     let source_album_identifier: String
     let expected_source_count: Int
@@ -39,6 +62,7 @@ struct InspectionPlan: Codable {
     let operation: String
     let schema_version: Int
     let plan_id: String
+    let plan_sha256: String
     let safety_mode: String
     let source_album_identifier: String
     let expected_source_count: Int
@@ -50,6 +74,8 @@ struct InspectionPlan: Codable {
     let target_long_edge: Int
     let export_previews: Bool
     let ocr_all: Bool
+    let classify_all: Bool?
+    let detect_faces: Bool?
     let network_access_allowed: Bool
 }
 
@@ -75,6 +101,9 @@ struct InspectionRow: Codable {
 struct InspectionReceipt: Codable {
     let completed_at: String
     let plan_id: String
+    let plan_sha256: String
+    let writer_bundle_id: String
+    let writer_build_version: String
     let source_album_identifier: String
     let source_count: Int
     let requested_count: Int
@@ -103,6 +132,9 @@ struct AlbumReceipt: Codable {
 struct SnapshotReceipt: Codable {
     let completed_at: String
     let plan_id: String
+    let plan_sha256: String
+    let writer_bundle_id: String
+    let writer_build_version: String
     let source_album_identifier: String
     let source_count: Int
     let safety_mode: String
@@ -199,11 +231,10 @@ final class InspectionRunner {
         }
 
         try requireAuthorization()
-        let source = try fetchAlbum(identifier: plan.source_album_identifier)
-        let sourceFetch = PHAsset.fetchAssets(in: source, options: nil)
+        let (sourceFetch, sourceTitle) = try fetchSourceAssets(identifier: plan.source_album_identifier)
         guard sourceFetch.count == plan.expected_source_count else {
             throw ArchiveError.membershipMismatch(
-                source.localizedTitle ?? "source",
+                sourceTitle,
                 plan.expected_source_count,
                 sourceFetch.count
             )
@@ -276,6 +307,9 @@ final class InspectionRunner {
         return InspectionReceipt(
             completed_at: ISO8601DateFormatter().string(from: Date()),
             plan_id: plan.plan_id,
+            plan_sha256: plan.plan_sha256,
+            writer_bundle_id: Bundle.main.bundleIdentifier ?? "unknown",
+            writer_build_version: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown",
             source_album_identifier: plan.source_album_identifier,
             source_count: sourceFetch.count,
             requested_count: plan.asset_identifiers.count,
@@ -355,14 +389,16 @@ final class InspectionRunner {
         var faceCount = 0
         var errors: [String] = []
 
-        do {
-            let request = VNClassifyImageRequest()
-            try VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])
-            let results = (request.results ?? []).filter { $0.confidence >= 0.05 }.prefix(20)
-            labels = results.map { $0.identifier }
-            confidences = results.map { $0.confidence }
-        } catch {
-            errors.append("classification unavailable")
+        if plan.classify_all ?? true {
+            do {
+                let request = VNClassifyImageRequest()
+                try VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])
+                let results = (request.results ?? []).filter { $0.confidence >= 0.05 }.prefix(20)
+                labels = results.map { $0.identifier }
+                confidences = results.map { $0.confidence }
+            } catch {
+                errors.append("classification unavailable")
+            }
         }
 
         if plan.ocr_all {
@@ -377,12 +413,14 @@ final class InspectionRunner {
             }
         }
 
-        do {
-            let request = VNDetectFaceRectanglesRequest()
-            try VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])
-            faceCount = request.results?.count ?? 0
-        } catch {
-            errors.append("face count unavailable")
+        if plan.detect_faces ?? true {
+            do {
+                let request = VNDetectFaceRectanglesRequest()
+                try VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])
+                faceCount = request.results?.count ?? 0
+            } catch {
+                errors.append("face count unavailable")
+            }
         }
 
         let recognizedText = textLines.joined(separator: " ")
@@ -506,7 +544,7 @@ final class ArchiveRunner {
     }
 
     func run() throws -> SnapshotReceipt {
-        guard plan.schema_version == 1 else {
+        guard plan.schema_version == 2 else {
             throw ArchiveError.invalidPlan("unsupported schema_version")
         }
         guard plan.safety_mode == "create-folders-albums-and-add-membership-only" else {
@@ -516,11 +554,11 @@ final class ArchiveRunner {
             throw ArchiveError.invalidPlan("batch_size outside 1...2000")
         }
         try requireAuthorization()
-        let source = try fetchAlbum(identifier: plan.source_album_identifier)
-        let sourceCount = PHAsset.fetchAssets(in: source, options: nil).count
+        let (sourceFetch, sourceTitle) = try fetchSourceAssets(identifier: plan.source_album_identifier)
+        let sourceCount = sourceFetch.count
         guard sourceCount == plan.expected_source_count else {
             throw ArchiveError.membershipMismatch(
-                source.localizedTitle ?? "source",
+                sourceTitle,
                 plan.expected_source_count,
                 sourceCount
             )
@@ -563,6 +601,9 @@ final class ArchiveRunner {
         return SnapshotReceipt(
             completed_at: ISO8601DateFormatter().string(from: Date()),
             plan_id: plan.plan_id,
+            plan_sha256: plan.plan_sha256,
+            writer_bundle_id: Bundle.main.bundleIdentifier ?? "unknown",
+            writer_build_version: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown",
             source_album_identifier: plan.source_album_identifier,
             source_count: sourceCount,
             safety_mode: plan.safety_mode,

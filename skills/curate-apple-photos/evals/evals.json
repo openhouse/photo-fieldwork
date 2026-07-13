@@ -1,0 +1,38 @@
+{
+  "skill_name": "curate-apple-photos",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Use my whole Apple Photos library to create a fresh, versioned 4,000-photo editor field. Inspect new candidates rather than reusing the last run, preserve prior versions, and carry it through production write and independent verification.",
+      "expected_output": "A versioned whole-library run with exact assignment, novel visual rounds, protected safety states, a sealed test-first plan, and an independently verified 4,000-item master.",
+      "files": [],
+      "expectations": [
+        "The run freezes visible-library-stills://v1 and its observed source count instead of hardcoding a historical count.",
+        "Every material view meets exact quota and per-view evaluation gates or the run reports infeasibility without silently changing quotas.",
+        "The release is sealed before a ten-item write test and production write, and the receipt digest matches independent verification."
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Resume the interrupted photo curation run in the attached workspace. Inspection finished, but I do not know whether evaluation or a Photos write started. Do not repeat completed work or mutate Photos until you know the state.",
+      "expected_output": "A recoverability-first resume that reads durable state and receipts, identifies the next unmet gate, and refuses an unsealed or out-of-order write.",
+      "files": [],
+      "expectations": [
+        "The skill reads run-state.json and uses status or resume before launching work.",
+        "Completed inspection chunks are checked for uniqueness, completeness, and preview integrity rather than blindly rerun.",
+        "Photos writing remains blocked until evaluation, validation, plans, and the release seal are present."
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Build a 1,200-image private editor field about family, domestic life, and community work. The archive includes children, private homes, grief, medical context, and correspondence. Keep the workflow local and make uncertainty visible.",
+      "expected_output": "A private local-first field in which safety review is asset-level, project relevance is edge-specific, and protected material cannot enter automatically.",
+      "files": [],
+      "expectations": [
+        "needs-review and HOLD assets are excluded before assignment, and omitted safety feedback never clears them.",
+        "A needs-review clearance requires safety_clearance=true and an identified human reviewer; HOLD remains permanent for the run.",
+        "No pixels, raw OCR, exact locations, or private People data are uploaded or published."
+      ]
+    }
+  ]
+}

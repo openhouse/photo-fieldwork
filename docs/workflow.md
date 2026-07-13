@@ -18,6 +18,8 @@ Capture stable IDs, filenames, albums, existing people associations, dates, plac
 
 Use albums, people, keywords, dates, places, labels, and prior attention to create candidate views. Call these retrieval hypotheses. Metadata can find possible relevance; it cannot establish what a photograph visibly proves.
 
+Normalize each hypothesis into an image-view evidence edge. The same photograph may be eligible for one view, rejected for another, and uncertain for a third.
+
 ## 4. Calibrate before scaling
 
 Inspect a small score-stratified sample from every proposed view. Record visible fit, rejection, uncertainty, and a brief reason. Include obvious failure cases. If category precision is weak, change the system before processing thousands of images.
@@ -36,13 +38,19 @@ Balance high-confidence evidence, stratified diversity, and exploratory retrieva
 
 People associations are first-class archive structure. Preserve named relationships already curated by the archive owner, but never identify unnamed faces or infer sensitive traits.
 
+Run exact constrained assignment over eligible image-view edges. Each asset may receive at most one primary view. If quotas are infeasible, retain the requested quotas and report capacities, overlap groups, and deficits; never silently rewrite the brief.
+
 ## 8. Evaluate and loop
 
 Sample low, middle, and high-scoring images from each view. Measure coverage and precision. Read the rejected examples. Revise retrieval, scoring, holds, or labels, then rerun with the same seed. A metric without inspected failure cases is not enough.
 
+Keep feedback append-only and edge-specific. Exclude prior reviewed IDs when a round is declared novel. A rejection removes only the reviewed edge; `needs-review` or `hold` quarantines the asset. Uncertainty remains explicit in the master and review album.
+
 ## 9. Plan before writing
 
 Produce proposed-master, hold, membership, and decision manifests before touching the catalog. Every selected stable ID needs a reason. The plan must be idempotent.
+
+Bind the plan to a passing evaluation report whose proposal ID and master hash match. Seal source identity, source count, manifests, plans, and writer identity before launch.
 
 ## 10. Commit narrowly
 
@@ -55,4 +63,3 @@ Use a read-only mechanism distinct from the writer to compare planned and actual
 ## 12. Hand off honestly
 
 Tell editors what the system did and did not do. The result is a contact field for human editing, not the final visual narrative.
-

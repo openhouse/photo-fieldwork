@@ -19,7 +19,7 @@
 
 ## Safety hold contract
 
-Any item marked `safety_status=hold`, hidden, or missing is excluded before ranking. Validation fails if a hold ID appears in the proposed master.
+Any item marked `safety_status=needs-review` or `safety_status=hold`, hidden, or missing is excluded before ranking. `needs-review` may return only after an explicit human clearance record changes it to `clear`; HOLD is always excluded. Validation canonicalizes Photos identifiers before checking overlap, so collection suffixes cannot evade the invariant.
 
 The HOLD set should be private and access-controlled. It is not an editor album and must not be exported casually.
 
@@ -32,8 +32,7 @@ A production adapter must:
 3. Create only folders, albums, and membership.
 4. Run a ten-item write test first.
 5. Be idempotent and resumable.
-6. Emit a receipt with exact identifiers and counts.
+6. Emit a receipt with exact identifiers, counts, plan digest, bundle ID, and app build.
 7. Support independent read-only verification.
 
 If an adapter cannot meet all seven conditions, it is not production-ready.
-
