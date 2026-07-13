@@ -32,6 +32,11 @@ The goal is not to prove the selector is intelligent. The goal is to discover wh
 - Every selected row has a reason.
 - Uncertainty is represented explicitly.
 - A human editor is told that project views remain hypotheses where provenance is incomplete.
+- Every replacement since the previous frozen master is inspected.
+- Every material view meets its own precision threshold.
+
+An explicitly labeled `Editor Hypothesis` view may carry a documented per-view
+waiver when it is sparse or exploratory. The waiver remains visible in the
+evaluation report; it does not silently improve the metric.
 
 Passing the gate means the corpus is ready for editors. It does not mean every category assignment is factually proven.
-

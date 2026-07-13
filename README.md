@@ -28,6 +28,10 @@ Run the tests:
 make check
 ```
 
+The production workflow now also includes a resumable run state, append-only
+decision ledger, inspected replacement rounds, named validation gates, source
+profiles, preview decoding QA, and WAL-aware frozen Apple Photos verification.
+
 ## Use it with your own inventory
 
 1. Copy `config/starter.json` and edit the views, quotas, and thresholds.
@@ -69,6 +73,54 @@ make check
   --output runs/my-run/manifests/catalog-plan.json
 ```
 
+## Resume and audit a run
+
+Initialize a durable workspace and append editorial decisions without rewriting
+history:
+
+```bash
+SOURCE_COUNT=REPLACE_WITH_CURRENT_SOURCE_COUNT
+photo-fieldwork run init \
+  --workspace runs/v01 \
+  --run-id v01 \
+  --version v01 \
+  --target 4000 \
+  --source-identifier visible-library-stills://v1 \
+  --source-count "$SOURCE_COUNT" \
+  --config path/to/config.json \
+  --code-version 0.2.0
+
+photo-fieldwork ledger init --ledger runs/v01/decisions.sqlite
+photo-fieldwork ledger append \
+  --ledger runs/v01/decisions.sqlite \
+  --run-id v01 \
+  --round-id round-01 \
+  --asset-uuid ASSET-UUID \
+  --event-type reviewed-fit \
+  --actor editor \
+  --new-state fit \
+  --reason "Visible apparatus and working context"
+
+photo-fieldwork run reconcile --workspace runs/v01
+```
+
+Apply reviewed feedback only when replacement candidates have local pixels and
+decodable previews:
+
+```bash
+photo-fieldwork round apply \
+  --master runs/v01/manifests/proposed-master.csv \
+  --inventory runs/v01/manifests/ready-candidates.csv \
+  --feedback runs/v01/reports/round-01-feedback.csv \
+  --round-id round-01 \
+  --ledger runs/v01/decisions.sqlite \
+  --run-id v01 \
+  --output runs/v01/manifests/proposed-master-round-02.csv
+```
+
+See [run lifecycle](docs/run-lifecycle.md) and
+[decision ledger](docs/decision-ledger.md).
+
 ## The central distinction
 
 Metadata answers: "Why might this photograph be relevant?"
@@ -89,6 +141,7 @@ Those are different questions. Photo Fieldwork keeps them different.
 - Stratified evaluation samples and precision thresholds.
 - A fully synthetic practice run.
 - Apple Photos integration guidance and adapter contracts.
+- WAL-aware compact snapshots for immutable post-write verification.
 - A case study of how visual inspection changed a real workflow.
 
 ## What is not included
@@ -100,6 +153,9 @@ Those are different questions. Photo Fieldwork keeps them different.
 - A claim that the generated corpus is the final edit.
 
 Read [the workflow](docs/workflow.md), [the architecture](docs/architecture.md), [the safety model](docs/safety.md), and [the Apple Photos guide](docs/apple-photos.md) before using a private archive.
+
+The production lessons and implementation sequence are recorded in
+[Recommendations C](docs/recommendations-C.md).
 
 ## Use it as a Codex skill
 

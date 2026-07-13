@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openhouse.github.io/photo-fieldwork/schemas/decision-event.schema.json",
+  "title": "Photo Fieldwork decision event",
+  "type": "object",
+  "required": ["event_id", "occurred_at", "run_id", "event_type", "actor", "payload"],
+  "properties": {
+    "event_id": {"type": "string"},
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "run_id": {"type": "string"},
+    "round_id": {"type": ["string", "null"]},
+    "asset_uuid": {"type": ["string", "null"]},
+    "event_type": {"type": "string"},
+    "actor": {"type": "string"},
+    "previous_state": {"type": ["string", "null"]},
+    "new_state": {"type": ["string", "null"]},
+    "reason": {"type": ["string", "null"]},
+    "payload": {"type": "object"},
+    "config_hash": {"type": ["string", "null"]},
+    "inspection_profile_hash": {"type": ["string", "null"]},
+    "code_version": {"type": ["string", "null"]}
+  }
+}

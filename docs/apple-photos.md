@@ -54,3 +54,33 @@ After writing, compare planned and actual memberships through an independent rea
 - no HOLD overlap;
 - source count unchanged.
 
+### WAL-aware frozen snapshots
+
+Do not assume a direct immutable connection represents the current PhotoKit
+state. SQLite's immutable mode intentionally ignores the WAL. Immediately after
+a PhotoKit write, the main database file may therefore lack the new album even
+though a normal read-only connection and PhotoKit can see it.
+
+Use the two-step verifier:
+
+```bash
+python3 skills/curate-apple-photos/scripts/build_verification_snapshot.py \
+  --photos-db /path/to/Photos.sqlite \
+  --plan RUN/manifests/v01-production-plan.json \
+  --receipt RUN/manifests/v01-photo-archive-receipt.json \
+  --output RUN/reports/v01-verification.sqlite
+
+python3 skills/curate-apple-photos/scripts/verify_photos_commit.py \
+  --photos-db RUN/reports/v01-verification.sqlite \
+  --plan RUN/manifests/v01-production-plan.json \
+  --receipt RUN/manifests/v01-photo-archive-receipt.json \
+  --master RUN/manifests/master.csv \
+  --holds RUN/manifests/holds.csv \
+  --config RUN/config.json \
+  --report RUN/reports/v01-production-verification.md
+```
+
+The first command is WAL-aware but read-only. The second command opens the
+closed compact snapshot with `mode=ro&immutable=1` and `query_only`. It refuses
+the live Photos database, binds the approved plan to the exact supplied
+manifest hashes, and fails if a hashed manifest is omitted or changed.

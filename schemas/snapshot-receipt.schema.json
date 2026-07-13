@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openhouse.github.io/photo-fieldwork/schemas/snapshot-receipt.schema.json",
+  "title": "Photo Fieldwork snapshot receipt",
+  "type": "object",
+  "required": ["completed_at", "plan_id", "source_album_identifier", "source_count", "safety_mode", "folders", "albums"],
+  "properties": {
+    "completed_at": {"type": "string", "format": "date-time"},
+    "plan_id": {"type": "string"},
+    "source_album_identifier": {"type": "string"},
+    "source_count": {"type": "integer", "minimum": 0},
+    "safety_mode": {"const": "create-folders-albums-and-add-membership-only"},
+    "folders": {"type": "array", "items": {"type": "object"}},
+    "albums": {"type": "array", "items": {"type": "object"}}
+  }
+}

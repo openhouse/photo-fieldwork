@@ -4,27 +4,48 @@
   "type": "object",
   "required": ["seed", "target_count", "unclassified_view", "views"],
   "properties": {
+    "$schema": {"type": "string"},
     "seed": {"type": "integer"},
     "target_count": {"type": "integer", "minimum": 1},
     "unclassified_view": {"type": "string"},
+    "quota_mode": {"enum": ["exact", "flexible"]},
     "burst_limit": {"type": "integer", "minimum": 1},
+    "event_limit": {"type": "integer", "minimum": 1},
     "exploratory_fraction": {"type": "number", "minimum": 0, "maximum": 1},
     "minimum_eval_precision": {"type": "number", "minimum": 0, "maximum": 1},
     "minimum_eval_coverage": {"type": "number", "minimum": 0, "maximum": 1},
     "minimum_named_people_fraction": {"type": "number", "minimum": 0, "maximum": 1},
     "minimum_person_free_fraction": {"type": "number", "minimum": 0, "maximum": 1},
+    "person_free_mode": {"enum": ["visible", "no_named_association"]},
+    "minimum_outside_prior_fraction": {"type": "number", "minimum": 0, "maximum": 1},
+    "minimum_per_view_precision": {"type": "number", "minimum": 0, "maximum": 1},
+    "require_still_only": {"type": "boolean"},
+    "require_pixel_available": {"type": "boolean"},
+    "require_preview_exported": {"type": "boolean"},
     "views": {
       "type": "array",
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["id", "label", "quota"],
+        "required": ["id", "label"],
+        "anyOf": [
+          {"required": ["quota"]},
+          {"required": ["target"]}
+        ],
         "properties": {
           "id": {"type": "string"},
           "label": {"type": "string"},
-          "quota": {"type": "integer", "minimum": 0}
-        }
+          "quota": {"type": "integer", "minimum": 0},
+          "target": {"type": "integer", "minimum": 0},
+          "minimum": {"type": "integer", "minimum": 0},
+          "maximum": {"type": "integer", "minimum": 0},
+          "material": {"type": "boolean"},
+          "hypothesis": {"type": "boolean"},
+          "minimum_precision": {"type": "number", "minimum": 0, "maximum": 1}
+        },
+        "additionalProperties": false
       }
     }
-  }
+  },
+  "additionalProperties": false
 }

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openhouse.github.io/photo-fieldwork/schemas/validation-report.schema.json",
+  "title": "Photo Fieldwork validation report",
+  "type": "object",
+  "required": ["status", "master_count", "unique_count", "hold_count", "hold_overlap", "gates", "errors"],
+  "properties": {
+    "status": {"enum": ["PASS", "FAIL"]},
+    "master_count": {"type": "integer", "minimum": 0},
+    "unique_count": {"type": "integer", "minimum": 0},
+    "hold_count": {"type": "integer", "minimum": 0},
+    "hold_overlap": {"type": "integer", "minimum": 0},
+    "gates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "status", "detail"],
+        "properties": {
+          "name": {"type": "string"},
+          "status": {"enum": ["PASS", "FAIL", "WAIVED"]},
+          "detail": {}
+        }
+      }
+    },
+    "errors": {"type": "array", "items": {"type": "string"}}
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openhouse.github.io/photo-fieldwork/schemas/source-profile.schema.json",
+  "title": "Photo Fieldwork source profile",
+  "type": "object",
+  "required": ["schema_version", "id", "reader", "scope", "expected_count_policy"],
+  "anyOf": [
+    {"required": ["expected_count"]},
+    {"required": ["inventory"]}
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "id": {"type": "string", "minLength": 1},
+    "reader": {"enum": ["apple-photos", "filesystem", "synthetic"]},
+    "scope": {"enum": ["named-album", "visible-library-stills", "inventory"]},
+    "album_identifier": {"type": "string"},
+    "expected_count": {"type": "integer", "minimum": 0},
+    "expected_count_policy": {"enum": ["exact", "snapshot", "refresh-required"]},
+    "inventory": {"type": "string"},
+    "media_kind": {"enum": ["still"]},
+    "include_hidden": {"const": false},
+    "include_trashed": {"const": false}
+  },
+  "additionalProperties": false
+}
