@@ -8,7 +8,7 @@ Write down what may be read, what may be created, where outputs live, and which 
 
 ## 1. Freeze a source corpus
 
-Resolve the source through a versioned source adapter and record its stable identifier, observed count, predicate version, and fingerprint. A source may be an album or the visible still-photo library. Never alter it during a versioned run. Preserve v00, v01, and later runs as separate folders so selection logic can be compared rather than overwritten.
+Resolve the source through a versioned source adapter and write a validated `source-manifest.json` containing its stable identifier, observed count, membership digest, predicate version, adapter, and fingerprint. A source may be an album or the visible still-photo library. Never alter it during a versioned run. Preserve v00, v01, and later runs as separate folders so selection logic can be compared rather than overwritten.
 
 ## 2. Build a compact inventory
 
@@ -28,7 +28,7 @@ After metadata has reduced the corpus, inspect local previews for technical avai
 
 ## 6. Quarantine, do not erase
 
-Potential identity documents, private correspondence, contact details, financial records, medical information, credentials, and other sensitive material belong in HOLD. A hold is not deletion. It is a protected review state that can never enter the master automatically.
+Potential identity documents, private correspondence, contact details, financial records, medical information, credentials, and other sensitive material belong in HOLD. Human-sensitive material may enter `needs-human-review`. Neither state can enter the master unless the configuration explicitly recognizes a later human clearance state. A hold is not deletion or a declaration about a person.
 
 ## 7. Select with uncertainty
 
@@ -38,11 +38,13 @@ People associations are first-class archive structure. Preserve named relationsh
 
 ## 8. Evaluate and loop
 
-Sample fresh low, middle, and high-scoring images from each view, plus regression canaries. Measure overall and per-view coverage, decisive precision, uncertainty, and sample sufficiency. Read the rejected examples. Revise retrieval, scoring, holds, or labels, then rerun with the same seed. A metric without inspected failure cases is not enough.
+Sample fresh low, middle, and high-scoring images from each view, plus regression canaries. Measure fresh sample completion, fresh decisive precision, uncertainty, sample sufficiency, master review fraction, and per-view results. Report canaries separately so known positives cannot improve fresh precision. Read the rejected examples. Revise retrieval, scoring, holds, or labels, then rerun with the same seed.
+
+Declare an evaluation scope: `learning-sample`, `final-stratified-sample`, `full-master`, or `publication-shortlist`. A 60-image sample is never 100 percent master review.
 
 ## 9. Plan before writing
 
-Produce proposed-master, hold, membership, and append-only decision manifests before touching the catalog. Every selected stable ID needs a reason. Freeze the final master after its last change and require its passing evaluation `master_sha256` before plan generation. The plan must be idempotent.
+Produce proposed-master, hold, membership, and append-only decision manifests before touching the catalog. Every selected stable ID needs a reason. Freeze the final master after its last change and require a passing evaluation bound to its `master_sha256`, `sample_sha256`, and source fingerprint. The plan also binds the hold set and exact plan contents. The plan must be idempotent.
 
 ## 10. Commit narrowly
 
@@ -50,8 +52,8 @@ Write ten non-sensitive items to a uniquely named test album. Verify exact membe
 
 ## 11. Verify independently
 
-Use a read-only mechanism distinct from the writer to compare planned and actual membership. Report missing, unexpected, outside-source, and hold-overlap counts. Preserve receipts, configuration, scripts, and evaluation feedback with the version.
+Use a read-only mechanism distinct from the writer to compare planned and actual membership. Recompute source membership, verify the plan and receipt hash chain, and report missing, unexpected, outside-source, and hold-overlap counts. Preserve receipts, configuration, scripts, and evaluation feedback with the version.
 
 ## 12. Hand off honestly
 
-Tell editors what the system did and did not do. The result is a contact field for human editing, not the final visual narrative.
+Tell editors what the system did and did not do. `editor-field-verified`, `master-human-reviewed`, and `publication-ready` are separate release classes. The default result is a contact field for human editing, not the final visual narrative.

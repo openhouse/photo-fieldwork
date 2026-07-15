@@ -3,7 +3,7 @@
 Photo Fieldwork keeps archive-specific access separate from archive-independent judgment.
 
 ```text
-Versioned source adapter
+Versioned source adapter + source manifest
               |
               v
        inventory.csv
@@ -18,13 +18,16 @@ retrieval hypotheses + local inspection
  deterministic selector ---> hold-sensitive.csv
               |
               v
-   proposed-master.csv + master_sha256
+   proposed-master.csv + master_sha256 + hold_sha256
         |            |
         v            v
- evaluation loop   hash-bound catalog-plan.json
+ scoped evaluation   hash-bound catalog-plan.json
                          |
                          v
                  catalog writer adapter
+                         |
+                         v
+              hash-bound app receipt
                          |
                          v
                   independent verifier
@@ -32,7 +35,7 @@ retrieval hypotheses + local inspection
 
 ## Core
 
-The standard-library Python core reads a normalized CSV, applies immutable safety exclusions, reduces exact, burst, and perceptual clusters, consumes explicit editor assignments, creates selection reasons, freezes proposal hashes, samples evaluations, enforces overall and per-view gates, validates invariants, and emits an adapter-neutral catalog plan only when its master matches a passing final evaluation.
+The standard-library Python core reads a normalized CSV, applies typed safety exclusions, reduces exact, burst, and perceptual clusters, consumes explicit editor assignments, creates selection reasons, freezes proposal and sample hashes, distinguishes evaluation scopes and release classes, validates invariants, and emits an adapter-neutral catalog plan only when the exact master and source match a passing final evaluation.
 
 The core does not read a Photos database, open images, call a model, or mutate a catalog.
 
@@ -54,11 +57,11 @@ An inspector may add local visible-context, technical-quality, and generalized s
 
 ## Writer adapters
 
-A writer consumes `catalog-plan.json`. It may create version folders, create albums, and add existing stable IDs. It must not invent selection logic. It must preserve the plan's proposal and master hashes, emit a receipt, update durable run state, and be safe to rerun.
+A writer consumes schema-version-2 `catalog-plan.json`. It may create version folders, create albums, and add existing stable IDs. It must not invent selection logic. It must decode and preserve source, proposal, master, hold, plan, release, and helper-revision fields; emit a matching receipt; update durable run state; and be safe to rerun.
 
 ## Verifier adapters
 
-A verifier independently compares plan and catalog. It should be read-only and should not share mutation code with the writer.
+A verifier independently compares plan, receipt, source membership, and catalog. It should be read-only and should not share mutation code with the writer. Count equality alone is insufficient: the source membership digest must match.
 
 ## Extension points
 

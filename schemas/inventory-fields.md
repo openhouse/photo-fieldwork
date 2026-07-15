@@ -15,7 +15,7 @@ The selector accepts UTF-8 CSV. Unknown columns are preserved. Boolean values ma
 | Field | Meaning |
 | --- | --- |
 | `candidate_views` | Semicolon-separated view IDs suggested by metadata retrieval. These remain hypotheses. |
-| `assignment_status` | `assigned`, `unclassified`, or `sparse-hypothesis`. |
+| `assignment_status` | `assigned`, `unclassified`, `sparse-hypothesis`, `held`, or `rejected`. Held and rejected rows cannot enter the master. |
 | `assignment_reason` | Visible or provenance-based reason for the final assignment. |
 | `assignment_version` | Identifier for the retrieval or editorial rule set that produced the assignment. |
 | `evidence_confidence` | `high`, `medium`, `low`, or `unknown`. |
@@ -23,7 +23,7 @@ The selector accepts UTF-8 CSV. Unknown columns are preserved. Boolean values ma
 | `persons` | Semicolon-separated pre-existing person names. Never infer unnamed identities. |
 | `favorite` | Prior human attention signal. |
 | `edited` | Prior human attention signal. |
-| `safety_status` | `clear` or `hold`. Holds can never enter the master. |
+| `safety_status` | `clear-automated`, `needs-human-review`, `cleared-human`, `hold-automated`, or `hold-human`. Legacy `clear`, `needs-review`, and `hold` remain readable. Only states explicitly allowed by the configuration can enter the master. |
 | `safety_reason` | Generalized reason. Do not store sensitive OCR text. |
 | `hidden` | Excludes the item when true. |
 | `missing` | Excludes the item when true. |

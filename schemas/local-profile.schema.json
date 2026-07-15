@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Photo Fieldwork local deployment profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "workspace_root", "inventory_db", "photos_db", "permissioned_app"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "workspace_root": {"type": "string", "minLength": 1},
+    "inventory_db": {"type": "string", "minLength": 1},
+    "photos_db": {"type": "string", "minLength": 1},
+    "permissioned_app": {"type": "string", "minLength": 1},
+    "bundle_identifier": {"type": "string", "minLength": 1},
+    "root_folder_identifier": {"type": "string"},
+    "private_folder_identifier": {"type": "string"},
+    "audit_folder_identifier": {"type": "string"}
+  }
+}

@@ -6,8 +6,15 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
+import sys
 from datetime import datetime
 from pathlib import Path
+
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(REPOSITORY_ROOT / "src"))
+
+from photo_fieldwork.contracts import identifier_set_sha256, validate_plan  # noqa: E402
 
 
 DEFAULT_DB = Path(
@@ -67,6 +74,8 @@ def report_markdown(result: dict) -> str:
         f"Generated: {result['generated_at']}",
         "",
         f"- Plan: `{result['plan_id']}`",
+        f"- Plan SHA-256: `{result.get('plan_sha256', 'not recorded')}`",
+        f"- Source fingerprint: `{result.get('source_fingerprint', 'not recorded')}`",
         f"- Source: `{result['source_title']}`",
         f"- Source membership: {result['source_count']:,}",
         f"- Albums exactly verified: {result['verified_album_count']}",
@@ -102,55 +111,91 @@ def main() -> None:
     parser.add_argument("--receipt", type=Path, required=True)
     parser.add_argument("--report", type=Path, required=True)
     parser.add_argument("--photos-db", type=Path, default=DEFAULT_DB)
+    parser.add_argument("--profile", type=Path)
     args = parser.parse_args()
+    photos_db = args.photos_db
+    if args.profile:
+        profile = json.loads(args.profile.read_text(encoding="utf-8"))
+        if int(profile.get("schema_version", 0)) != 1:
+            raise ValueError("local profile schema_version must be 1")
+        photos_db = Path(str(profile.get("photos_db") or photos_db)).expanduser()
 
-    plan = json.loads(args.plan.read_text(encoding="utf-8"))
+    plan = validate_plan(json.loads(args.plan.read_text(encoding="utf-8")))
     receipt = json.loads(args.receipt.read_text(encoding="utf-8"))
     expected = {
-        item["title"]: {base(identifier) for identifier in item["asset_identifiers"]}
+        item["key"]: {
+            "title": item["title"],
+            "members": {base(identifier) for identifier in item["asset_identifiers"]},
+        }
         for item in plan["albums"]
     }
-    receipt_titles = {item["title"] for item in receipt["albums"]}
-    if set(expected) != receipt_titles:
-        raise RuntimeError("plan and receipt album titles differ")
+    for field in (
+        "plan_id", "plan_sha256", "proposal_id", "master_sha256", "hold_sha256", "config_sha256",
+        "source_fingerprint", "release_class",
+    ):
+        if receipt.get(field) != plan.get(field):
+            raise RuntimeError(f"plan and receipt {field} differ")
+    receipt_keys = {item["key"] for item in receipt["albums"]}
+    if set(expected) != receipt_keys:
+        raise RuntimeError("plan and receipt album keys differ")
 
-    uri = f"file:{args.photos_db}?mode=ro&immutable=1"
+    uri = f"file:{photos_db}?mode=ro&immutable=1"
     conn = sqlite3.connect(uri, uri=True, timeout=30)
     conn.execute("PRAGMA query_only=ON")
     source, source_title = source_members(conn, plan["source_album_identifier"])
     if len(source) != plan["expected_source_count"]:
         raise RuntimeError(f"source count changed: {len(source)} != {plan['expected_source_count']}")
+    source_membership_sha256 = identifier_set_sha256(source)
+    if source_membership_sha256 != plan["source"]["membership_sha256"]:
+        raise RuntimeError("source membership changed without a new source manifest")
 
     verified = []
     for received in receipt["albums"]:
+        key = received["key"]
         title = received["title"]
+        if title != expected[key]["title"]:
+            raise RuntimeError(f"title mismatch between plan and receipt for {key}")
         album_pk, actual_title = album_record(conn, received["identifier"])
         actual = members(conn, album_pk)
         if actual_title != title:
             raise RuntimeError(f"title mismatch for {title}")
-        if actual != expected[title]:
-            raise RuntimeError(f"membership mismatch for {title}: expected {len(expected[title])}, got {len(actual)}")
+        expected_members = expected[key]["members"]
+        if actual != expected_members:
+            raise RuntimeError(f"membership mismatch for {title}: expected {len(expected_members)}, got {len(actual)}")
         if not actual <= source:
             raise RuntimeError(f"{title} contains assets outside source")
-        verified.append((title, len(actual), received["identifier"]))
+        verified.append((key, title, len(actual), received["identifier"]))
+    master_members = expected.get("master", {}).get("members", set())
+    hold_members = expected.get("holds", {}).get("members", set())
+    if master_members & hold_members:
+        raise RuntimeError("verified plan overlaps master and safety holds")
+    if identifier_set_sha256(hold_members) != plan["hold_sha256"]:
+        raise RuntimeError("verified HOLD membership does not match hold_sha256")
     conn.close()
 
     result = {
-        "schema_version": 1,
+        "schema_version": 2,
         "status": "PASS",
         "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "plan_id": plan["plan_id"],
+        "plan_sha256": plan["plan_sha256"],
         "proposal_id": plan.get("proposal_id"),
         "master_sha256": plan.get("master_sha256"),
+        "hold_sha256": plan.get("hold_sha256"),
+        "config_sha256": plan.get("config_sha256"),
+        "source_fingerprint": plan.get("source_fingerprint"),
+        "source_membership_sha256": source_membership_sha256,
+        "release_class": plan.get("release_class"),
         "source_title": source_title,
         "source_count": len(source),
         "verified_album_count": len(verified),
         "unexpected_memberships": 0,
         "missing_memberships": 0,
         "members_outside_source": 0,
+        "master_hold_overlap": 0,
         "albums": [
-            {"title": title, "count": count, "identifier": identifier}
-            for title, count, identifier in verified
+            {"key": key, "title": title, "count": count, "identifier": identifier}
+            for key, title, count, identifier in verified
         ],
         "verification_connection": "read-only immutable query-only SQLite",
     }

@@ -2,7 +2,7 @@
 
 Automated flags are conservative retrieval controls, not declarations about a person or document.
 
-## Automatic HOLD
+## Automated states
 
 - identity documents;
 - passwords, API keys, account or routing numbers;
@@ -12,11 +12,13 @@ Automated flags are conservative retrieval controls, not declarations about a pe
 - payment requests, invoices, and financial screens;
 - hidden, trashed, missing, corrupt, or unavailable assets.
 
+These become `hold-automated`. A clean automated pass becomes `clear-automated`, which is eligible for an editor field but is never publication approval.
+
 Store only generalized flags. Keep raw OCR ephemeral.
 
 ## Human-sensitive review
 
-Use `needs-review` for minors, intimate domestic scenes, vulnerable people, private homes, grief, health context, protest risk, or images whose publication could change someone's safety or dignity. Do not automatically include these in an editor-facing master.
+Use `needs-human-review` for minors, intimate domestic scenes, vulnerable people, private homes, grief, health context, protest risk, or images whose publication could change someone's safety or dignity. It is structurally ineligible until a person records `cleared-human` for the declared purpose or `hold-human`.
 
 ## Public meaning
 
@@ -38,4 +40,3 @@ Prohibited:
 - direct Photos database writes;
 - cloud analysis or external upload;
 - replacing or renaming prior versions.
-

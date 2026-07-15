@@ -81,8 +81,8 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--threshold", type=int, default=8)
     args = parser.parse_args()
-    if not 0 <= args.threshold <= 16:
-        raise SystemExit("threshold must be between 0 and 16")
+    if not 0 <= args.threshold <= 8:
+        raise SystemExit("threshold must be between 0 and 8 for guaranteed nine-band candidate recall")
 
     with args.input.open(newline="", encoding="utf-8-sig") as handle:
         reader = csv.DictReader(handle)
@@ -117,19 +117,54 @@ def main() -> None:
         for band, segment in bands(value):
             buckets[(band, segment)].append(identifier)
 
-    groups: dict[str, list[str]] = defaultdict(list)
+    connected_groups: dict[str, list[str]] = defaultdict(list)
     for identifier in hashes:
-        groups[union.find(identifier)].append(identifier)
+        connected_groups[union.find(identifier)].append(identifier)
+    groups: list[list[str]] = []
+    for connected in connected_groups.values():
+        complete_link_groups: list[list[str]] = []
+        for identifier in sorted(connected):
+            compatible = [
+                group
+                for group in complete_link_groups
+                if all(hamming(hashes[identifier], hashes[member]) <= args.threshold for member in group)
+            ]
+            if compatible:
+                best = min(
+                    compatible,
+                    key=lambda group: max(hamming(hashes[identifier], hashes[member]) for member in group),
+                )
+                best.append(identifier)
+            else:
+                complete_link_groups.append([identifier])
+        groups.extend(complete_link_groups)
     cluster_by_id: dict[str, str] = {}
-    for members in groups.values():
+    representative_by_id: dict[str, str] = {}
+    distance_by_id: dict[str, int] = {}
+    for members in groups:
         if len(members) < 2:
             continue
-        representative = min(members)
+        representative = min(
+            members,
+            key=lambda candidate: (
+                sum(hamming(hashes[candidate], hashes[member]) for member in members),
+                candidate,
+            ),
+        )
         cluster_id = f"phash-{hashes[representative]:016x}"
         for identifier in members:
             cluster_by_id[identifier] = cluster_id
+            representative_by_id[identifier] = representative
+            distance_by_id[identifier] = hamming(hashes[identifier], hashes[representative])
 
-    for field in ("perceptual_cluster_id", "perceptual_hash", "perceptual_status"):
+    for field in (
+        "perceptual_cluster_id",
+        "perceptual_hash",
+        "perceptual_status",
+        "perceptual_representative",
+        "perceptual_distance_to_representative",
+        "perceptual_method_version",
+    ):
         if field not in fields:
             fields.append(field)
     for row in rows:
@@ -137,6 +172,9 @@ def main() -> None:
         row["perceptual_cluster_id"] = cluster_by_id.get(identifier, "")
         row["perceptual_hash"] = f"{hashes[identifier]:016x}" if identifier in hashes else ""
         row["perceptual_status"] = unavailable.get(identifier, "inspected")
+        row["perceptual_representative"] = representative_by_id.get(identifier, "")
+        row["perceptual_distance_to_representative"] = str(distance_by_id.get(identifier, ""))
+        row["perceptual_method_version"] = "dhash64-complete-link-v2"
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("w", newline="", encoding="utf-8") as handle:
@@ -145,7 +183,7 @@ def main() -> None:
         writer.writerows(rows)
     print(f"hashed_previews={len(hashes)}")
     print(f"unavailable_previews={len(unavailable)}")
-    print(f"duplicate_clusters={sum(len(members) > 1 for members in groups.values())}")
+    print(f"duplicate_clusters={sum(len(members) > 1 for members in groups)}")
     print(f"clustered_assets={len(cluster_by_id)}")
     print(f"output={args.output}")
 

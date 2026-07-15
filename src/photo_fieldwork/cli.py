@@ -6,6 +6,7 @@ import shutil
 import sys
 from pathlib import Path
 
+from .contracts import build_source_manifest, load_source_manifest, rows_membership_sha256
 from .pipeline import (
     apply_feedback,
     build_catalog_plan,
@@ -63,16 +64,26 @@ def command_sample(args: argparse.Namespace) -> int:
 def command_evaluate(args: argparse.Namespace) -> int:
     config = read_config(args.config)
     feedback = read_csv(args.feedback)
-    report, passed = evaluate(feedback, config)
+    master = read_csv(args.master)
+    source_manifest = load_source_manifest(args.source_manifest)
+    report, passed = evaluate(feedback, config, master, args.scope, source_manifest)
     args.output.mkdir(parents=True, exist_ok=True)
     (args.output / "evaluation-report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     (args.output / "evaluation-report.md").write_text(markdown_report("Evaluation report", report), encoding="utf-8")
-    print(f"evaluation {'PASS' if passed else 'FAIL'}: precision={report['precision']}, coverage={report['coverage']}")
+    print(
+        f"evaluation {'PASS' if passed else 'FAIL'}: "
+        f"fresh_precision={report['fresh_decisive_precision']}, "
+        f"sample_completion={report['sample_completion']}, "
+        f"master_review_fraction={report['master_review_fraction']}"
+    )
     return 0 if passed else 2
 
 
 def command_feedback_validate(args: argparse.Namespace) -> int:
-    feedback = read_csv(args.feedback, {"uuid", "proposal_id", "master_sha256", "judgment"})
+    feedback = read_csv(
+        args.feedback,
+        {"uuid", "proposal_id", "master_sha256", "sample_sha256", "judgment"},
+    )
     report = validate_feedback(feedback)
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -83,7 +94,10 @@ def command_feedback_validate(args: argparse.Namespace) -> int:
 
 def command_feedback_apply(args: argparse.Namespace) -> int:
     sample = read_csv(args.sample)
-    feedback = read_csv(args.feedback, {"uuid", "proposal_id", "master_sha256", "judgment"})
+    feedback = read_csv(
+        args.feedback,
+        {"uuid", "proposal_id", "master_sha256", "sample_sha256", "judgment"},
+    )
     merged = apply_feedback(sample, feedback)
     write_csv(args.output, merged)
     print(f"applied {len(feedback)} feedback rows to {args.output}")
@@ -107,14 +121,16 @@ def command_validate(args: argparse.Namespace) -> int:
 def command_plan(args: argparse.Namespace) -> int:
     config = read_config(args.config)
     master = read_csv(args.master)
+    holds = read_csv(args.holds)
     evaluation_report = json.loads(args.evaluation_report.read_text(encoding="utf-8"))
+    source_manifest = load_source_manifest(args.source_manifest)
     plan = build_catalog_plan(
         master,
         config,
         args.plan_id,
-        args.source_title,
-        args.source_identifier,
         evaluation_report,
+        source_manifest,
+        holds,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
@@ -132,6 +148,18 @@ def command_demo(args: argparse.Namespace) -> int:
     shutil.copy2(root / "config" / "starter.json", config)
     write_demo_readme(workspace / "README.md")
     command_select(argparse.Namespace(config=config, inventory=inventory, output=workspace))
+    source_manifest_path = workspace / "manifests" / "source-manifest.json"
+    inventory_rows = read_csv(inventory)
+    source_manifest = build_source_manifest(
+        source_adapter="synthetic-fixture",
+        source_identifier="synthetic://practice-v1",
+        source_title="Synthetic practice corpus",
+        predicate_version="all-synthetic-records-v1",
+        observed_count=len(inventory_rows),
+        membership_sha256=rows_membership_sha256(inventory_rows),
+        artifact_sensitivity="public-safe",
+    )
+    source_manifest_path.write_text(json.dumps(source_manifest, indent=2) + "\n", encoding="utf-8")
     sample_path = workspace / "manifests" / "eval-sample.csv"
     command_sample(
         argparse.Namespace(
@@ -144,7 +172,16 @@ def command_demo(args: argparse.Namespace) -> int:
         )
     )
     practice_feedback(sample_path)
-    eval_code = command_evaluate(argparse.Namespace(config=config, feedback=sample_path, output=workspace / "reports"))
+    eval_code = command_evaluate(
+        argparse.Namespace(
+            config=config,
+            feedback=sample_path,
+            master=workspace / "manifests" / "proposed-master.csv",
+            source_manifest=source_manifest_path,
+            scope="final-stratified-sample",
+            output=workspace / "reports",
+        )
+    )
     validation_code = command_validate(
         argparse.Namespace(
             config=config,
@@ -157,9 +194,9 @@ def command_demo(args: argparse.Namespace) -> int:
         argparse.Namespace(
             config=config,
             master=workspace / "manifests" / "proposed-master.csv",
+            holds=workspace / "manifests" / "hold-sensitive.csv",
             plan_id="synthetic-practice-plan",
-            source_title="Synthetic practice corpus",
-            source_identifier="SYNTHETIC-ONLY",
+            source_manifest=source_manifest_path,
             evaluation_report=workspace / "reports" / "evaluation-report.json",
             output=workspace / "manifests" / "catalog-plan.json",
         )
@@ -198,6 +235,9 @@ def parser() -> argparse.ArgumentParser:
 
     evaluation = sub.add_parser("evaluate", help="measure labeled evaluation feedback")
     evaluation.add_argument("--feedback", type=Path, required=True)
+    evaluation.add_argument("--master", type=Path, required=True, help="bind evaluation to this exact master")
+    evaluation.add_argument("--source-manifest", type=Path, required=True)
+    evaluation.add_argument("--scope", choices=("learning-sample", "final-stratified-sample", "full-master", "publication-shortlist"))
     evaluation.add_argument("--config", type=Path, required=True)
     evaluation.add_argument("--output", type=Path, required=True)
     evaluation.set_defaults(func=command_evaluate)
@@ -222,10 +262,10 @@ def parser() -> argparse.ArgumentParser:
 
     plan = sub.add_parser("plan", help="build an adapter-neutral, membership-only catalog plan")
     plan.add_argument("--master", type=Path, required=True)
+    plan.add_argument("--holds", type=Path, required=True)
     plan.add_argument("--config", type=Path, required=True)
     plan.add_argument("--plan-id", required=True)
-    plan.add_argument("--source-title", required=True)
-    plan.add_argument("--source-identifier", required=True)
+    plan.add_argument("--source-manifest", type=Path, required=True)
     plan.add_argument("--evaluation-report", type=Path, required=True)
     plan.add_argument("--output", type=Path, required=True)
     plan.set_defaults(func=command_plan)

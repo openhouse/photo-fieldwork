@@ -8,7 +8,7 @@ The goal is not to prove the selector is intelligent. The goal is to discover wh
 2. Inspect the actual pixels, not filenames or metadata alone.
 3. Label each item `fit`, `reject`, or `uncertain`.
 4. Record one visible reason.
-5. Validate and apply structured feedback, then compute overall and per-view coverage, decisive precision with 95% Wilson intervals, uncertainty, and sample sufficiency.
+5. Validate and apply structured feedback, then compute fresh sample completion, fresh decisive precision with 95% Wilson intervals, uncertainty, master review fraction, and per-view sample sufficiency.
 6. Read every rejection and a sample of uncertainties.
 7. Revise one part of the system and rerun deterministically.
 
@@ -23,17 +23,26 @@ The goal is not to prove the selector is intelligent. The goal is to discover wh
 - **Redundancy:** One event or burst crowds out range.
 - **Aesthetic overreach:** A score substitutes for editorial judgment.
 
+## Evaluation scopes
+
+- `learning-sample`: informs another iteration and cannot authorize a write.
+- `final-stratified-sample`: can qualify an `editor-field-verified` release when bound to the exact master and source.
+- `full-master`: required for `master-human-reviewed` and must cover every master row.
+- `publication-shortlist`: required for `publication-ready`, together with rights, consent, caption, and accessibility fields.
+
+`sample_completion` reports judgments divided by sampled rows. `master_review_fraction` reports fresh judged rows divided by master rows. These denominators must never be described interchangeably. Regression canaries are reported separately and never improve fresh precision.
+
 ## Release gates
 
-- Evaluation coverage meets the configured threshold.
-- Overall precision meets the configured threshold.
+- Fresh sample completion meets the configured threshold.
+- Fresh decisive precision meets the configured threshold.
 - Every material view meets its own precision, coverage, sample-size, and uncertainty thresholds.
 - No known safety regression appears in the master.
 - Every view has been sampled.
 - Sparse evidence is labeled `sparse-hypothesis` or returned to unclassified instead of being quota-filled.
 - Every selected row has a reason.
 - Uncertainty is represented explicitly.
-- The fully audited final proposal hash is the hash embedded in the write plan.
+- The source manifest, sample, fully evaluated proposal, holds, and exact plan are hash-bound.
 - A human editor is told that project views remain hypotheses where provenance is incomplete.
 
 Passing the gate means the corpus is ready for editors. It does not mean every category assignment is factually proven.

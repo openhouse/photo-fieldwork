@@ -8,8 +8,21 @@
     "seed": {"type": "integer"},
     "target_count": {"type": "integer", "minimum": 1},
     "unclassified_view": {"type": "string"},
+    "required_release_class": {
+      "enum": ["editor-field-verified", "master-human-reviewed", "publication-ready"]
+    },
+    "evaluation_scope": {
+      "enum": ["learning-sample", "final-stratified-sample", "full-master", "publication-shortlist"]
+    },
+    "eligible_safety_states": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": ["clear", "clear-automated", "cleared-human", "needs-review", "needs-human-review", "hold", "hold-automated", "hold-human"]
+      }
+    },
     "burst_limit": {"type": "integer", "minimum": 1},
-    "exploratory_fraction": {"type": "number", "minimum": 0, "maximum": 1},
     "minimum_eval_precision": {"type": "number", "minimum": 0, "maximum": 1},
     "minimum_eval_coverage": {"type": "number", "minimum": 0, "maximum": 1},
     "minimum_view_eval_precision": {"type": "number", "minimum": 0, "maximum": 1},

@@ -1,5 +1,25 @@
 # Changelog
 
+## Revision B - 2026-07-15
+
+### Added
+
+- Versioned source manifests and local deployment profiles.
+- Source, sample, hold, plan, helper, receipt, and verification provenance contracts.
+- Explicit evaluation scopes and `editor-field-verified`, `master-human-reviewed`, and `publication-ready` release classes.
+- Typed automated, human-review, human-clearance, and human-hold safety states.
+- Helper capability handshake, schema-2 Swift plans, keyed album receipts, resumable phase records, and next-action guidance.
+- Declared local-review dependencies, complete-link perceptual clusters, and expanded trust-boundary regression tests.
+
+### Changed
+
+- Final evaluation requires the exact master and source manifest.
+- Fresh precision excludes regression canaries; sample completion and master review fraction are separate metrics.
+- Plan generation requires holds and rejects unresolved safety states.
+- Independent verification recomputes source membership instead of relying on count equality.
+
+See [the Revision B migration guide](docs/revision-B.md) and [recommendations](recommendations-B.md).
+
 ## Revision I - 2026-07-13
 
 ### Added

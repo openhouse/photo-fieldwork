@@ -9,9 +9,17 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import sqlite3
+import sys
 from datetime import datetime
 from pathlib import Path
+
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(REPOSITORY_ROOT / "src"))
+
+from photo_fieldwork.contracts import build_source_manifest  # noqa: E402
 
 
 DEFAULT_PHOTOS_DB = Path(
@@ -103,6 +111,9 @@ def main() -> None:
     parser.add_argument("--photos-db", type=Path, default=DEFAULT_PHOTOS_DB)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--expected-source-count", type=int)
+    parser.add_argument("--source-manifest", type=Path)
+    parser.add_argument("--source-title", default="Visible Apple Photos library - still photographs")
+    parser.add_argument("--library-fingerprint", default="")
     parser.add_argument(
         "--inventory-profile",
         choices=("minimal", "retrieval", "debug"),
@@ -113,6 +124,9 @@ def main() -> None:
 
     if args.output.exists():
         raise SystemExit(f"refusing to overwrite existing inventory: {args.output}")
+    source_manifest_path = args.source_manifest or args.output.with_suffix(".source-manifest.json")
+    if source_manifest_path.exists():
+        raise SystemExit(f"refusing to overwrite existing source manifest: {source_manifest_path}")
     args.output.parent.mkdir(parents=True, exist_ok=True)
 
     photos = readonly(args.photos_db)
@@ -249,16 +263,26 @@ def main() -> None:
         membership_digest.update(uuid.encode("utf-8"))
         membership_digest.update(b"\n")
     membership_sha256 = membership_digest.hexdigest()
-    source_fingerprint = hashlib.sha256(
-        f"{SOURCE_IDENTIFIER}:{asset_count}:{membership_sha256}:{VISIBLE_PREDICATE.strip()}".encode("utf-8")
-    ).hexdigest()
+    generated_at = datetime.now().astimezone().isoformat(timespec="seconds")
+    source_manifest = build_source_manifest(
+        source_adapter="apple-photos-readonly-sqlite",
+        source_identifier=SOURCE_IDENTIFIER,
+        source_title=args.source_title,
+        predicate_version="visible-library-stills-v1",
+        observed_count=asset_count,
+        membership_sha256=membership_sha256,
+        library_fingerprint=args.library_fingerprint,
+        artifact_sensitivity="private-operational",
+        created_at=generated_at,
+    )
+    source_fingerprint = str(source_manifest["source_fingerprint"])
     meta = {
         "schema_version": "2",
         "source_identifier": SOURCE_IDENTIFIER,
         "source_count": str(asset_count),
         "source_membership_sha256": membership_sha256,
         "source_fingerprint": source_fingerprint,
-        "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "generated_at": generated_at,
         "photos_database": str(args.photos_db) if args.inventory_profile == "debug" else "[redacted]",
         "inventory_profile": args.inventory_profile,
         "artifact_sensitivity": "private-operational",
@@ -306,6 +330,12 @@ def main() -> None:
     print(f"output={args.output}")
     photos.close()
     output.close()
+    source_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    source_manifest_path.write_text(
+        json.dumps(source_manifest, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    print(f"source_manifest={source_manifest_path}")
 
 
 if __name__ == "__main__":

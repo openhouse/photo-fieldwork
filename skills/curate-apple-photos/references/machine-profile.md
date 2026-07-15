@@ -7,7 +7,7 @@ Use these as defaults, then verify them live.
 - App: `/Applications/Jamie Photo Archive.app`
 - Executable: `/Applications/Jamie Photo Archive.app/Contents/MacOS/JamiePhotoArchive`
 - Bundle identifier: `art.jamieburkart.jamiephotoarchive`
-- Installed app version reported on 2026-07-10: 1.0. Capabilities and stable bundle identifier are authoritative; do not replace the app merely for a version-label mismatch.
+- Reviewed Revision B helper source reports app version 3.0 and plan schema 2. Run `doctor` against the installed app; a version label alone is not sufficient.
 - Supported operations:
   - `inspect-local-images`: local PhotoKit image retrieval, Vision labels, face counts, ephemeral OCR-based safety flags, optional private previews;
   - snapshot plans: create folders/albums and add existing asset membership only.
@@ -18,14 +18,11 @@ Always launch plans through the app bundle so macOS uses its stable Photos permi
 open -W -n "/Applications/Jamie Photo Archive.app" --args --plan /absolute/path/plan.json
 ```
 
-## Immutable wide source
+## Source profiles
 
-- Album title: `00 MASTER — PHOTO EDITORS — TARGET 5K`
-- Local identifier: `360ED78F-FB05-490A-8FFD-F3CB951D0D0A/L0/040`
-- Verified 2026-07-10 count: 124,484 unique still photographs
-- Shared compact inventory: `/Users/jburkart/Documents/Jamie-Photo-Archive-2026/shared/wide-corpus.sqlite`
-- Inventory contains existing people, albums, labels, places, search text, favorite/edit status, duplicate and burst data, and Apple aesthetic fields.
-- The shared inventory is a snapshot. Rebuild or reconcile it when source count or Photos metadata materially changes.
+The machine has used both an album-scoped source and `visible-library-stills://v1`. Neither is a universal default. Every run must name a schema-version-1 source manifest. The manifest, not this document, is authoritative for identifier, predicate, count, membership digest, and fingerprint.
+
+Use `config/local-profile.json` for private machine paths and protected folder identifiers. It is gitignored. Start from `config/local-profile.example.json` and keep the real profile out of public reports.
 
 ## Photos database
 
@@ -46,3 +43,4 @@ open -W -n "/Applications/Jamie Photo Archive.app" --args --plan /absolute/path/
 - Workflow source: `/Volumes/16TB_SSD/Sites/photo-fieldwork`
 - Reviewed helper source: `/Volumes/16TB_SSD/Sites/photo-fieldwork/integrations/jamie-photo-archive`
 - Preserve every version as its own durable workspace and Photos folder.
+- Run `doctor --profile config/local-profile.json --source-manifest RUN/source-manifest.json` before a production run.

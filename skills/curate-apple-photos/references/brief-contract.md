@@ -32,7 +32,7 @@ Use People names only when they already exist in Apple Photos or the brief names
 
 ## config.json
 
-Follow `/Volumes/16TB_SSD/Sites/photo-fieldwork/schemas/config.schema.json`.
+Follow `schemas/config.schema.json` in the installed Photo Fieldwork repository.
 
 - Quotas must sum exactly to the requested target.
 - Reserve 8-12% for `Unclassified / Editor Field` unless the brief gives a reason not to.
@@ -41,6 +41,8 @@ Follow `/Volumes/16TB_SSD/Sites/photo-fieldwork/schemas/config.schema.json`.
 - Default evaluation minimums: 0.80 precision and 0.90 coverage.
 - Default selection floors: `minimum_named_people_fraction` 0.35 and `minimum_person_free_fraction` 0.20, adjusted when the brief genuinely calls for a different balance.
 - Keep the random seed fixed for the run.
+- Default to `required_release_class=editor-field-verified` and `evaluation_scope=final-stratified-sample`.
+- Keep unresolved `needs-human-review` rows outside the master.
 
 ## Peer panel
 

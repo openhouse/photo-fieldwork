@@ -38,7 +38,11 @@ def create_demo_inventory(path: Path) -> None:
             "persons": people,
             "favorite": "true" if index % 7 == 0 else "false",
             "edited": "true" if index % 6 == 0 else "false",
-            "safety_status": "hold" if index in {9, 24} else "clear",
+            "safety_status": (
+                "hold-automated" if index in {9, 24}
+                else "needs-human-review" if index == 14
+                else "clear-automated"
+            ),
             "safety_reason": "possible private document" if index == 9 else "possible private contact information" if index == 24 else "",
             "hidden": "false",
             "missing": "false",

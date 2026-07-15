@@ -10,9 +10,21 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Iterable
 
+from .contracts import (
+    EVALUATION_SCOPES,
+    RELEASE_CLASSES,
+    canonical_sha256,
+    finalize_plan,
+    identifier_set_sha256,
+    release_satisfies,
+    sample_sha256,
+    validate_source_manifest,
+)
+
 
 JUDGMENTS = {"fit", "reject", "uncertain"}
-ASSIGNMENT_STATUSES = {"assigned", "unclassified", "sparse-hypothesis"}
+ASSIGNMENT_STATUSES = {"assigned", "unclassified", "sparse-hypothesis", "held", "rejected"}
+DEFAULT_ELIGIBLE_SAFETY_STATES = {"clear", "clear-automated", "cleared-human"}
 
 
 def read_config(path: Path) -> dict:
@@ -34,6 +46,15 @@ def read_config(path: Path) -> dict:
     }
     if invalid_modes:
         raise ValueError(f"invalid view evaluation modes: {', '.join(sorted(invalid_modes))}")
+    release_class = str(config.get("required_release_class", "editor-field-verified"))
+    if release_class not in RELEASE_CLASSES:
+        raise ValueError(f"invalid required_release_class: {release_class}")
+    scope = str(config.get("evaluation_scope", "final-stratified-sample"))
+    if scope not in EVALUATION_SCOPES:
+        raise ValueError(f"invalid evaluation_scope: {scope}")
+    eligible_states = config.get("eligible_safety_states", sorted(DEFAULT_ELIGIBLE_SAFETY_STATES))
+    if not isinstance(eligible_states, list) or not eligible_states:
+        raise ValueError("eligible_safety_states must be a non-empty list")
     return config
 
 
@@ -101,12 +122,27 @@ def master_sha256(rows: Iterable[dict[str, str]]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def is_hold(row: dict[str, str]) -> bool:
+def eligible_safety_states(config: dict) -> set[str]:
+    return {
+        str(value).strip().lower()
+        for value in config.get("eligible_safety_states", sorted(DEFAULT_ELIGIBLE_SAFETY_STATES))
+    }
+
+
+def is_hold(row: dict[str, str], config: dict | None = None) -> bool:
+    allowed = eligible_safety_states(config or {})
+    state = str(row.get("safety_status", "clear-automated")).strip().lower()
+    assignment_status = str(row.get("assignment_status", "assigned")).strip().lower()
     return (
-        str(row.get("safety_status", "clear")).lower() == "hold"
+        state not in allowed
+        or assignment_status == "held"
         or truthy(row.get("hidden"))
         or truthy(row.get("missing"))
     )
+
+
+def is_assignment_rejected(row: dict[str, str]) -> bool:
+    return str(row.get("assignment_status", "assigned")).strip().lower() == "rejected"
 
 
 def attention_score(row: dict[str, str]) -> float:
@@ -168,8 +204,8 @@ def cluster_representatives(rows: list[dict[str, str]], config: dict) -> list[di
         group = row.get("burst_group", "").strip()
         (burst_groups[group] if group else unburst).append(row)
     limit = int(config.get("burst_limit", 2))
-    for group in burst_groups.values():
-        unburst.extend(sorted(group, key=cluster_rank, reverse=True)[:limit])
+    for burst_rows in burst_groups.values():
+        unburst.extend(sorted(burst_rows, key=cluster_rank, reverse=True)[:limit])
     return unburst
 
 
@@ -196,8 +232,16 @@ def rank_row(row: dict[str, str], config: dict) -> float:
 
 
 def select(inventory: list[dict[str, str]], config: dict) -> tuple[list[dict], list[dict], dict]:
-    holds = [dict(row) for row in inventory if is_hold(row)]
-    eligible = cluster_representatives([dict(row) for row in inventory if not is_hold(row)], config)
+    holds = [dict(row) for row in inventory if is_hold(row, config)]
+    rejected = [dict(row) for row in inventory if not is_hold(row, config) and is_assignment_rejected(row)]
+    eligible = cluster_representatives(
+        [
+            dict(row)
+            for row in inventory
+            if not is_hold(row, config) and not is_assignment_rejected(row)
+        ],
+        config,
+    )
     for row in eligible:
         row["primary_view"] = choose_primary_view(row, config)
         row["score_total"] = f"{rank_row(row, config):.6f}"
@@ -291,6 +335,7 @@ def select(inventory: list[dict[str, str]], config: dict) -> tuple[list[dict], l
         "inventory_count": len(inventory),
         "eligible_after_cluster_reduction": len(eligible),
         "hold_count": len(holds),
+        "assignment_rejected_count": len(rejected),
         "selected_count": len(selected),
         "view_counts": dict(sorted(Counter(row["primary_view"] for row in selected).items())),
         "named_people_count": sum(bool(split_values(row.get("persons"))) for row in selected),
@@ -348,16 +393,42 @@ def make_sample(
         item["judgment"] = ""
         item["evaluation_note"] = ""
         sample.append(item)
+    digest = sample_sha256(sample)
+    for row in sample:
+        row["sample_sha256"] = digest
+        row["master_count"] = str(len(master))
     return sample
 
 
-def evaluate(feedback: list[dict[str, str]], config: dict) -> tuple[dict, bool]:
+def evaluate(
+    feedback: list[dict[str, str]],
+    config: dict,
+    master: list[dict[str, str]] | None = None,
+    evaluation_scope: str | None = None,
+    source_manifest: dict | None = None,
+) -> tuple[dict, bool]:
+    if not feedback:
+        raise ValueError("evaluation requires at least one row")
     proposal_ids = {row.get("proposal_id", "").strip() for row in feedback}
     master_hashes = {row.get("master_sha256", "").strip() for row in feedback}
     if "" in proposal_ids or len(proposal_ids) != 1:
         raise ValueError("evaluation rows must share one non-empty proposal_id")
     if "" in master_hashes or len(master_hashes) != 1:
         raise ValueError("evaluation rows must share one non-empty master_sha256")
+    identifiers = [row.get("uuid", "").strip() for row in feedback]
+    if any(not identifier for identifier in identifiers):
+        raise ValueError("evaluation contains an empty uuid")
+    if len(identifiers) != len(set(identifiers)):
+        raise ValueError("evaluation contains duplicate UUID rows")
+    sample_hashes = {row.get("sample_sha256", "").strip() for row in feedback}
+    if "" in sample_hashes or len(sample_hashes) != 1:
+        raise ValueError("evaluation rows must share one non-empty sample_sha256")
+    expected_sample_hash = sample_sha256(feedback)
+    if sample_hashes != {expected_sample_hash}:
+        raise ValueError("sample_sha256 does not match evaluation sample membership")
+    scope = str(evaluation_scope or config.get("evaluation_scope", "final-stratified-sample"))
+    if scope not in EVALUATION_SCOPES:
+        raise ValueError(f"unknown evaluation scope: {scope}")
     unknown = sorted(
         {
             row.get("judgment", "").strip().lower()
@@ -368,21 +439,59 @@ def evaluate(feedback: list[dict[str, str]], config: dict) -> tuple[dict, bool]:
     if unknown:
         raise ValueError(f"unknown evaluation judgments: {', '.join(unknown)}")
     judged = [row for row in feedback if row.get("judgment", "").strip().lower() in JUDGMENTS]
-    fit = sum(row["judgment"].strip().lower() == "fit" for row in judged)
-    reject = sum(row["judgment"].strip().lower() == "reject" for row in judged)
-    uncertain = sum(row["judgment"].strip().lower() == "uncertain" for row in judged)
-    coverage = len(judged) / len(feedback) if feedback else 0.0
-    precision = fit / (fit + reject) if fit + reject else 0.0
-    by_view = {}
     fresh_feedback = [row for row in feedback if row.get("sample_kind", "fresh") != "canary"]
     fresh_judged = [row for row in judged if row.get("sample_kind", "fresh") != "canary"]
+    canary_feedback = [row for row in feedback if row.get("sample_kind") == "canary"]
     canaries = [row for row in judged if row.get("sample_kind") == "canary"]
+    fit = sum(row["judgment"].strip().lower() == "fit" for row in fresh_judged)
+    reject = sum(row["judgment"].strip().lower() == "reject" for row in fresh_judged)
+    uncertain = sum(row["judgment"].strip().lower() == "uncertain" for row in fresh_judged)
+    sample_completion = len(judged) / len(feedback)
+    fresh_sample_completion = len(fresh_judged) / len(fresh_feedback) if fresh_feedback else 0.0
+    precision = fit / (fit + reject) if fit + reject else 0.0
+    by_view = {}
     canary_failures = [row["uuid"] for row in canaries if row["judgment"].strip().lower() != "fit"]
+    canary_completion = len(canaries) / len(canary_feedback) if canary_feedback else 1.0
     minimum_view_precision = float(config.get("minimum_view_eval_precision", 0.65))
     minimum_view_sample = int(config.get("minimum_view_eval_sample", 2))
     maximum_uncertainty = float(config.get("maximum_eval_uncertainty", 0.25))
     minimum_coverage = float(config.get("minimum_eval_coverage", 0.8))
     views_by_id = {str(view["id"]): view for view in config["views"] if int(view["quota"]) > 0}
+    master_bound = master is not None
+    source = validate_source_manifest(source_manifest) if source_manifest is not None else None
+    source_bound = source is not None
+    if master is not None:
+        master_ids = [row["uuid"] for row in master]
+        if len(master_ids) != len(set(master_ids)):
+            raise ValueError("bound master contains duplicate UUIDs")
+        digest = master_sha256(master)
+        proposal_id = f"pfp-{digest[:16]}"
+        if master_hashes != {digest} or proposal_ids != {proposal_id}:
+            raise ValueError("evaluation sample does not match the bound master")
+        master_by_id = {row["uuid"]: row for row in master}
+        unknown_ids = set(identifiers) - set(master_by_id)
+        if unknown_ids:
+            raise ValueError(f"evaluation contains {len(unknown_ids)} rows outside the bound master")
+        for row in feedback:
+            expected_view = master_by_id[row["uuid"]].get("primary_view", "")
+            if row.get("primary_view", "") != expected_view:
+                raise ValueError(f"evaluation view does not match bound master for {row['uuid']}")
+        selected_counts = Counter(row.get("primary_view", "unknown") for row in master)
+        master_count = len(master)
+    else:
+        declared_master_counts = {int(row.get("master_count") or 0) for row in feedback}
+        if len(declared_master_counts) != 1 or 0 in declared_master_counts:
+            raise ValueError("unbound evaluation rows must share one positive master_count")
+        master_count = next(iter(declared_master_counts))
+        selected_counts = Counter()
+        for view_id in views_by_id:
+            values = {
+                int(row.get("view_selected_count") or 0)
+                for row in fresh_feedback
+                if row.get("primary_view", "unknown") == view_id
+            }
+            if len(values) == 1:
+                selected_counts[view_id] = next(iter(values))
     for view_id, view in sorted(views_by_id.items()):
         sampled = [row for row in fresh_feedback if row.get("primary_view", "unknown") == view_id]
         rows = [row for row in fresh_judged if row.get("primary_view", "unknown") == view_id]
@@ -396,9 +505,7 @@ def evaluate(feedback: list[dict[str, str]], config: dict) -> tuple[dict, bool]:
             sum(row["judgment"].strip().lower() == "uncertain" for row in rows) / len(rows)
             if rows else 0.0
         )
-        selected_count = max(
-            [int(row.get("view_selected_count") or 0) for row in sampled] or [int(view["quota"])]
-        )
+        selected_count = selected_counts.get(view_id, int(view["quota"]))
         required_decisive = min(minimum_view_sample, selected_count)
         mode = str(view.get("evaluation_mode", "material"))
         precision_gate = float(view.get("minimum_eval_precision", minimum_view_precision))
@@ -433,31 +540,76 @@ def evaluate(feedback: list[dict[str, str]], config: dict) -> tuple[dict, bool]:
             "passed": not reasons,
             "failure_reasons": reasons,
         }
-    passed = (
-        coverage >= minimum_coverage
+    quality_passed = (
+        fresh_sample_completion >= minimum_coverage
         and precision >= float(config.get("minimum_eval_precision", 0.75))
         and all(result["passed"] for result in by_view.values())
         and not canary_failures
+        and canary_completion == 1.0
     )
+    master_review_fraction = len({row["uuid"] for row in fresh_judged}) / master_count
+    required_release_class = str(config.get("required_release_class", "editor-field-verified"))
+    release_reasons = []
+    if scope == "learning-sample":
+        release_reasons.append("learning-sample scope cannot authorize a catalog plan")
+    if not master_bound:
+        release_reasons.append("final evaluation is not bound to the exact master manifest")
+    if not source_bound:
+        release_reasons.append("final evaluation is not bound to a source manifest")
+    if required_release_class == "master-human-reviewed":
+        if scope != "full-master" or master_review_fraction != 1.0:
+            release_reasons.append("master-human-reviewed requires a complete full-master evaluation")
+    if required_release_class == "publication-ready":
+        if scope != "publication-shortlist" or master_review_fraction != 1.0:
+            release_reasons.append("publication-ready requires a complete publication-shortlist evaluation")
+        required_publication = {
+            "rights_status": "cleared",
+            "consent_status": "cleared",
+            "caption_status": "verified",
+            "accessibility_status": "complete",
+        }
+        for field, expected in required_publication.items():
+            if any(str(row.get(field, "")).strip().lower() != expected for row in fresh_judged):
+                release_reasons.append(f"publication-ready requires {field}={expected} for every item")
+    passed = quality_passed and not release_reasons
     report = {
-        "schema_version": 2,
+        "schema_version": 3,
         "proposal_id": next(iter(proposal_ids)),
         "master_sha256": next(iter(master_hashes)),
+        "sample_sha256": expected_sample_hash,
+        "evaluation_scope": scope,
+        "required_release_class": required_release_class,
+        "release_class": required_release_class if passed else None,
+        "release_failure_reasons": release_reasons,
+        "master_bound": master_bound,
+        "source_bound": source_bound,
+        "source_fingerprint": source["source_fingerprint"] if source else None,
+        "config_sha256": canonical_sha256(config),
+        "master_count": master_count,
         "sample_count": len(feedback),
         "judged_count": len(judged),
+        "fresh_sample_count": len(fresh_feedback),
+        "fresh_judged_count": len(fresh_judged),
         "fit": fit,
         "reject": reject,
         "uncertain": uncertain,
-        "coverage": round(coverage, 4),
+        "sample_completion": round(sample_completion, 4),
+        "fresh_sample_completion": round(fresh_sample_completion, 4),
+        "master_review_fraction": round(master_review_fraction, 4),
+        "coverage": round(fresh_sample_completion, 4),
         "precision": round(precision, 4),
+        "fresh_decisive_precision": round(precision, 4),
         "precision_interval_95": wilson_interval(fit, fit + reject),
         "minimum_coverage": minimum_coverage,
         "minimum_precision": config.get("minimum_eval_precision", 0.75),
         "minimum_view_precision": minimum_view_precision,
         "minimum_view_sample": minimum_view_sample,
         "maximum_uncertainty": maximum_uncertainty,
+        "canary_sample_count": len(canary_feedback),
         "canary_count": len(canaries),
+        "canary_completion": round(canary_completion, 4),
         "canary_failures": canary_failures,
+        "quality_passed": quality_passed,
         "passed": passed,
         "by_view": by_view,
     }
@@ -465,13 +617,14 @@ def evaluate(feedback: list[dict[str, str]], config: dict) -> tuple[dict, bool]:
 
 
 def validate_feedback(feedback: list[dict[str, str]]) -> dict:
-    required = {"uuid", "proposal_id", "master_sha256", "judgment"}
+    required = {"uuid", "proposal_id", "master_sha256", "sample_sha256", "judgment"}
     missing = required - set(feedback[0]) if feedback else required
     if missing:
         raise ValueError(f"feedback missing required columns: {', '.join(sorted(missing))}")
     seen: dict[str, str] = {}
     proposal_ids: set[str] = set()
     master_hashes: set[str] = set()
+    sample_hashes: set[str] = set()
     for row in feedback:
         uuid = row["uuid"].strip()
         judgment = row["judgment"].strip().lower()
@@ -479,21 +632,25 @@ def validate_feedback(feedback: list[dict[str, str]]) -> dict:
             raise ValueError("feedback contains an empty uuid")
         if judgment not in JUDGMENTS:
             raise ValueError(f"feedback row {uuid} has invalid judgment {judgment or '<empty>'}")
-        if uuid in seen and seen[uuid] != judgment:
-            raise ValueError(f"feedback contains conflicting judgments for {uuid}")
+        if uuid in seen:
+            raise ValueError(f"feedback contains duplicate judgment rows for {uuid}")
         seen[uuid] = judgment
         proposal_ids.add(row["proposal_id"].strip())
         master_hashes.add(row["master_sha256"].strip())
+        sample_hashes.add(row["sample_sha256"].strip())
     if "" in proposal_ids or len(proposal_ids) != 1:
         raise ValueError("feedback must name one non-empty proposal_id")
     if "" in master_hashes or len(master_hashes) != 1:
         raise ValueError("feedback must name one non-empty master_sha256")
+    if "" in sample_hashes or len(sample_hashes) != 1:
+        raise ValueError("feedback must name one non-empty sample_sha256")
     return {
         "schema_version": 1,
         "row_count": len(feedback),
         "unique_uuid_count": len(seen),
         "proposal_id": next(iter(proposal_ids)),
         "master_sha256": next(iter(master_hashes)),
+        "sample_sha256": next(iter(sample_hashes)),
         "judgment_counts": dict(sorted(Counter(seen.values()).items())),
         "status": "PASS",
     }
@@ -503,10 +660,15 @@ def apply_feedback(sample: list[dict[str, str]], feedback: list[dict[str, str]])
     summary = validate_feedback(feedback)
     sample_proposals = {row.get("proposal_id", "").strip() for row in sample}
     sample_hashes = {row.get("master_sha256", "").strip() for row in sample}
+    sample_manifest_hashes = {row.get("sample_sha256", "").strip() for row in sample}
     if sample_proposals != {summary["proposal_id"]}:
         raise ValueError("feedback proposal_id does not match the evaluation sample")
     if sample_hashes != {summary["master_sha256"]}:
         raise ValueError("feedback master_sha256 does not match the evaluation sample")
+    if sample_manifest_hashes != {summary["sample_sha256"]}:
+        raise ValueError("feedback sample_sha256 does not match the evaluation sample")
+    if sample_manifest_hashes != {sample_sha256(sample)}:
+        raise ValueError("evaluation sample membership does not match sample_sha256")
     updates: dict[str, dict[str, str]] = {}
     for row in feedback:
         uuid = row["uuid"].strip()
@@ -548,6 +710,9 @@ def validate(master: list[dict[str, str]], holds: list[dict[str, str]], config: 
         errors.append("one or more selected rows lack assigned_view")
     if any(row.get("primary_view") != row.get("assigned_view") for row in master):
         errors.append("primary_view must remain an exact output alias of assigned_view")
+    unsafe = [row["uuid"] for row in master if is_hold(row, config)]
+    if unsafe:
+        errors.append(f"master contains {len(unsafe)} unresolved or ineligible safety states")
     hashes = {row.get("master_sha256", "") for row in master}
     expected_hash = master_sha256(master)
     if hashes != {expected_hash}:
@@ -556,7 +721,7 @@ def validate(master: list[dict[str, str]], holds: list[dict[str, str]], config: 
     if proposal_ids != {f"pfp-{expected_hash[:16]}"}:
         errors.append("proposal_id is missing or does not match master_sha256")
     configured = {view["id"] for view in config["views"] if int(view["quota"]) > 0}
-    represented = {row.get("primary_view") for row in master}
+    represented = {str(row.get("primary_view") or "") for row in master}
     missing_views = configured - represented
     if missing_views:
         errors.append(f"configured views absent from master: {', '.join(sorted(missing_views))}")
@@ -566,6 +731,8 @@ def validate(master: list[dict[str, str]], holds: list[dict[str, str]], config: 
         "unique_count": len(set(ids)),
         "hold_count": len(holds),
         "hold_overlap": len(overlap),
+        "hold_sha256": identifier_set_sha256(hold_ids),
+        "ineligible_safety_count": len(unsafe),
         "represented_views": sorted(represented),
         "master_sha256": expected_hash,
         "proposal_id": f"pfp-{expected_hash[:16]}",
@@ -577,11 +744,13 @@ def build_catalog_plan(
     master: list[dict[str, str]],
     config: dict,
     plan_id: str,
-    source_title: str,
-    source_identifier: str,
     evaluation_report: dict,
+    source_manifest: dict,
+    holds: list[dict[str, str]] | None = None,
 ) -> dict:
     """Build an adapter-neutral, membership-only catalog plan."""
+    source = validate_source_manifest(source_manifest)
+    holds = holds or []
     digest = master_sha256(master)
     proposal_id = f"pfp-{digest[:16]}"
     if any(row.get("primary_view") != row.get("assigned_view") for row in master):
@@ -592,12 +761,32 @@ def build_catalog_plan(
         raise ValueError("evaluated master hash does not match the proposed catalog plan")
     if evaluation_report.get("proposal_id") != proposal_id:
         raise ValueError("evaluated proposal_id does not match the proposed catalog plan")
+    if not evaluation_report.get("master_bound"):
+        raise ValueError("catalog plan requires an evaluation bound to the exact master")
+    if not evaluation_report.get("source_bound"):
+        raise ValueError("catalog plan requires an evaluation bound to a source manifest")
+    if evaluation_report.get("source_fingerprint") != source["source_fingerprint"]:
+        raise ValueError("evaluated source fingerprint does not match catalog source")
+    config_digest = canonical_sha256(config)
+    if evaluation_report.get("config_sha256") != config_digest:
+        raise ValueError("evaluated configuration does not match catalog plan configuration")
+    required_release_class = str(config.get("required_release_class", "editor-field-verified"))
+    actual_release_class = str(evaluation_report.get("release_class") or "")
+    if not actual_release_class or not release_satisfies(actual_release_class, required_release_class):
+        raise ValueError("evaluation does not satisfy the required release class")
+    if any(is_hold(row, config) for row in master):
+        raise ValueError("catalog plan cannot include unresolved or ineligible safety states")
+    master_ids = {row["uuid"] for row in master}
+    hold_ids = {row["uuid"] for row in holds}
+    if master_ids & hold_ids:
+        raise ValueError("catalog plan master overlaps safety holds")
+    hold_digest = identifier_set_sha256(hold_ids)
     view_labels = {view["id"]: view["label"] for view in config["views"]}
     albums = [
         {
             "key": "master",
             "title": f"00 MASTER - {len(master):,}",
-            "asset_ids": [row["uuid"] for row in master],
+            "asset_identifiers": [row["uuid"] for row in master],
         }
     ]
     for view_id in sorted({row["primary_view"] for row in master}):
@@ -606,23 +795,33 @@ def build_catalog_plan(
             {
                 "key": f"view-{view_id}",
                 "title": f"{view_id} {view_labels.get(view_id, 'Unlabeled View')} - {len(asset_ids):,}",
-                "asset_ids": asset_ids,
+                "asset_identifiers": asset_ids,
             }
         )
-    return {
+    plan = {
         "schema_version": 2,
         "plan_id": plan_id,
         "proposal_id": proposal_id,
         "master_sha256": digest,
+        "hold_sha256": hold_digest,
+        "config_sha256": config_digest,
+        "source_fingerprint": source["source_fingerprint"],
+        "release_class": actual_release_class,
         "evaluation": {
             "proposal_id": evaluation_report["proposal_id"],
             "master_sha256": evaluation_report["master_sha256"],
+            "sample_sha256": evaluation_report["sample_sha256"],
+            "evaluation_scope": evaluation_report["evaluation_scope"],
+            "release_class": actual_release_class,
+            "config_sha256": config_digest,
             "passed": True,
         },
         "created_at": datetime.now(timezone.utc).isoformat(),
         "safety_mode": "create-folders-albums-and-add-membership-only",
-        "source": {"title": source_title, "identifier": source_identifier},
+        "source": source,
         "expected_master_count": len(master),
+        "expected_hold_count": len(hold_ids),
+        "expected_source_count": int(str(source["observed_count"])),
         "write_test_count": min(10, len(master)),
         "albums": albums,
         "required_verification": [
@@ -634,3 +833,4 @@ def build_catalog_plan(
             "source membership unchanged",
         ],
     }
+    return finalize_plan(plan)

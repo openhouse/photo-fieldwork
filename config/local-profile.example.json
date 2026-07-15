@@ -1,0 +1,12 @@
+{
+  "$schema": "../schemas/local-profile.schema.json",
+  "schema_version": 1,
+  "workspace_root": "/path/to/private/photo-fieldwork-runs",
+  "inventory_db": "/path/to/private/source-inventory.sqlite",
+  "photos_db": "/path/to/Photos Library.photoslibrary/database/Photos.sqlite",
+  "permissioned_app": "/Applications/Your Photo Fieldwork Helper.app",
+  "bundle_identifier": "example.photo-fieldwork.helper",
+  "root_folder_identifier": "",
+  "private_folder_identifier": "",
+  "audit_folder_identifier": ""
+}
