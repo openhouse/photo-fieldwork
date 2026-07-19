@@ -6,7 +6,13 @@
   "properties": {
     "seed": {"type": "integer"},
     "candidate_multiplier": {"type": "number", "minimum": 1},
+    "maximum_candidates_per_view": {"type": "integer", "minimum": 1},
     "excluded_album_terms": {
+      "type": "array",
+      "items": {"type": "string"},
+      "uniqueItems": true
+    },
+    "derived_album_terms": {
       "type": "array",
       "items": {"type": "string"},
       "uniqueItems": true

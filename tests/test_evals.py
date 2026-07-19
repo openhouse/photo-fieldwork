@@ -15,9 +15,9 @@ SPEC.loader.exec_module(check_evals)
 class EvalBankTests(unittest.TestCase):
     def test_public_eval_bank_meets_coverage_contract(self):
         summary = check_evals.validate_eval_bank()
-        self.assertGreaterEqual(summary["evals"], 24)
-        self.assertGreaterEqual(summary["critical"], 21)
-        self.assertGreaterEqual(summary["expectations"], 98)
+        self.assertGreaterEqual(summary["evals"], 30)
+        self.assertGreaterEqual(summary["critical"], 27)
+        self.assertGreaterEqual(summary["expectations"], 122)
         self.assertEqual(summary["fixture_canaries"], 11)
 
     def test_fixture_oracles_are_recomputable(self):
@@ -48,7 +48,7 @@ class EvalBankTests(unittest.TestCase):
     def test_executable_checks_are_resolvable(self):
         checks = check_evals.executable_checks()
         self.assertIn("make demo", checks)
-        self.assertGreaterEqual(len(checks), 30)
+        self.assertGreaterEqual(len(checks), 43)
         for check in checks:
             if check == "make demo":
                 continue

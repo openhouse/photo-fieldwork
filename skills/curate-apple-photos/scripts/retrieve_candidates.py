@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import math
+import re
 import sqlite3
 from collections import defaultdict
 from pathlib import Path
@@ -28,29 +30,86 @@ def connect(path: Path) -> sqlite3.Connection:
     return conn
 
 
-def like_matches(conn: sqlite3.Connection, query: str, values: list[str]) -> set[str]:
-    matched: set[str] = set()
+def like_matches(conn: sqlite3.Connection, query: str, values: list[str]):
     for value in values:
         pattern = f"%{value.casefold()}%"
-        matched.update(row[0] for row in conn.execute(query, (pattern,)))
-    return matched
+        yield from (row[0] for row in conn.execute(query, (pattern,)))
 
 
 def album_matches(
     conn: sqlite3.Connection,
     values: list[str],
     excluded_terms: list[str],
-) -> set[str]:
-    matched: set[str] = set()
+):
     exclusions = "".join(" AND lower(coalesce(album_title,'')) NOT LIKE ?" for _ in excluded_terms)
     query = (
         "SELECT uuid FROM asset_album "
-        "WHERE lower(coalesce(album_title,'')) LIKE ?" + exclusions
+        "WHERE lower(coalesce(album_title,'')) LIKE ?" + exclusions + " ORDER BY uuid"
     )
     for value in values:
         params = [f"%{value.casefold()}%", *[f"%{term.casefold()}%" for term in excluded_terms]]
-        matched.update(row[0] for row in conn.execute(query, params))
-    return matched
+        yield from (row[0] for row in conn.execute(query, params))
+
+
+def stable_noise(seed: int, value: str) -> float:
+    digest = hashlib.sha256(f"{seed}:{value}".encode("utf-8")).digest()
+    return int.from_bytes(digest[:8], "big") / 2**64
+
+
+def prune_view(
+    scores: dict[str, float],
+    reasons: dict[str, set[str]],
+    limit: int,
+    seed: int,
+    view_id: str,
+) -> None:
+    if len(scores) <= limit:
+        return
+    keep = {
+        uuid
+        for uuid in sorted(
+            scores,
+            key=lambda uuid: (scores[uuid], stable_noise(seed, f"{view_id}:{uuid}"), uuid),
+            reverse=True,
+        )[:limit]
+    }
+    for uuid in list(scores):
+        if uuid not in keep:
+            scores.pop(uuid, None)
+            reasons.pop(uuid, None)
+
+
+def add_score(
+    scores: dict[str, float],
+    reasons: dict[str, set[str]],
+    uuid: str,
+    weight: float,
+    reason: str,
+    limit: int,
+    seed: int,
+    view_id: str,
+) -> None:
+    scores[uuid] += weight
+    reasons[uuid].add(reason)
+    if len(scores) > limit * 2:
+        prune_view(scores, reasons, limit, seed, view_id)
+
+
+def event_cluster(row: dict) -> str:
+    burst = str(row.get("burst_key") or "").strip()
+    if burst:
+        return "burst-" + hashlib.sha256(burst.encode("utf-8")).hexdigest()[:20]
+    captured = str(row.get("date_created") or "").strip().replace("T", " ")
+    match = re.match(r"^(\d{4}-\d{2}-\d{2} \d{2})", captured)
+    if not match:
+        return ""
+    camera = " ".join(
+        part.strip()
+        for part in (str(row.get("camera_make") or ""), str(row.get("camera_model") or ""))
+        if part.strip()
+    ).casefold()
+    material = f"{match.group(1)}|{camera}"
+    return "event-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:20]
 
 
 def relation_values(conn: sqlite3.Connection, table: str, column: str, ids: list[str]) -> dict[str, list[str]]:
@@ -103,59 +162,66 @@ def main() -> None:
     if outside_prior_fraction and not str(spec.get("prior_corpus_album_title") or "").strip():
         raise SystemExit("minimum_outside_prior_fraction requires prior_corpus_album_title")
     candidate_target = max(args.target, math.ceil(args.target * multiplier))
+    seed = int(spec.get("seed", 0))
+    configured_view_limit = spec.get("maximum_candidates_per_view")
+    if configured_view_limit is not None and int(configured_view_limit) < 1:
+        raise SystemExit("maximum_candidates_per_view must be positive")
     excluded_album_terms = [
         str(value).casefold()
-        for value in spec.get("excluded_album_terms", [])
+        for value in [
+            *spec.get("excluded_album_terms", []),
+            *spec.get("derived_album_terms", []),
+        ]
         if str(value).strip()
     ]
+    excluded_album_terms = sorted(set(excluded_album_terms))
     conn = connect(args.db)
     asset_count = conn.execute("SELECT count(*) FROM asset WHERE is_photo = 1 AND hidden = 0 AND trashed = 0").fetchone()[0]
 
     view_scores: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
     view_reasons: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
+    view_limits: dict[str, int] = {}
     for view in views:
         view_id = str(view["id"])
-        terms = [str(value).casefold() for value in view.get("terms", []) if str(value).strip()]
-        people = [str(value).casefold() for value in view.get("people", []) if str(value).strip()]
-        albums = [str(value).casefold() for value in view.get("albums", []) if str(value).strip()]
-        places = [str(value).casefold() for value in view.get("places", []) if str(value).strip()]
-        search_terms = [str(value).casefold() for value in view.get("search_terms", []) if str(value).strip()]
+        quota_limit = max(1, math.ceil(int(view.get("quota", 0)) * multiplier))
+        view_limit = int(configured_view_limit or max(12000, math.ceil(quota_limit * 18)))
+        if view_limit < quota_limit:
+            raise SystemExit("maximum_candidates_per_view is smaller than a view candidate quota")
+        view_limits[view_id] = view_limit
+        terms = sorted({str(value).casefold() for value in view.get("terms", []) if str(value).strip()})
+        people = sorted({str(value).casefold() for value in view.get("people", []) if str(value).strip()})
+        albums = sorted({str(value).casefold() for value in view.get("albums", []) if str(value).strip()})
+        places = sorted({str(value).casefold() for value in view.get("places", []) if str(value).strip()})
+        search_terms = sorted({str(value).casefold() for value in view.get("search_terms", []) if str(value).strip()})
 
         base_query = """
             SELECT uuid FROM asset
             WHERE is_photo = 1 AND hidden = 0 AND trashed = 0 AND lower(
                 coalesce(filename,'') || ' ' || coalesce(original_filename,'') || ' ' ||
                 coalesce(title,'') || ' ' || coalesce(description,'')
-            ) LIKE ?
+            ) LIKE ? ORDER BY uuid
         """
         relation_queries = [
-            ("keyword", "SELECT uuid FROM asset_keyword WHERE lower(keyword) LIKE ?", 6.0),
-            ("label", "SELECT uuid FROM asset_label WHERE lower(label_normalized) LIKE ?", 4.0),
-            ("place", "SELECT uuid FROM asset_place WHERE lower(place) LIKE ?", 4.0),
+            ("keyword", "SELECT uuid FROM asset_keyword WHERE lower(keyword) LIKE ? ORDER BY uuid", 6.0),
+            ("label", "SELECT uuid FROM asset_label WHERE lower(label_normalized) LIKE ? ORDER BY uuid", 4.0),
+            ("place", "SELECT uuid FROM asset_place WHERE lower(place) LIKE ? ORDER BY uuid", 4.0),
         ]
         for term in terms:
             for uuid in like_matches(conn, base_query, [term]):
-                view_scores[view_id][uuid] += 7.0
-                view_reasons[view_id][uuid].add("asset-text")
+                add_score(view_scores[view_id], view_reasons[view_id], uuid, 7.0, "asset-text", view_limit, seed, view_id)
             for uuid in album_matches(conn, [term], excluded_album_terms):
-                view_scores[view_id][uuid] += 7.0
-                view_reasons[view_id][uuid].add("album-term")
+                add_score(view_scores[view_id], view_reasons[view_id], uuid, 7.0, "album-term", view_limit, seed, view_id)
             for channel, query, weight in relation_queries:
                 for uuid in like_matches(conn, query, [term]):
-                    view_scores[view_id][uuid] += weight
-                    view_reasons[view_id][uuid].add(channel)
-        for uuid in like_matches(conn, "SELECT uuid FROM asset_person WHERE lower(person) LIKE ?", people):
-            view_scores[view_id][uuid] += 8.0
-            view_reasons[view_id][uuid].add("existing-people-association")
+                    add_score(view_scores[view_id], view_reasons[view_id], uuid, weight, channel, view_limit, seed, view_id)
+        for uuid in like_matches(conn, "SELECT uuid FROM asset_person WHERE lower(person) LIKE ? ORDER BY uuid", people):
+            add_score(view_scores[view_id], view_reasons[view_id], uuid, 8.0, "existing-people-association", view_limit, seed, view_id)
         for uuid in album_matches(conn, albums, excluded_album_terms):
-            view_scores[view_id][uuid] += 10.0
-            view_reasons[view_id][uuid].add("album")
-        for uuid in like_matches(conn, "SELECT uuid FROM asset_place WHERE lower(place) LIKE ?", places):
-            view_scores[view_id][uuid] += 5.0
-            view_reasons[view_id][uuid].add("place")
-        for uuid in like_matches(conn, "SELECT uuid FROM asset_search WHERE lower(coalesce(normalized_string,'')) LIKE ?", search_terms):
-            view_scores[view_id][uuid] += 4.0
-            view_reasons[view_id][uuid].add("search-description")
+            add_score(view_scores[view_id], view_reasons[view_id], uuid, 10.0, "album", view_limit, seed, view_id)
+        for uuid in like_matches(conn, "SELECT uuid FROM asset_place WHERE lower(place) LIKE ? ORDER BY uuid", places):
+            add_score(view_scores[view_id], view_reasons[view_id], uuid, 5.0, "place", view_limit, seed, view_id)
+        for uuid in like_matches(conn, "SELECT uuid FROM asset_search WHERE lower(coalesce(normalized_string,'')) LIKE ? ORDER BY uuid", search_terms):
+            add_score(view_scores[view_id], view_reasons[view_id], uuid, 4.0, "search-description", view_limit, seed, view_id)
 
         year_start = view.get("year_start")
         year_end = view.get("year_end")
@@ -167,6 +233,9 @@ def main() -> None:
                 if year and year[0] is not None and low <= int(year[0]) <= high:
                     view_scores[view_id][uuid] += 2.0
                     view_reasons[view_id][uuid].add("supporting-date-range")
+        prune_view(view_scores[view_id], view_reasons[view_id], view_limit, seed, view_id)
+        print(f"view_{view_id}_bounded_candidates={len(view_scores[view_id])}")
+        print(f"view_{view_id}_candidate_limit={view_limit}")
 
     matched_ids = {uuid for scores in view_scores.values() for uuid in scores}
     base_rows = asset_rows(conn, list(matched_ids)) if matched_ids else {}
@@ -182,7 +251,15 @@ def main() -> None:
     for view in views:
         view_id = str(view["id"])
         limit = max(1, math.ceil(int(view.get("quota", 0)) * multiplier))
-        ranked = sorted(view_scores[view_id], key=lambda uuid: (view_scores[view_id][uuid] + prior_attention(uuid), uuid), reverse=True)
+        ranked = sorted(
+            view_scores[view_id],
+            key=lambda uuid: (
+                view_scores[view_id][uuid] + prior_attention(uuid),
+                stable_noise(seed, f"{view_id}:{uuid}"),
+                uuid,
+            ),
+            reverse=True,
+        )
         for uuid in ranked[:limit]:
             if uuid not in selected_set:
                 selected.append(uuid)
@@ -300,7 +377,7 @@ def main() -> None:
                 "duplicate_group": row.get("duplicate_group_id") or "",
                 "burst_group": row.get("burst_key") or "",
                 "aesthetic_score": row.get("overall_aesthetic_score") if row.get("overall_aesthetic_score") is not None else "",
-                "event_cluster": "",
+                "event_cluster": event_cluster(row),
                 "date": row.get("date_created") or "",
                 "year": row.get("year") or "",
                 "width": row.get("width") or "",

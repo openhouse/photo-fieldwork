@@ -16,9 +16,10 @@ Frozen source profile + catalog reader
               |
               v
  proposed-master.csv + proposal hash
-        |            |
-        v            v
- bound evaluation   bound catalog-plan.json
+        |            |                 |
+        v            v                 v
+ verified offline   bound catalog-    default-closed
+ review + evaluation plan.json        clearance ledger
                          |
                          v
                  catalog writer adapter
@@ -36,6 +37,16 @@ The core does not read a Photos database, open images, call a model, or mutate a
 The core keeps retrieval hypotheses separate from explicit assignment. Exact
 membership plus assignments produce a stable proposal hash. Evaluation and
 catalog plans must reference the same hash.
+
+The private review layer accepts only digest-verified previews inside an
+explicit root. It copies them under content-derived names into an offline field,
+requires complete visible judgments, and keeps delegated inference distinct
+from named human review.
+
+The publication layer is a separate projection. It starts closed, binds each
+decision to the exact proposal and destination, and emits only an allowlisted
+public-safe row with a destination-specific opaque identifier. Editor-field
+membership never implies rights, consent, safety, or publication approval.
 
 ## Reader adapters
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import shutil
 import sys
@@ -19,6 +20,8 @@ from .pipeline import (
     write_private_text,
 )
 from .practice import create_demo_inventory, practice_feedback, write_demo_readme
+from .publication import PUBLIC_FIELDS, build_public_handoff, scaffold_clearance
+from .review import build_review_workbench
 
 
 def markdown_report(title: str, data: dict) -> str:
@@ -110,6 +113,63 @@ def command_plan(args: argparse.Namespace) -> int:
     )
     write_private_text(args.output, json.dumps(plan, indent=2) + "\n")
     print(f"wrote membership-only catalog plan to {args.output}")
+    return 0
+
+
+def command_review(args: argparse.Namespace) -> int:
+    sample = read_csv(args.sample)
+    with args.preview_index.open(newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        preview_index = list(reader)
+    required = {"uuid", "preview_path", "preview_sha256", "decode_status"}
+    missing = required - set(reader.fieldnames or [])
+    if not preview_index:
+        raise ValueError("verified preview index contains no rows")
+    if missing:
+        raise ValueError(f"verified preview index missing columns: {', '.join(sorted(missing))}")
+    review_id = build_review_workbench(
+        sample,
+        preview_index,
+        args.preview_root,
+        args.output,
+    )
+    print(f"wrote private offline review {review_id} to {args.output}")
+    return 0
+
+
+def command_publication_scaffold(args: argparse.Namespace) -> int:
+    master = read_csv(args.master)
+    rows = scaffold_clearance(master)
+    write_csv(args.output, rows)
+    print(f"wrote {len(rows)} default-closed clearance rows to {args.output}")
+    return 0
+
+
+def read_private_salt(path: Path) -> str:
+    if path.is_symlink():
+        raise ValueError("public ID salt file must not be a symlink")
+    resolved = path.resolve(strict=True)
+    if resolved.stat().st_mode & 0o077:
+        raise ValueError("public ID salt file permissions are broader than 0600")
+    salt = resolved.read_text(encoding="utf-8").strip()
+    if len(salt) < 16:
+        raise ValueError("public ID salt must contain at least 16 characters")
+    return salt
+
+
+def command_publication_project(args: argparse.Namespace) -> int:
+    master = read_csv(args.master)
+    clearance = read_csv(args.clearance)
+    rows, errors = build_public_handoff(
+        master,
+        clearance,
+        read_private_salt(args.salt_file),
+        args.destination,
+    )
+    if errors:
+        raise ValueError("publication projection blocked:\n" + "\n".join(errors))
+    write_csv(args.output, rows, fieldnames=list(PUBLIC_FIELDS))
+    print(f"wrote {len(rows)} specifically cleared public rows to {args.output}")
     return 0
 
 
@@ -219,6 +279,32 @@ def parser() -> argparse.ArgumentParser:
     plan.add_argument("--validation-report", type=Path, required=True)
     plan.add_argument("--output", type=Path, required=True)
     plan.set_defaults(func=command_plan)
+
+    review = sub.add_parser("review", help="build a private offline review field from verified previews")
+    review.add_argument("--sample", type=Path, required=True)
+    review.add_argument("--preview-index", type=Path, required=True)
+    review.add_argument("--preview-root", type=Path, required=True)
+    review.add_argument("--output", type=Path, required=True)
+    review.set_defaults(func=command_review)
+
+    publication_scaffold = sub.add_parser(
+        "publication-scaffold",
+        help="make a default-closed private publication-clearance ledger",
+    )
+    publication_scaffold.add_argument("--master", type=Path, required=True)
+    publication_scaffold.add_argument("--output", type=Path, required=True)
+    publication_scaffold.set_defaults(func=command_publication_scaffold)
+
+    publication_project = sub.add_parser(
+        "publication-project",
+        help="project specifically cleared rows through a public allowlist",
+    )
+    publication_project.add_argument("--master", type=Path, required=True)
+    publication_project.add_argument("--clearance", type=Path, required=True)
+    publication_project.add_argument("--salt-file", type=Path, required=True)
+    publication_project.add_argument("--destination", required=True)
+    publication_project.add_argument("--output", type=Path, required=True)
+    publication_project.set_defaults(func=command_publication_project)
     return root
 
 

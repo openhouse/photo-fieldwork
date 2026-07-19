@@ -21,11 +21,13 @@ performs a final publication edit.
   profiles are mode `0600`.
 - Inspection resume reconstructs all receipt totals from prior JSONL rows and
   rejects malformed or duplicate rows.
-- Existing previews are decoded before reuse; the verifier checks exact
-  export state, decodability, dimensions, EXIF absence, symlinks, and modes.
+- Existing previews are decoded before reuse; the verifier checks exact export
+  state, decodability, dimensions, EXIF absence, symlinks, and modes, then emits
+  a complete private digest-bound evidence index.
 - Retrieval records aggregate signal classes without exposing matched private
-  terms. It supports excluded album terms and required diversity outside a
-  prior corpus.
+  terms. Per-view score and reason maps are deterministically bounded. Retrieval
+  supports configured and derived album exclusions, required diversity outside
+  a prior corpus, and generalized event clusters.
 - Retrieval hypotheses and editorial assignment are separate fields.
 - Deterministic constrained maximum flow satisfies exact view quotas and emits
   infeasibility diagnostics.
@@ -49,22 +51,30 @@ performs a final publication edit.
 - Independent verification checks collection kinds and folder/album parentage,
   and emits candidate-bound machine evidence through a governed `verify-phase`
   command rather than accepting a user-authored PASS marker.
-- A public synthetic bank exercises 24 adversarial cases through 11 fixture and
-  30 allowlisted executable canaries, while keeping human and publication gates
+- A private offline workbench accepts only verified previews, uses content-
+  derived asset names, omits People, paths, and raw OCR from its visible context,
+  and distinguishes named human review from delegated editorial inference.
+- A relation-aware split audit blocks UUID, duplicate, burst, event, perceptual,
+  and inspection-digest leakage into final holdouts without printing sensitive
+  identifiers by default.
+- Publication begins with a default-closed clearance ledger. Its separate
+  destination-bound projection requires exact rights, consent, claim, safety,
+  attribution, and named human approval before emitting an allowlisted row.
+- A public synthetic bank exercises 30 adversarial cases through 11 fixture and
+  43 allowlisted executable canaries, while keeping human and publication gates
   explicit.
 - `make check` validates the core tests, skill scripts, JSON contracts, and
-  Swift helper.
+  Swift helper. GitHub Actions runs core checks on Python 3.11 and 3.13 and the
+  PhotoKit helper contract on macOS.
 
 ## Intentionally deferred
 
 The following recommendations remain appropriate for later, separately
 reviewable releases:
 
-- a static local browser review interface;
-- explicit HOLD-release and publication-approval commands;
 - fresh versus validated-cache policy and cache invalidation;
 - sequence and event-neighborhood review manifests;
-- a full editor-to-publication shortlist schema;
+- explicit governed HOLD-release workflow;
 - catalog adapters beyond Apple Photos;
 - a signed helper release and installation pipeline.
 

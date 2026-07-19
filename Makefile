@@ -13,6 +13,7 @@ check: test
 	python3 skills/curate-apple-photos/scripts/check_evals.py
 	python3 -m json.tool config/starter.json >/dev/null
 	python3 -m json.tool schemas/config.schema.json >/dev/null
+	python3 -m json.tool schemas/publication-clearance.schema.json >/dev/null
 	python3 -m json.tool schemas/retrieval.schema.json >/dev/null
 	python3 -m json.tool schemas/source-profile.schema.json >/dev/null
 	python3 -m json.tool skills/curate-apple-photos/references/machine-profile.example.json >/dev/null

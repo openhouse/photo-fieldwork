@@ -25,6 +25,13 @@ class PublicBoundaryTests(unittest.TestCase):
                     violations.append(f"{path.relative_to(ROOT)} contains {value}")
         self.assertEqual(violations, [])
 
+    def test_ci_runs_core_checks_and_macos_helper_contract(self):
+        workflow = (ROOT / ".github" / "workflows" / "check.yml").read_text(encoding="utf-8")
+        self.assertIn("make check", workflow)
+        self.assertIn("macos-latest", workflow)
+        self.assertIn("swiftc -typecheck", workflow)
+        self.assertIn("permissions:\n  contents: read", workflow)
+
 
 if __name__ == "__main__":
     unittest.main()

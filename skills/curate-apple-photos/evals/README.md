@@ -62,6 +62,17 @@ or that rights, consent, claims, or publication were approved.
   parentage. The repaired contract requires real local inspection artifacts,
   registered plan hashes, full receipt reconciliation, governed live
   verification, launch nonces, and unconditional hierarchy checks.
+- **Iteration 6:** 28 cases, 25 critical, 114 expectations, 11 fixture canaries,
+  and 40 executable canaries. Cross-variant comparison added relation-aware
+  holdout auditing, bounded retrieval, a verified offline review field, and a
+  default-closed publication projection. It explicitly rejected duplicate
+  assignment, writer, ledger, and receipt architectures.
+- **Iteration 7:** 30 cases, 27 critical, 122 expectations, 11 fixture canaries,
+  and 43 executable canaries. A hostile composite pass found symlinked review
+  roots, identifier-derived path traversal, cross-destination ID correlation,
+  and spreadsheet-active public text. Review assets now use content-derived
+  names, private roots reject symlinks, public IDs bind the destination, and
+  any unsafe claimed-clearance row blocks the complete projection.
 
 ## Recursive hill climb
 

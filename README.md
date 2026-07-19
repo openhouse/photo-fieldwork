@@ -5,9 +5,10 @@ Photo Fieldwork is a local-first practice and production workflow for reducing a
 It does not automate taste. It helps people automate retrieval, deduplication, balancing, safety review, provenance, evaluation, and reversible handoff while keeping final editorial judgment human.
 
 Version 0.2 binds retrieval, explicit view assignment, visual evaluation, and
-catalog plans to one hashed proposal. It also adds whole-visible-library source
-support, private run workspaces, WAL-aware read-only Photos verification, and a
-resumable phase and artifact ledger.
+catalog plans to one hashed proposal. It also adds bounded whole-library
+retrieval, private verified-preview review, relation-aware eval splits,
+default-closed publication projection, WAL-aware read-only Photos verification,
+and a resumable phase and artifact ledger.
 
 ## Try it in two minutes
 
@@ -82,6 +83,42 @@ make check
   --output runs/my-run/manifests/catalog-plan.json
 ```
 
+Private visual review uses Pillow to validate previews. Install the optional
+review dependency, verify the helper exports, and build a self-contained
+offline review field:
+
+```bash
+python3 -m pip install --editable '.[review]'
+
+python3 skills/curate-apple-photos/scripts/verify_preview_exports.py \
+  --inspection runs/my-run/inspection/inspection.jsonl \
+  --previews runs/my-run/previews \
+  --output runs/my-run/manifests/verified-preview-index.csv
+
+./bin/photo-fieldwork review \
+  --sample runs/my-run/manifests/eval-sample.csv \
+  --preview-index runs/my-run/manifests/verified-preview-index.csv \
+  --preview-root runs/my-run/previews \
+  --output runs/my-run/private-review/index.html
+```
+
+Selection into an editor field is not publication approval. When a separate
+publishing task begins, create a default-closed private clearance ledger, then
+project only rows cleared by a named human for the exact destination:
+
+```bash
+./bin/photo-fieldwork publication-scaffold \
+  --master runs/my-run/manifests/proposed-master.csv \
+  --output runs/my-run/manifests/publication-clearance.csv
+
+./bin/photo-fieldwork publication-project \
+  --master runs/my-run/manifests/proposed-master.csv \
+  --clearance runs/my-run/manifests/publication-clearance.csv \
+  --salt-file /private/mode-0600/public-id-salt.txt \
+  --destination portfolio-home \
+  --output runs/my-run/handoffs/portfolio-home.csv
+```
+
 ## The central distinction
 
 Metadata answers: "Why might this photograph be relevant?"
@@ -102,6 +139,9 @@ Those are different questions. Photo Fieldwork keeps them different.
 - Stratified evaluation samples and precision thresholds.
 - Per-view evaluation gates and Wilson interval reporting.
 - Proposal hashes that bind assignments, evaluation, and catalog plans.
+- Relation-aware tuning, canary, and final-holdout leakage audits.
+- A verified, private, offline visual review workbench.
+- Destination-bound, allowlisted publication handoffs with human-only clearance.
 - Private-by-default run artifacts and a resumable checksum ledger.
 - A fully synthetic practice run.
 - Album and whole-library Apple Photos source profiles.

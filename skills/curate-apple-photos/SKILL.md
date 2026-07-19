@@ -61,7 +61,8 @@ python3 scripts/retrieve_candidates.py \
 3. Generate a local inspection plan with `photo_archive_bridge.py inspection-plan`.
 4. Run the stable permissioned helper with `photo_archive_bridge.py run-plan`. Network access must remain false. Export 1280px previews into the private run workspace; raw OCR is never written.
 5. Run `verify_preview_exports.py`. Corrupt, missing, over-permissioned, or
-   metadata-bearing previews block progress.
+   metadata-bearing previews block progress. Preserve its complete private
+   digest-bound index as the only preview input to the review workbench.
 6. Merge the inspection JSONL into the candidate CSV using `merge_inspection.py`.
 
 ## Select, look, evaluate, recurse
@@ -81,7 +82,9 @@ photo-fieldwork select \
    deterministic score-stratified sample from every view. For the first round,
    inspect at least 3 per view and at least 36 overall. Later rounds should
    normally inspect 60-100 images across low, middle, and high scores.
-3. Build contact sheets with `make_contact_sheets.py`. Use `view_image` to inspect every page. Open individual previews when context or safety is unclear.
+3. Build the private offline field with `photo-fieldwork review`, using the
+   exact sample, verified preview index, and preview root. Contact sheets remain
+   useful for comparison, but they do not replace the per-image review field.
 4. Speak briefly as the requested peers. If Jamie cannot review, role-play Jamie using the supplied brief and voice references, while marking the judgment as delegated editorial inference rather than eyewitness fact.
 5. Record `fit`, `reject`, or `uncertain`, one visible reason, a safety state, and an error category in the evaluation CSV.
 6. Run `photo-fieldwork evaluate`. Read all rejections and a stratified uncertainty sample.
@@ -94,6 +97,10 @@ photo-fieldwork select \
    - people and collective context remain meaningfully represented;
    - uncertainty is explicit;
    - the exact requested target is met with unique still-photo IDs.
+
+When maintaining a separate final holdout, run `audit_eval_split.py` before
+scoring it. Disjoint UUIDs are insufficient: duplicate, burst, event,
+perceptual, and inspection-digest relations must also stay outside the holdout.
 
 Do not claim success from Vision labels or metadata alone. The recursive loop requires actual preview inspection in the chat.
 
@@ -134,6 +141,9 @@ Return:
 - links to the run README, master manifest, evaluation report, app receipt, and independent verification.
 
 State clearly that this is an editor-ready field, not the final publication edit.
+Selection does not confer publication permission. A later publishing task must
+use the default-closed publication scaffold and obtain named human clearance
+for rights, consent, claims, safety, credit, and the exact destination.
 
 ## Maintain the contract
 

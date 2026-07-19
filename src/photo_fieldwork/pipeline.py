@@ -184,6 +184,7 @@ def evaluation_feedback_sha256(rows: Iterable[dict[str, str]]) -> str:
         "evaluation_note",
         "error_category",
         "round_id",
+        "reviewer_actor",
         "reviewer_lens",
         "sample_sha256",
         "inspection_path",
@@ -678,6 +679,7 @@ def make_sample(
             item["visible_reason"] = ""
             item["error_category"] = ""
             item["round_id"] = round_id
+            item["reviewer_actor"] = ""
             item["reviewer_lens"] = ""
             sample.append(item)
     sample_payload = [
