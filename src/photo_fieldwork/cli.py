@@ -6,8 +6,27 @@ import shutil
 import sys
 from pathlib import Path
 
-from .pipeline import build_catalog_plan, evaluate, make_sample, read_config, read_csv, select, validate, write_csv
+from .holdout import audit_holdout_split, read_manifest_rows
+from .pipeline import (
+    build_catalog_plan,
+    ensure_private_directory,
+    evaluate,
+    make_sample,
+    read_config,
+    read_csv,
+    select,
+    validate,
+    write_csv,
+    write_private_text,
+)
 from .practice import create_demo_inventory, practice_feedback, write_demo_readme
+from .publication import (
+    build_public_handoff,
+    read_publication_rows,
+    write_private_report,
+    write_public_package,
+)
+from .review import build_review_workbench, read_review_sample, serve_review
 
 
 def markdown_report(title: str, data: dict) -> str:
@@ -30,16 +49,22 @@ def command_select(args: argparse.Namespace) -> int:
     write_csv(output / "manifests" / "proposed-master.csv", master)
     write_csv(output / "manifests" / "hold-sensitive.csv", holds)
     reports = output / "reports"
-    reports.mkdir(parents=True, exist_ok=True)
-    (reports / "selection-summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
-    (reports / "selection-summary.md").write_text(markdown_report("Selection summary", summary), encoding="utf-8")
+    ensure_private_directory(reports)
+    write_private_text(reports / "selection-summary.json", json.dumps(summary, indent=2) + "\n")
+    write_private_text(reports / "selection-summary.md", markdown_report("Selection summary", summary))
     print(f"selected {len(master)}; held {len(holds)}; wrote {output}")
     return 0
 
 
 def command_sample(args: argparse.Namespace) -> int:
     master = read_csv(args.master)
-    sample = make_sample(master, args.per_view, args.seed)
+    config = read_config(args.config)
+    sample = make_sample(
+        master,
+        int(config["evaluation_sample_per_view"]),
+        int(config["seed"]),
+        args.round_id,
+    )
     write_csv(args.output, sample)
     print(f"wrote {len(sample)} evaluation rows to {args.output}")
     return 0
@@ -48,10 +73,11 @@ def command_sample(args: argparse.Namespace) -> int:
 def command_evaluate(args: argparse.Namespace) -> int:
     config = read_config(args.config)
     feedback = read_csv(args.feedback)
-    report, passed = evaluate(feedback, config)
-    args.output.mkdir(parents=True, exist_ok=True)
-    (args.output / "evaluation-report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-    (args.output / "evaluation-report.md").write_text(markdown_report("Evaluation report", report), encoding="utf-8")
+    master = read_csv(args.master)
+    report, passed = evaluate(feedback, config, master)
+    ensure_private_directory(args.output)
+    write_private_text(args.output / "evaluation-report.json", json.dumps(report, indent=2) + "\n")
+    write_private_text(args.output / "evaluation-report.md", markdown_report("Evaluation report", report))
     print(f"evaluation {'PASS' if passed else 'FAIL'}: precision={report['precision']}, coverage={report['coverage']}")
     return 0 if passed else 2
 
@@ -61,11 +87,11 @@ def command_validate(args: argparse.Namespace) -> int:
     master = read_csv(args.master)
     holds = read_csv(args.holds)
     errors, metrics = validate(master, holds, config)
-    args.output.mkdir(parents=True, exist_ok=True)
+    ensure_private_directory(args.output)
     report = dict(metrics)
     report["errors"] = errors
-    (args.output / "validation-report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-    (args.output / "validation-report.md").write_text(markdown_report("Validation report", report), encoding="utf-8")
+    write_private_text(args.output / "validation-report.json", json.dumps(report, indent=2) + "\n")
+    write_private_text(args.output / "validation-report.md", markdown_report("Validation report", report))
     print(f"validation {metrics['status']}")
     return 0 if not errors else 2
 
@@ -73,11 +99,72 @@ def command_validate(args: argparse.Namespace) -> int:
 def command_plan(args: argparse.Namespace) -> int:
     config = read_config(args.config)
     master = read_csv(args.master)
-    plan = build_catalog_plan(master, config, args.plan_id, args.source_title, args.source_identifier)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
+    holds = read_csv(args.holds)
+    feedback = read_csv(args.feedback)
+    evaluation_report = json.loads(args.evaluation_report.read_text(encoding="utf-8"))
+    validation_report = json.loads(args.validation_report.read_text(encoding="utf-8"))
+    plan = build_catalog_plan(
+        master,
+        holds,
+        config,
+        args.plan_id,
+        args.source_title,
+        args.source_identifier,
+        args.source_count,
+        args.source_sha256,
+        evaluation_report,
+        feedback,
+        validation_report,
+    )
+    write_private_text(args.output, json.dumps(plan, indent=2) + "\n")
     print(f"wrote membership-only catalog plan to {args.output}")
     return 0
+
+
+def command_audit_holdout(args: argparse.Namespace) -> int:
+    report = audit_holdout_split(
+        read_manifest_rows(args.tuning),
+        read_manifest_rows([args.holdout]),
+        read_manifest_rows(args.canary),
+        include_identifiers=args.include_identifiers,
+    )
+    write_private_text(args.output, json.dumps(report, indent=2) + "\n")
+    print(f"holdout audit {report['status']}: {args.output}")
+    return 0 if report["status"] == "PASS" else 2
+
+
+def command_build_review(args: argparse.Namespace) -> int:
+    report = build_review_workbench(read_review_sample(args.sample), args.previews, args.output)
+    print(
+        f"review workbench rows={report['rows']} available={report['available']} "
+        f"unavailable={report['unavailable']}: {args.output}"
+    )
+    return 0
+
+
+def command_serve_review(args: argparse.Namespace) -> int:
+    serve_review(args.directory, args.host, args.port)
+    return 0
+
+
+def command_public_handoff(args: argparse.Namespace) -> int:
+    if args.salt_file.is_symlink() or not args.salt_file.is_file():
+        raise ValueError("publication salt must be a regular private file")
+    if args.salt_file.stat().st_mode & 0o077:
+        raise ValueError("publication salt file permissions must be 0600 or stricter")
+    if args.output.resolve() == args.blocked_report.resolve():
+        raise ValueError("public package and private blocked report must use different paths")
+    salt = args.salt_file.read_text(encoding="utf-8").strip()
+    package, report = build_public_handoff(
+        read_publication_rows(args.input), salt, args.destination
+    )
+    write_public_package(args.output, package)
+    write_private_report(args.blocked_report, report)
+    print(
+        f"public handoff {report['status']}: exported={report['exported_rows']} "
+        f"blocked={len(report['blocked_rows'])} closed={report['closed_rows']}"
+    )
+    return 0 if report["status"] == "PASS" else 2
 
 
 def command_demo(args: argparse.Namespace) -> int:
@@ -86,21 +173,29 @@ def command_demo(args: argparse.Namespace) -> int:
     inventory = workspace / "inventory" / "practice.csv"
     config = workspace / "config.json"
     create_demo_inventory(inventory)
-    config.parent.mkdir(parents=True, exist_ok=True)
+    ensure_private_directory(config.parent)
     shutil.copy2(root / "config" / "starter.json", config)
+    config.chmod(0o600)
     write_demo_readme(workspace / "README.md")
     command_select(argparse.Namespace(config=config, inventory=inventory, output=workspace))
     sample_path = workspace / "manifests" / "eval-sample.csv"
     command_sample(
         argparse.Namespace(
             master=workspace / "manifests" / "proposed-master.csv",
+            config=config,
             output=sample_path,
-            per_view=3,
-            seed=20260710,
+            round_id="practice-round-01",
         )
     )
     practice_feedback(sample_path)
-    eval_code = command_evaluate(argparse.Namespace(config=config, feedback=sample_path, output=workspace / "reports"))
+    eval_code = command_evaluate(
+        argparse.Namespace(
+            config=config,
+            feedback=sample_path,
+            master=workspace / "manifests" / "proposed-master.csv",
+            output=workspace / "reports",
+        )
+    )
     validation_code = command_validate(
         argparse.Namespace(
             config=config,
@@ -113,9 +208,15 @@ def command_demo(args: argparse.Namespace) -> int:
         argparse.Namespace(
             config=config,
             master=workspace / "manifests" / "proposed-master.csv",
+            holds=workspace / "manifests" / "hold-sensitive.csv",
+            feedback=sample_path,
             plan_id="synthetic-practice-plan",
             source_title="Synthetic practice corpus",
             source_identifier="SYNTHETIC-ONLY",
+            source_count=30,
+            source_sha256="50ce7a9ce8269931cee4ed617a22fd1214f27fcde9aada68e23ae8a4b373af74",
+            evaluation_report=workspace / "reports" / "evaluation-report.json",
+            validation_report=workspace / "reports" / "validation-report.json",
             output=workspace / "manifests" / "catalog-plan.json",
         )
     )
@@ -139,13 +240,14 @@ def parser() -> argparse.ArgumentParser:
 
     sample = sub.add_parser("sample", help="make a score-stratified evaluation sample")
     sample.add_argument("--master", type=Path, required=True)
+    sample.add_argument("--config", type=Path, required=True)
     sample.add_argument("--output", type=Path, required=True)
-    sample.add_argument("--per-view", type=int, default=3)
-    sample.add_argument("--seed", type=int, default=20260710)
+    sample.add_argument("--round-id", default="round-01")
     sample.set_defaults(func=command_sample)
 
     evaluation = sub.add_parser("evaluate", help="measure labeled evaluation feedback")
     evaluation.add_argument("--feedback", type=Path, required=True)
+    evaluation.add_argument("--master", type=Path, required=True)
     evaluation.add_argument("--config", type=Path, required=True)
     evaluation.add_argument("--output", type=Path, required=True)
     evaluation.set_defaults(func=command_evaluate)
@@ -159,12 +261,46 @@ def parser() -> argparse.ArgumentParser:
 
     plan = sub.add_parser("plan", help="build an adapter-neutral, membership-only catalog plan")
     plan.add_argument("--master", type=Path, required=True)
+    plan.add_argument("--holds", type=Path, required=True)
+    plan.add_argument("--feedback", type=Path, required=True)
     plan.add_argument("--config", type=Path, required=True)
     plan.add_argument("--plan-id", required=True)
     plan.add_argument("--source-title", required=True)
     plan.add_argument("--source-identifier", required=True)
+    plan.add_argument("--source-count", type=int, required=True)
+    plan.add_argument("--source-sha256", required=True)
+    plan.add_argument("--evaluation-report", type=Path, required=True)
+    plan.add_argument("--validation-report", type=Path, required=True)
     plan.add_argument("--output", type=Path, required=True)
     plan.set_defaults(func=command_plan)
+
+    holdout = sub.add_parser("audit-holdout", help="audit tuning, canary, and holdout split leakage")
+    holdout.add_argument("--tuning", type=Path, action="append", required=True)
+    holdout.add_argument("--holdout", type=Path, required=True)
+    holdout.add_argument("--canary", type=Path, action="append", default=[])
+    holdout.add_argument("--output", type=Path, required=True)
+    holdout.add_argument("--include-identifiers", action="store_true")
+    holdout.set_defaults(func=command_audit_holdout)
+
+    review = sub.add_parser("build-review", help="build a private offline review workbench")
+    review.add_argument("--sample", type=Path, required=True)
+    review.add_argument("--previews", type=Path, required=True)
+    review.add_argument("--output", type=Path, required=True)
+    review.set_defaults(func=command_build_review)
+
+    serve = sub.add_parser("serve-review", help="serve a private review workbench on loopback")
+    serve.add_argument("--directory", type=Path, required=True)
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8765)
+    serve.set_defaults(func=command_serve_review)
+
+    handoff = sub.add_parser("public-handoff", help="build an allowlisted public package")
+    handoff.add_argument("--input", type=Path, required=True)
+    handoff.add_argument("--destination", required=True)
+    handoff.add_argument("--salt-file", type=Path, required=True)
+    handoff.add_argument("--output", type=Path, required=True)
+    handoff.add_argument("--blocked-report", type=Path, required=True)
+    handoff.set_defaults(func=command_public_handoff)
     return root
 
 

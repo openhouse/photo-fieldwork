@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {"asset": "PRIVATE-CORRESPONDENCE", "automated_state": "hold", "human_state": "unreviewed", "publication_state": "publication-review-required"},
+    {"asset": "OWNER-PROVENANCED-PRIVATE-HOME", "automated_state": "clear-automated", "human_state": "human-needs-review", "publication_state": "publication-review-required"},
+    {"asset": "PUBLIC-FLYER", "automated_state": "automatic-hold", "human_state": "unreviewed", "publication_state": "publication-review-required"}
+  ],
+  "invalid_authority": {
+    "actor_type": "role-play-panel",
+    "claimed_decision": "clear-and-publish",
+    "authorized_scope": []
+  }
+}

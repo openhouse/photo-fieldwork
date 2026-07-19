@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "synthetic_package": {
+    "local_path": "/private/example/Photos Library.photoslibrary",
+    "people_names": ["SYNTHETIC-PERSON"],
+    "gps": "40.0000,-73.0000",
+    "raw_ocr": "SYNTHETIC PRIVATE ADDRESS",
+    "receipt_identifier": "SYNTHETIC-ALBUM-ID",
+    "thumbnail": "synthetic-preview.jpg",
+    "small_cell_count": 1,
+    "publication_state": "album-approved"
+  },
+  "expected_public_package": {
+    "allowed": ["aggregate counts", "generalized methods", "synthetic examples"],
+    "publication_state": "publication-review-required"
+  }
+}

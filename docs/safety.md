@@ -7,6 +7,9 @@
 - Keep exact coordinates out of editor-facing manifests.
 - Store generalized safety flags, not detected private text.
 - Never publish archive manifests containing private local paths or named-person associations without review.
+- Create private run directories with mode `0700` and sensitive files with mode
+  `0600`.
+- Keep the completed machine profile outside git.
 
 ## Prohibited by default
 
@@ -23,6 +26,22 @@ Any item marked `safety_status=hold`, hidden, or missing is excluded before rank
 
 The HOLD set should be private and access-controlled. It is not an editor album and must not be exported casually.
 
+Use separate states for automated safety screening, human editor-field review,
+and publication review. `clear-automated` means only that the configured local
+detectors did not place the item in HOLD. It is never publication permission.
+
+Every selected row defaults to `publication-review-required`. Selection into a
+master or Photos album cannot change that state.
+
+## Public handoff contract
+
+Public export is destination-specific and allowlist-only. A cleared row needs
+positive rights, consent, claim, human safety, and editorial states plus an
+authorized reviewer, date, alt text, and credit. The exported package uses a
+salted opaque ID and omits source UUIDs, filenames, paths, People associations,
+coordinates, raw OCR, and private review actors. Claimed clearances with an
+unresolved gate fail closed into a private remediation report.
+
 ## Catalog adapter contract
 
 A production adapter must:
@@ -36,4 +55,3 @@ A production adapter must:
 7. Support independent read-only verification.
 
 If an adapter cannot meet all seven conditions, it is not production-ready.
-
