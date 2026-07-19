@@ -92,14 +92,17 @@ Do not claim success from Vision labels or metadata alone. The recursive loop re
 ## Validate and commit
 
 1. Run `photo-fieldwork validate`. Save a PASS report. Exact view quotas and the master membership digest must match.
-2. Generate test and production plans with `photo_archive_bridge.py snapshot-plans`.
-3. Inspect the plans. Confirm the source count, target count, folder title, HOLD separation, and that operations are membership-only.
-4. Run the ten-item write test through the app. Independently verify it with `verify_photos_commit.py`.
-5. Run the production plan through the app. Rerun it once to confirm idempotence.
-6. Independently verify every album against the plan using read-only, immutable SQLite access.
-7. Use `photo-fieldwork checkpoint` after every phase. A checkpoint records workspace-relative artifact paths and digests, revalidates the full completed chain before advancing, and refuses changed or missing evidence.
-8. Optionally generate a public-safe knowledge-bank note with `photo-fieldwork evidence-handoff`. Never include asset IDs, people, paths, coordinates, raw OCR, or publication approval in that handoff.
-9. Write a completion report containing exact counts, identifiers, evaluation results, privacy facts, and unresolved uncertainty.
+2. Before any human clearance changes, freeze the post-inspection safety manifest as the pre-clearance baseline. Record material editorial and safety decisions with `photo-fieldwork record-decision`. The JSONL ledger is append-only and hash-chained; every event `run_id` must equal the catalog plan `plan_id`. A `safety-cleared` event must identify the asset and exact previous and new states, and only an identified human may record it. An editor-field run must not record publication approval.
+3. Reserve a final holdout that was not used for tuning or canaries. Run `photo-fieldwork audit-holdout`; UUID, duplicate, perceptual, and burst-cluster overlap must all be zero.
+4. Run `photo-fieldwork release-audit --holdout FINAL-HOLDOUT --safety-baseline PRE-CLEARANCE-SAFETY [--canary CANARY ...]`. It recomputes evaluation, validation, and split contamination from the current tuning, final-holdout, and canary manifests; verifies the catalog plan, run-bound decision chain, and any asset-specific safety-clearance transitions; and binds the exact config, feedback, safety baseline, master membership, master assignments, HOLD, source, and reports into `release-seal.json`. A PASS seal authorizes only an editor-field handoff; `publication_clearance` remains false, and a publication-approval event is invalid in this release class.
+5. Generate test and production plans with `photo_archive_bridge.py snapshot-plans --config RUN/config.json --catalog-plan RUN/manifests/catalog-plan.json --release-seal RUN/manifests/release-seal.json`. The bridge must reject drift before producing either plan. Snapshot-plan schema 3 is required and is sealed to `primary_view`; rebuild the permissioned helper before any write.
+6. Inspect the plans. Confirm the source count, target count, folder title, HOLD separation, membership-only operation, and release identity.
+7. Run the ten-item write test through the app. Independently verify it with `verify_photos_commit.py --release-seal RUN/manifests/release-seal.json`; retain both Markdown and `--json-report` receipts.
+8. Run the production plan through the app. Rerun it once to confirm idempotence.
+9. Independently verify every album and the carried release identity against the plan using read-only, immutable SQLite access.
+10. Use `photo-fieldwork checkpoint` after every phase, including `release_audit` before `write_test`. A checkpoint records workspace-relative artifact paths and digests, revalidates the full completed chain before advancing, and refuses changed or missing evidence. Run-state schema 3 is required; start a new run rather than silently upgrading an older state.
+11. Optionally generate a public-safe knowledge-bank note with `photo-fieldwork evidence-handoff`. Never include asset IDs, people, paths, coordinates, raw OCR, or publication approval in that handoff.
+12. Write a completion report containing exact counts, identifiers, evaluation results, privacy facts, and unresolved uncertainty.
 
 The helper invocation may require a Codex permission approval for `open -W`; request a reusable approval scoped to the permissioned app path in the private local profile. The app's Photos permission itself should persist under its stable bundle identity.
 

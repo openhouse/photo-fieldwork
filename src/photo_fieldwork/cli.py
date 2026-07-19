@@ -9,6 +9,13 @@ from collections import Counter
 from pathlib import Path
 
 from .handoff import render_handoff
+from .governance import (
+    append_decision_event,
+    audit_evaluation_split,
+    build_release_seal,
+    read_decision_events,
+    seal_decision_event,
+)
 from .integrity import base_identifier, membership_sha256
 from .pipeline import (
     build_catalog_plan,
@@ -47,6 +54,17 @@ def read_id_column(path: Path, column: str) -> list[str]:
     if not values:
         raise ValueError(f"no identifiers found in {path}")
     return values
+
+
+def read_manifest(path: Path, allow_empty: bool = False) -> list[dict[str, str]]:
+    with path.open(newline="", encoding="utf-8-sig") as handle:
+        reader = csv.DictReader(handle)
+        if "uuid" not in (reader.fieldnames or []):
+            raise ValueError(f"manifest requires a uuid column: {path}")
+        rows = list(reader)
+    if not rows and not allow_empty:
+        raise ValueError(f"manifest must not be empty: {path}")
+    return rows
 
 
 def command_select(args: argparse.Namespace) -> int:
@@ -239,6 +257,49 @@ def command_review_pack(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_record_decision(args: argparse.Namespace) -> int:
+    event = json.loads(args.event.read_text(encoding="utf-8"))
+    sealed = append_decision_event(args.ledger, event)
+    print(json.dumps({
+        "event_id": sealed["event_id"],
+        "event_sha256": sealed["event_sha256"],
+        "ledger": str(args.ledger),
+    }, indent=2))
+    return 0
+
+
+def command_audit_holdout(args: argparse.Namespace) -> int:
+    tuning = [row for path in args.tuning for row in read_manifest(path, allow_empty=True)]
+    holdout = read_manifest(args.holdout)
+    canaries = [row for path in args.canary for row in read_manifest(path, allow_empty=True)]
+    report = audit_evaluation_split(tuning, holdout, canaries)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    print(f"holdout audit {report['status']}: problems={len(report['problems'])}")
+    return 0 if report["status"] == "PASS" else 2
+
+
+def command_release_audit(args: argparse.Namespace) -> int:
+    holdout = read_manifest(args.holdout)
+    canaries = [row for path in args.canary for row in read_manifest(path, allow_empty=True)]
+    seal = build_release_seal(
+        config=read_config(args.config),
+        master=read_csv(args.master),
+        holds=read_csv(args.holds),
+        feedback=read_csv(args.feedback),
+        holdout=holdout,
+        canaries=canaries,
+        safety_baseline=read_csv(args.safety_baseline),
+        catalog_plan=json.loads(args.plan.read_text(encoding="utf-8")),
+        decision_events=read_decision_events(args.decision_ledger),
+        holdout_report=json.loads(args.holdout_report.read_text(encoding="utf-8")),
+    )
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(seal, indent=2) + "\n", encoding="utf-8")
+    print(f"release audit PASS: candidate={seal['candidate_sha256']}")
+    return 0
+
+
 def command_demo(args: argparse.Namespace) -> int:
     root = Path(__file__).resolve().parents[2]
     workspace = args.workspace.resolve()
@@ -280,6 +341,48 @@ def command_demo(args: argparse.Namespace) -> int:
             output=workspace / "manifests" / "catalog-plan.json",
         )
     )
+    master = read_csv(workspace / "manifests" / "proposed-master.csv")
+    holds = read_csv(workspace / "manifests" / "hold-sensitive.csv")
+    feedback = read_csv(sample_path)
+    decision_event = seal_decision_event({
+        "schema_version": 1,
+        "event_id": "synthetic-practice-editorial-review",
+        "occurred_at": "2026-07-19T00:00:00+00:00",
+        "run_id": "synthetic-practice-plan",
+        "event_type": "editorial-assignment",
+        "actor_id": "synthetic-editor",
+        "actor_kind": "human",
+        "authority_scope": "editorial",
+        "reason": "Synthetic practice feedback passed the declared editor-field criteria.",
+    }, "")
+    decision_path = workspace / "manifests" / "decision-events.jsonl"
+    decision_path.write_text(json.dumps(decision_event, sort_keys=True) + "\n", encoding="utf-8")
+    holdout_report = audit_evaluation_split(
+        feedback,
+        [{"uuid": "SYNTHETIC-HOLDOUT-001"}],
+        [],
+    )
+    holdout_rows = [{"uuid": "SYNTHETIC-HOLDOUT-001"}]
+    holdout_path = workspace / "reports" / "holdout-audit.json"
+    holdout_path.write_text(json.dumps(holdout_report, indent=2) + "\n", encoding="utf-8")
+    catalog_plan = json.loads(
+        (workspace / "manifests" / "catalog-plan.json").read_text(encoding="utf-8")
+    )
+    release_seal = build_release_seal(
+        config=read_config(config),
+        master=master,
+        holds=holds,
+        feedback=feedback,
+        holdout=holdout_rows,
+        canaries=[],
+        safety_baseline=read_csv(inventory),
+        catalog_plan=catalog_plan,
+        decision_events=[decision_event],
+        holdout_report=holdout_report,
+    )
+    release_path = workspace / "manifests" / "release-seal.json"
+    release_path.write_text(json.dumps(release_seal, indent=2) + "\n", encoding="utf-8")
+    print(f"release audit PASS: candidate={release_seal['candidate_sha256']}")
     print(f"practice workspace ready: {workspace}")
     return max(eval_code, validation_code)
 
@@ -376,6 +479,32 @@ def parser() -> argparse.ArgumentParser:
     review.add_argument("--reviewer-lens", required=True)
     review.add_argument("--output", type=Path, required=True)
     review.set_defaults(func=command_review_pack)
+
+    decision = sub.add_parser("record-decision", help="append one hash-chained decision event")
+    decision.add_argument("--ledger", type=Path, required=True)
+    decision.add_argument("--event", type=Path, required=True)
+    decision.set_defaults(func=command_record_decision)
+
+    holdout = sub.add_parser("audit-holdout", help="audit tuning, canary, and final holdout separation")
+    holdout.add_argument("--tuning", type=Path, action="append", default=[])
+    holdout.add_argument("--holdout", type=Path, required=True)
+    holdout.add_argument("--canary", type=Path, action="append", default=[])
+    holdout.add_argument("--output", type=Path, required=True)
+    holdout.set_defaults(func=command_audit_holdout)
+
+    release = sub.add_parser("release-audit", help="recompute and seal one editor-field release candidate")
+    release.add_argument("--config", type=Path, required=True)
+    release.add_argument("--master", type=Path, required=True)
+    release.add_argument("--holds", type=Path, required=True)
+    release.add_argument("--feedback", type=Path, required=True)
+    release.add_argument("--holdout", type=Path, required=True)
+    release.add_argument("--canary", type=Path, action="append", default=[])
+    release.add_argument("--safety-baseline", type=Path, required=True)
+    release.add_argument("--plan", type=Path, required=True)
+    release.add_argument("--decision-ledger", type=Path, required=True)
+    release.add_argument("--holdout-report", type=Path, required=True)
+    release.add_argument("--output", type=Path, required=True)
+    release.set_defaults(func=command_release_audit)
     return root
 
 

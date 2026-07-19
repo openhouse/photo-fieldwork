@@ -9,8 +9,8 @@ test:
 evals:
 	PYTHONPATH=src python3 scripts/run_evals.py \
 		--suite evals/system-evals.json \
-		--max-depth 5 \
-		--output build/evals/revision-D.json
+		--max-depth 16 \
+		--output build/evals/composite-D.json
 
 privacy-check:
 	python3 scripts/check_public_repo.py

@@ -45,7 +45,9 @@ Keep the wide source album and every earlier version unchanged.
 
 ## Reusable permission helper
 
-For repeated local work, a small signed macOS application with a stable bundle identifier can request Photos permission once and execute reviewed album-membership plans. Renaming or changing the bundle identifier creates a new permission identity. The helper must display the plan ID, plan SHA-256, source count, intended mutations, and final receipt. The receipt must echo the exact plan digest consumed.
+For repeated local work, a small signed macOS application with a stable bundle identifier can request Photos permission once and execute reviewed album-membership plans. Renaming or changing the bundle identifier creates a new permission identity. The helper must display the plan ID, plan SHA-256, editor-field release identity, source count, intended mutations, and final receipt. The receipt must echo the exact plan digest, release candidate, release seal, catalog plan, and master-assignment digests consumed. It must also retain completion time and exact folder and album identifiers; matching counts without those fields are not verification evidence.
+
+Generate writer plans only after `release-audit` passes. `snapshot-plans` independently checks the current config, master, HOLD, source snapshot, catalog plan, and release seal before creating test or production plans. View albums are always derived from the sealed `primary_view` field; alternate assignment columns are rejected. Release-bound writes require snapshot-plan schema 3 so a pre-composite helper rejects the plan before requesting authorization or changing Photos. A rebuilt helper must be reviewed, typechecked, installed deliberately, and granted Photos access under its own stable identity before production use.
 
 ## Verification
 
@@ -59,4 +61,7 @@ After writing, compare planned and actual memberships through an independent rea
 - source count unchanged;
 - source membership SHA-256 unchanged;
 - every album membership SHA-256 matches the plan;
-- the receipt is bound to the exact plan SHA-256.
+- the receipt is bound to the exact plan SHA-256;
+- the plan and receipt carry the same release candidate, release seal, catalog plan, and master-assignment digests;
+- the supplied release seal matches those identities and grants no publication clearance;
+- a structured read-only verification receipt reports zero missing, unexpected, and outside-source memberships.

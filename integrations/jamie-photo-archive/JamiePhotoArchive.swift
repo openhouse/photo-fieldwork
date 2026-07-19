@@ -82,6 +82,10 @@ struct SnapshotPlan: Codable {
     let source_album_identifier: String
     let expected_source_count: Int
     let source_membership_sha256: String
+    let release_candidate_sha256: String
+    let release_seal_sha256: String
+    let catalog_plan_sha256: String
+    let master_assignment_sha256: String
     let publication_approval_default: String
     let batch_size: Int
     let log_path: String
@@ -168,6 +172,10 @@ struct SnapshotReceipt: Codable {
     let source_album_identifier: String
     let source_count: Int
     let source_membership_sha256: String
+    let release_candidate_sha256: String
+    let release_seal_sha256: String
+    let catalog_plan_sha256: String
+    let master_assignment_sha256: String
     let safety_mode: String
     let folders: [FolderReceipt]
     let albums: [AlbumReceipt]
@@ -584,7 +592,7 @@ final class ArchiveRunner {
     }
 
     func run() throws -> SnapshotReceipt {
-        guard plan.schema_version == 2 else {
+        guard plan.schema_version == 3 else {
             throw ArchiveError.invalidPlan("unsupported schema_version")
         }
         guard plan.safety_mode == "create-folders-albums-and-add-membership-only" else {
@@ -592,6 +600,14 @@ final class ArchiveRunner {
         }
         guard plan.plan_sha256.count == 64 else {
             throw ArchiveError.invalidPlan("plan SHA-256 is missing or malformed")
+        }
+        guard [
+            plan.release_candidate_sha256,
+            plan.release_seal_sha256,
+            plan.catalog_plan_sha256,
+            plan.master_assignment_sha256,
+        ].allSatisfy({ $0.count == 64 }) else {
+            throw ArchiveError.invalidPlan("release binding is missing or malformed")
         }
         guard plan.publication_approval_default == "not-approved" else {
             throw ArchiveError.invalidPlan("catalog plan cannot grant publication approval")
@@ -666,6 +682,10 @@ final class ArchiveRunner {
             source_album_identifier: plan.source_album_identifier,
             source_count: sourceCount,
             source_membership_sha256: sourceAfterDigest,
+            release_candidate_sha256: plan.release_candidate_sha256,
+            release_seal_sha256: plan.release_seal_sha256,
+            catalog_plan_sha256: plan.catalog_plan_sha256,
+            master_assignment_sha256: plan.master_assignment_sha256,
             safety_mode: plan.safety_mode,
             folders: folderReceipts,
             albums: albumReceipts

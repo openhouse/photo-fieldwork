@@ -40,24 +40,32 @@ People associations are first-class archive structure. Preserve named relationsh
 
 Sample low, middle, and high-scoring images from each view. Measure coverage and precision with denominators and small-sample warnings. Keep category fit, safety, public suitability, and provenance separate. Read the rejected examples, apply them as hard negatives, revise retrieval, scoring, holds, or labels, then rerun with the same seed. A metric without inspected failure cases is not enough.
 
-## 9. Plan before writing
+## 9. Record decisions and reserve a holdout
 
-Produce proposed-master, hold, membership, and decision manifests before touching the catalog. Every selected stable ID needs a reason. Bind the plan to source, master, and per-album membership digests. The plan must be idempotent.
+Freeze the post-inspection, pre-clearance safety manifest before changing any safety state. Store material evaluation, editorial, safety, and publication-review decisions as hash-chained events whose `run_id` equals the catalog plan `plan_id`. A ledger preserves who decided what, under which authority, and why; it does not turn automation into an editor. A safety clearance must identify the exact asset and transition from its frozen baseline state to `clear`. Safety clearance and publication approval remain human-only events.
 
-## 10. Commit narrowly
+Keep a final holdout outside tuning samples and regression canaries. Audit both canonical UUID overlap and shared duplicate, perceptual, or burst clusters. Report only counts and digests so the audit artifact is safe to inspect without exposing private identifiers.
 
-Write ten non-sensitive items to a uniquely named test album. Verify exact membership and rerun the test to prove idempotence. Only then create production folders and albums in moderate, resumable batches.
+## 10. Plan and seal before writing
 
-## 11. Verify independently
+Produce proposed-master, hold, membership, and decision manifests before touching the catalog. Every selected stable ID needs a reason. Bind the plan to source, master membership, exact view and safety assignments, and per-album membership digests. The plan must be idempotent.
 
-Use a read-only mechanism distinct from the writer to compare planned and actual membership. Recompute source and destination digests. Report missing, unexpected, outside-source, and hold-overlap counts. Preserve receipts, configuration, scripts, and evaluation feedback with the version.
+Recompute evaluation and validation from the candidate inputs. Verify the run-bound decision chain, reconcile human safety clearances against the frozen pre-clearance baseline, recompute the holdout audit, and verify the catalog plan before creating a deterministic editor-field release seal. The seal identifies exactly what passed. It is not a cryptographic signature, a rights clearance, or publication approval.
 
-## 12. Hand off honestly
+## 11. Commit narrowly
+
+Generate Apple Photos plans only from the still-matching config, catalog plan, master, HOLD, source snapshot, and release seal. Write ten non-sensitive items to a uniquely named test album. Verify exact membership and rerun the test to prove idempotence. Only then create production folders and albums in moderate, resumable batches.
+
+## 12. Verify independently
+
+Use a read-only mechanism distinct from the writer to compare planned and actual membership. Recompute source and destination digests. Require the plan, writer receipt, supplied release seal, and verifier receipt to agree on the release candidate, release seal, catalog plan, and master-assignment digests. Report missing, unexpected, outside-source, and hold-overlap counts. Preserve receipts, configuration, scripts, decision history, and evaluation feedback with the version.
+
+## 13. Hand off honestly
 
 Tell editors what the system did and did not do. The result is a contact field for human editing, not the final visual narrative.
 
-## 13. Checkpoint and project carefully
+## 14. Checkpoint and project carefully
 
 Checkpoint every completed phase with artifact digests so the run can resume without trusting ambient state. Keep the private editor handoff separate from any public-safe visual corroboration note. Neither one makes an image publication-approved by default.
 
-Revision D checkpoints store a workspace-relative path, byte size, and SHA-256 for every artifact, and revalidate the complete prior chain before advancing. Older receipts without a path cannot be revalidated and therefore fail closed. Start a new run, or migrate only after independently locating and verifying every recorded artifact; never infer a legacy artifact from its filename alone.
+Revision D checkpoints store a workspace-relative path, byte size, and SHA-256 for every artifact, and revalidate the complete prior chain before advancing. Run-state schema 3 adds a required `release_audit` phase before `write_test`. Older states and receipts cannot satisfy the strengthened chain implicitly and therefore fail closed. Start a new run, or migrate only after independently locating and verifying every recorded artifact; never infer a legacy artifact from its filename alone.

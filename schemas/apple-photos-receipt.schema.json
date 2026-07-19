@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Photo Fieldwork Apple Photos writer receipt",
   "type": "object",
-  "required": ["completed_at", "plan_id", "plan_sha256", "source_album_identifier", "source_count", "source_membership_sha256"],
+  "required": ["completed_at", "plan_id", "plan_sha256", "source_album_identifier", "source_count", "source_membership_sha256", "release_candidate_sha256", "release_seal_sha256", "catalog_plan_sha256", "master_assignment_sha256", "safety_mode", "folders", "albums"],
   "properties": {
     "completed_at": {"type": "string"},
     "plan_id": {"type": "string"},
@@ -10,6 +10,39 @@
     "source_album_identifier": {"type": "string"},
     "source_count": {"type": "integer", "minimum": 1},
     "source_membership_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
-    "external_uploads_performed": {"const": false}
-  }
+    "release_candidate_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "release_seal_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "catalog_plan_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "master_assignment_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "safety_mode": {"const": "create-folders-albums-and-add-membership-only"},
+    "folders": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["key", "title", "identifier"],
+        "properties": {
+          "key": {"type": "string", "minLength": 1},
+          "title": {"type": "string", "minLength": 1},
+          "identifier": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": false
+      }
+    },
+    "albums": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["title", "identifier", "count"],
+        "properties": {
+          "title": {"type": "string", "minLength": 1},
+          "identifier": {"type": "string", "minLength": 1},
+          "count": {"type": "integer", "minimum": 1}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
 }

@@ -10,7 +10,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Iterable
 
-from .integrity import attach_plan_digest, base_identifier, membership_sha256
+from .integrity import assignment_sha256, attach_plan_digest, base_identifier, membership_sha256
 
 
 def read_config(path: Path) -> dict:
@@ -682,6 +682,7 @@ def build_catalog_plan(
         },
         "expected_master_count": len(master),
         "master_membership_sha256": membership_sha256(row["uuid"] for row in master),
+        "master_assignment_sha256": assignment_sha256(master),
         "write_test_count": min(10, len(master)),
         "publication_approval_default": "not-approved",
         "albums": albums,

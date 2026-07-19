@@ -27,11 +27,17 @@ Revision D turns lessons from a private whole-library production run into reusab
 - canonical UUID validation across master, HOLD, and feedback boundaries;
 - full checkpoint-chain revalidation before phase advancement;
 - exact inspection-shard membership, source identity, and receipt reconciliation;
-- synthetic GitHub Actions enforcement through `make check`.
+- synthetic GitHub Actions enforcement through `make check`;
+- hash-chained decision events with scoped authority and human-only safety clearance;
+- final holdout audits for canonical UUID and duplicate/perceptual/burst cluster contamination;
+- recomputed editor-field release seals bound to config, feedback, master membership, assignments, HOLD, source, plans, and reports;
+- release identity carried through Apple Photos plans, writer receipts, and structured independent-verifier receipts;
+- a required run-state schema 3 `release_audit` checkpoint before any write test;
+- a recursively expanded 65,883-variant executable frontier, including coordinated drift, holdout acceptance, cluster-alias, split-structure drift, release-authority, cross-run ledger, and missing-safety-clearance failures that strengthened assignment and audit binding.
 
 ## Preserved boundaries
 
-The revision does not add cloud analysis, face identification, sensitive-trait inference, direct Photos database writes, automated publication approval, aesthetic ranking across unrelated photographs, or project claims inferred from pixels alone.
+The revision does not add cloud analysis, face identification, sensitive-trait inference, direct Photos database writes, automated safety clearance or publication approval, aesthetic ranking across unrelated photographs, or project claims inferred from pixels alone. A release seal is a deterministic content binding, not a cryptographic signature, rights clearance, or permission to publish.
 
 ## Later work
 

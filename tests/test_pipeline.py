@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from photo_fieldwork.integrity import membership_sha256, verify_plan_digest
+from photo_fieldwork.integrity import assignment_sha256, membership_sha256, verify_plan_digest
 from photo_fieldwork.pipeline import build_catalog_plan, evaluate, evaluation_sample_sha256, make_sample, read_config, read_csv, select, stable_noise, validate
 from photo_fieldwork.practice import create_demo_inventory
 
@@ -94,6 +94,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(len(plan["albums"][0]["asset_ids"]), 12)
         self.assertEqual(plan["schema_version"], 2)
         self.assertEqual(plan["source"]["membership_sha256"], membership_sha256(source))
+        self.assertEqual(plan["master_assignment_sha256"], assignment_sha256(master))
         verify_plan_digest(plan)
         plan["plan_id"] = "tampered"
         with self.assertRaisesRegex(ValueError, "digest mismatch"):

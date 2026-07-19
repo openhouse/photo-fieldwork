@@ -19,6 +19,17 @@ from pathlib import Path
 
 
 DEFAULT_PROFILE = Path(os.environ.get("PHOTO_FIELDWORK_PROFILE", ".photo-fieldwork.local.json"))
+RELEASE_BINDING_KEYS = {
+    "config_sha256", "master_sha256", "master_assignment_sha256",
+    "master_membership_sha256", "hold_membership_sha256", "feedback_sha256",
+    "evaluation_report_sha256", "validation_report_sha256", "catalog_plan_sha256",
+    "decision_ledger_sha256", "holdout_report_sha256", "source_membership_sha256",
+    "safety_baseline_sha256",
+}
+RELEASE_GATE_KEYS = {
+    "evaluation_recomputed", "validation_recomputed", "decision_chain",
+    "holdout_independence", "catalog_plan_integrity",
+}
 
 
 def dump_json(path: Path, value: object) -> None:
@@ -51,6 +62,49 @@ def membership_sha256(values: list[str]) -> str:
     return digest.hexdigest()
 
 
+def assignment_sha256(rows: list[dict[str, str]]) -> str:
+    values = []
+    seen = set()
+    for row in rows:
+        identifier = base_identifier(str(row.get("uuid") or ""))
+        if not identifier or identifier in seen:
+            raise ValueError("master assignments require unique canonical UUIDs")
+        seen.add(identifier)
+        values.append({
+            "uuid": identifier,
+            "primary_view": str(row.get("primary_view") or "").strip(),
+            "safety_status": str(row.get("safety_status") or "").strip().lower(),
+        })
+    return hashlib.sha256(json.dumps(
+        sorted(values, key=lambda item: item["uuid"]),
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")).hexdigest()
+
+
+def manifest_fingerprint(rows: list[dict[str, str]]) -> str:
+    values = []
+    seen = set()
+    for row in rows:
+        identifier = base_identifier(str(row.get("uuid") or ""))
+        if not identifier or identifier in seen:
+            raise ValueError("master manifest requires unique canonical UUIDs")
+        seen.add(identifier)
+        values.append({
+            "uuid": identifier,
+            "primary_view": str(row.get("primary_view") or "").strip(),
+            "safety_status": str(row.get("safety_status") or "").strip().lower(),
+            "publication_status": str(row.get("publication_status") or "not-approved").strip().lower(),
+        })
+    return hashlib.sha256(json.dumps(
+        sorted(values, key=lambda item: item["uuid"]),
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")).hexdigest()
+
+
 def canonical_json_sha256(value: dict) -> str:
     payload = {key: item for key, item in value.items() if key != "plan_sha256"}
     encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
@@ -66,6 +120,143 @@ def verify_plan_digest(plan: dict) -> None:
     expected = plan.get("plan_sha256")
     if not expected or expected != canonical_json_sha256(plan):
         raise ValueError("plan digest is missing or does not match its contents")
+
+
+def verify_release_binding(
+    seal: dict,
+    catalog_plan: dict,
+    config: dict,
+    master_rows: list[dict[str, str]],
+    hold_rows: list[dict[str, str]],
+    source: dict,
+) -> dict:
+    payload = {key: value for key, value in seal.items() if key != "release_seal_sha256"}
+    bindings = seal.get("bindings") or {}
+    gates = seal.get("gates") or {}
+    if (
+        seal.get("schema_version") != 1
+        or seal.get("status") != "PASS"
+        or seal.get("release_class") != "editor-field"
+        or seal.get("publication_clearance") is not False
+        or set(gates) != RELEASE_GATE_KEYS
+        or any(value != "PASS" for value in gates.values())
+        or set(bindings) != RELEASE_BINDING_KEYS
+        or any(
+            not isinstance(value, str)
+            or len(value) != 64
+            or any(character not in "0123456789abcdef" for character in value)
+            for value in bindings.values()
+        )
+    ):
+        raise ValueError("release seal does not represent a closed, passing editor-field candidate")
+    if seal.get("candidate_sha256") != canonical_json_sha256(bindings):
+        raise ValueError("release candidate digest does not match its bindings")
+    if seal.get("release_seal_sha256") != hashlib.sha256(json.dumps(
+        payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")).hexdigest():
+        raise ValueError("release seal digest does not match its contents")
+    verify_plan_digest(catalog_plan)
+    expected = {
+        "config_sha256": hashlib.sha256(json.dumps(
+            config,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")).hexdigest(),
+        "master_sha256": manifest_fingerprint(master_rows),
+        "master_membership_sha256": membership_sha256([row["uuid"] for row in master_rows]),
+        "master_assignment_sha256": assignment_sha256(master_rows),
+        "hold_membership_sha256": membership_sha256([row["uuid"] for row in hold_rows]),
+        "catalog_plan_sha256": catalog_plan.get("plan_sha256"),
+        "source_membership_sha256": source["membership_sha256"],
+    }
+    mismatches = [key for key, value in expected.items() if bindings.get(key) != value]
+    if mismatches:
+        raise ValueError(f"release seal binding mismatch: {', '.join(mismatches)}")
+    if (
+        catalog_plan.get("master_membership_sha256") != expected["master_membership_sha256"]
+        or catalog_plan.get("master_assignment_sha256") != expected["master_assignment_sha256"]
+        or (catalog_plan.get("source") or {}).get("membership_sha256") != source["membership_sha256"]
+        or (catalog_plan.get("source") or {}).get("count") != source["count"]
+    ):
+        raise ValueError("catalog plan does not match the sealed source and master")
+    return {
+        "release_candidate_sha256": seal["candidate_sha256"],
+        "release_seal_sha256": seal["release_seal_sha256"],
+        "catalog_plan_sha256": catalog_plan["plan_sha256"],
+        "master_assignment_sha256": expected["master_assignment_sha256"],
+    }
+
+
+def verify_writer_receipt(plan: dict, receipt: dict) -> None:
+    allowed_fields = {
+        "completed_at", "plan_id", "plan_sha256", "source_album_identifier",
+        "source_count", "source_membership_sha256", "release_candidate_sha256",
+        "release_seal_sha256", "catalog_plan_sha256", "master_assignment_sha256",
+        "safety_mode", "folders", "albums",
+    }
+    expected_fields = (
+        "plan_id",
+        "plan_sha256",
+        "safety_mode",
+        "source_album_identifier",
+        "source_membership_sha256",
+        "release_candidate_sha256",
+        "release_seal_sha256",
+        "catalog_plan_sha256",
+        "master_assignment_sha256",
+    )
+    mismatches = [field for field in expected_fields if receipt.get(field) != plan.get(field)]
+    if set(receipt) != allowed_fields:
+        mismatches.append("receipt_fields")
+    if not isinstance(receipt.get("completed_at"), str) or not receipt["completed_at"].strip():
+        mismatches.append("completed_at")
+    folders = receipt.get("folders")
+    valid_folders = (
+        isinstance(folders, list)
+        and bool(folders)
+        and all(
+            isinstance(item, dict)
+            and set(item) == {"key", "title", "identifier"}
+            and all(isinstance(item.get(key), str) and bool(item[key].strip()) for key in ("key", "title", "identifier"))
+            for item in folders
+        )
+    )
+    expected_folders = {item["key"]: item["title"] for item in plan.get("folders", [])}
+    received_folders = {item["key"]: item["title"] for item in folders} if valid_folders else {}
+    if (
+        not valid_folders
+        or len(received_folders) != len(folders)
+        or expected_folders != received_folders
+    ):
+        mismatches.append("folders")
+    if receipt.get("source_count") != plan.get("expected_source_count"):
+        mismatches.append("source_count")
+    expected_albums = {item["title"]: len(item["asset_identifiers"]) for item in plan.get("albums", [])}
+    albums = receipt.get("albums")
+    valid_albums = (
+        isinstance(albums, list)
+        and bool(albums)
+        and all(
+            isinstance(item, dict)
+            and set(item) == {"title", "identifier", "count"}
+            and isinstance(item.get("title"), str)
+            and bool(item["title"].strip())
+            and isinstance(item.get("identifier"), str)
+            and bool(item["identifier"].strip())
+            and isinstance(item.get("count"), int)
+            and item["count"] >= 1
+            for item in albums
+        )
+    )
+    received_albums = {item["title"]: item["count"] for item in albums} if valid_albums else {}
+    if not valid_albums or len(received_albums) != len(albums) or expected_albums != received_albums:
+        mismatches.append("albums")
+    if mismatches:
+        raise ValueError(f"writer receipt does not match plan: {', '.join(mismatches)}")
 
 
 def inventory_source(profile: dict) -> dict:
@@ -408,12 +599,13 @@ def snapshot_plan(
 ) -> dict:
     plan = {
         "operation": "snapshot-membership",
-        "schema_version": 2,
+        "schema_version": 3,
         "plan_id": plan_id,
         "safety_mode": "create-folders-albums-and-add-membership-only",
         "source_album_identifier": source["identifier"],
         "expected_source_count": source["count"],
         "source_membership_sha256": source["membership_sha256"],
+        **args.release_binding,
         "publication_approval_default": "not-approved",
         "batch_size": args.batch_size,
         "log_path": str(args.workspace / "logs" / "jamie-photo-archive-app.log"),
@@ -425,10 +617,23 @@ def snapshot_plan(
 
 
 def command_snapshot_plans(args: argparse.Namespace) -> int:
+    if getattr(args, "view_column", "primary_view") != "primary_view":
+        raise ValueError("snapshot plans are sealed to the primary_view assignment field")
     profile = read_profile(args.profile)
     source = inventory_source(profile)
     master_rows = read_csv(args.master)
     hold_rows = read_csv(args.holds)
+    config = json.loads(args.config.read_text(encoding="utf-8"))
+    catalog_plan = json.loads(args.catalog_plan.read_text(encoding="utf-8"))
+    release_seal = json.loads(args.release_seal.read_text(encoding="utf-8"))
+    args.release_binding = verify_release_binding(
+        release_seal,
+        catalog_plan,
+        config,
+        master_rows,
+        hold_rows,
+        source,
+    )
     master_ids = [base_identifier(row["uuid"]) for row in master_rows]
     hold_ids = [base_identifier(row["uuid"]) for row in hold_rows]
     if len(master_ids) != args.target or len(set(master_ids)) != args.target:
@@ -441,11 +646,9 @@ def command_snapshot_plans(args: argparse.Namespace) -> int:
 
     by_view: dict[str, list[str]] = {}
     view_labels = {}
-    if args.config:
-        config = json.loads(args.config.read_text(encoding="utf-8"))
-        view_labels = {str(view["id"]): str(view["label"]) for view in config.get("views", [])}
+    view_labels = {str(view["id"]): str(view["label"]) for view in config.get("views", [])}
     for row in master_rows:
-        view = row.get(args.view_column, "").strip() or "00"
+        view = row.get("primary_view", "").strip() or "00"
         by_view.setdefault(view, []).append(base_identifier(row["uuid"]))
     named = [base_identifier(row["uuid"]) for row in master_rows if row.get("persons", "").strip()]
     uncertain = [
@@ -525,8 +728,7 @@ def command_run_plan(args: argparse.Namespace) -> int:
     if before is not None and before == after:
         raise ValueError(f"receipt was not refreshed: {receipt_path}")
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-    if receipt.get("plan_sha256") != plan["plan_sha256"]:
-        raise ValueError("writer receipt does not bind to the exact plan digest")
+    verify_writer_receipt(plan, receipt)
     print(json.dumps(receipt, indent=2, ensure_ascii=False))
     return 0
 
@@ -568,8 +770,9 @@ def parser() -> argparse.ArgumentParser:
     plans.add_argument("--target", type=int, required=True)
     plans.add_argument("--version", required=True)
     plans.add_argument("--folder-title", required=True)
-    plans.add_argument("--view-column", default="primary_view")
-    plans.add_argument("--config", type=Path)
+    plans.add_argument("--config", type=Path, required=True)
+    plans.add_argument("--catalog-plan", type=Path, required=True)
+    plans.add_argument("--release-seal", type=Path, required=True)
     plans.add_argument("--profile", type=Path, default=DEFAULT_PROFILE)
     plans.add_argument("--batch-size", type=int, default=500)
     plans.set_defaults(func=command_snapshot_plans)

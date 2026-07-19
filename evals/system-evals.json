@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "suite": "revision-D-critical-contracts",
+  "suite": "revision-D-composite-critical-contracts",
   "description": "Synthetic, local-only adversarial evaluations distilled from the feature/revision-* fieldwork family.",
-  "default_max_depth": 5,
+  "default_max_depth": 16,
   "cases": [
     {
       "id": "selection-order-invariance",
@@ -83,6 +83,30 @@
       "max_depth": 3,
       "mutations": ["unknown-view", "empty-evidence", "input-reorder"],
       "contract": "Unsupported hypotheses fall back to the unclassified editor field without invented evidence."
+    },
+    {
+      "id": "decision-ledger-integrity",
+      "category": "governance",
+      "runner": "decision_ledger",
+      "max_depth": 5,
+      "mutations": ["tamper-content", "remove-middle", "duplicate-event-id", "human-authority-mismatch", "reorder"],
+      "contract": "Decision history is hash-chained, canonically identified, and reserves safety clearance and publication authority for identified humans."
+    },
+    {
+      "id": "holdout-contamination",
+      "category": "evaluation",
+      "runner": "holdout_integrity",
+      "max_depth": 7,
+      "mutations": ["uuid-overlap", "duplicate-holdout", "perceptual-overlap", "duplicate-group-overlap", "duplicate-alias-overlap", "burst-overlap", "canary-overlap"],
+      "contract": "Final holdout evidence is disjoint from tuning and regression canaries by canonical asset and related-image clusters."
+    },
+    {
+      "id": "candidate-bound-release",
+      "category": "release",
+      "runner": "release_candidate",
+      "max_depth": 16,
+      "mutations": ["master-membership", "assignment-drift", "safety-drift", "config-drift", "feedback-drop", "tuning-cluster-drift", "holdout-cluster-drift", "canary-cluster-drift", "plan-digest", "plan-album-substitution", "holdout-fail", "holdout-status-forgery", "ledger-tamper", "publication-approval-event", "unrelated-run", "missing-safety-clearance"],
+      "contract": "An editor-field release seal recomputes every gate and binds configuration, assignment, safety, feedback, decision history, holdout, and catalog plan without granting publication clearance."
     }
   ]
 }

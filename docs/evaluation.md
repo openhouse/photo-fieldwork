@@ -42,6 +42,10 @@ Evaluation does not merge these distinct questions:
 
 Passing means ready for an editor. It does not mean factually proven or ready to publish.
 
+## Tuning, canaries, and final holdout
+
+Do not use the final holdout to tune retrieval, scoring, assignments, thresholds, or labels. Regression canaries may be known hard cases, but they are not independent evidence. Before release, `audit-holdout` checks canonical UUID overlap and shared duplicate, perceptual, or burst clusters across tuning, canary, and holdout manifests. `release-audit` recomputes that audit from the current manifests and requires the supplied report to match exactly, so membership or cluster drift in any split fails the release.
+
 ## Release gates
 
 - Evaluation coverage meets the configured threshold.
@@ -52,5 +56,9 @@ Passing means ready for an editor. It does not mean factually proven or ready to
 - Every selected row has a reason.
 - Uncertainty is represented explicitly.
 - A human editor is told that project views remain hypotheses where provenance is incomplete.
+- The decision ledger is intact and any safety clearance came from an identified human.
+- The decision ledger belongs to the catalog plan's run, and every changed safety state is reconciled to an asset-specific human clearance from the frozen baseline.
+- The final holdout is independent at both asset and cluster level, as recomputed from the current tuning, holdout, and canary manifests.
+- The exact config, feedback, master membership, assignments, HOLD, source, and catalog plan are candidate-bound.
 
-Passing the gate means the corpus is ready for editors. It does not mean every category assignment is factually proven.
+Passing the gate produces an editor-field release seal. It means the bound corpus is ready for editors. It does not mean every category assignment is factually proven, that rights are cleared, or that any image is approved for publication.

@@ -90,6 +90,39 @@
         "No automated or editorial state grants publication approval.",
         "The public note describes only reviewed, public-safe observations and their evidentiary limits."
       ]
+    },
+    {
+      "id": 9,
+      "prompt": "A field passed evaluation and validation yesterday. Since then one assignment changed, a safety state was cleared by automation, and the catalog plan was regenerated. Decide whether a production write may proceed.",
+      "expected_output": "A blocked release with recomputed candidate-bound diagnostics and no catalog mutation.",
+      "files": [],
+      "assertions": [
+        "The system recomputes evaluation and validation from the current artifacts rather than trusting yesterday's PASS reports.",
+        "Safety clearance requires an identified human decision in an intact append-only chain.",
+        "The release seal binds the exact current configuration, master assignments, safety states, feedback, plan, and decision history."
+      ]
+    },
+    {
+      "id": 10,
+      "prompt": "The final holdout has no repeated UUIDs, but several images share a perceptual cluster, duplicate group, or burst with tuning and regression-canary images. Report whether the holdout remains independent.",
+      "expected_output": "A failed contamination audit with public-safe counts and no leaked private identifiers.",
+      "files": [],
+      "assertions": [
+        "The audit checks canonical UUID, perceptual-cluster, duplicate-group, and burst overlap.",
+        "Tuning, holdout, and canary manifests receive separate stable membership digests.",
+        "The public report gives counts and problem classes without exposing asset identifiers by default."
+      ]
+    },
+    {
+      "id": 11,
+      "prompt": "Resume a run whose decision ledger was edited by hand after a human safety-clearance event. The current CSV looks internally consistent. Determine the next safe action.",
+      "expected_output": "A blocked resume that identifies decision-chain tampering and preserves the safety hold.",
+      "files": [],
+      "assertions": [
+        "Every decision event binds to the prior event hash and its own canonical contents.",
+        "Duplicate IDs, removed middle events, reordered events, or edited reasons invalidate the chain.",
+        "A self-consistent current CSV cannot replace the missing decision history or human authority."
+      ]
     }
   ]
 }

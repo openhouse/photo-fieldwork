@@ -17,6 +17,7 @@ PHASES = (
     "selection_evaluation",
     "feedback_expansion",
     "validation",
+    "release_audit",
     "write_test",
     "production_commit",
     "idempotence_check",
@@ -38,7 +39,7 @@ def load_state(workspace: Path) -> dict:
     if not path.is_file():
         raise ValueError(f"run state not found: {path}")
     state = json.loads(path.read_text(encoding="utf-8"))
-    if state.get("schema_version") != 2:
+    if state.get("schema_version") != 3:
         raise ValueError(f"unsupported run-state schema: {state.get('schema_version')}")
     return state
 
@@ -94,7 +95,7 @@ def initialize_run(
     brief_copy.write_text(brief.read_text(encoding="utf-8"), encoding="utf-8")
 
     state = {
-        "schema_version": 2,
+        "schema_version": 3,
         "run_id": workspace.name,
         "version": version,
         "target_count": target,

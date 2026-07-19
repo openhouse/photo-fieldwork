@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Photo Fieldwork hash-chained decision event",
+  "type": "object",
+  "required": ["schema_version", "event_id", "occurred_at", "run_id", "event_type", "actor_id", "actor_kind", "authority_scope", "reason", "previous_event_sha256", "event_sha256"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "event_id": {"type": "string", "minLength": 1},
+    "occurred_at": {"type": "string", "minLength": 1},
+    "run_id": {"type": "string", "minLength": 1},
+    "event_type": {"enum": ["evaluation-judgment", "safety-escalated", "safety-cleared", "editorial-assignment", "publication-review", "publication-approved"]},
+    "actor_id": {"type": "string", "minLength": 1},
+    "actor_kind": {"enum": ["human", "automation"]},
+    "authority_scope": {"enum": ["evaluation", "safety", "editorial", "publication"]},
+    "asset_uuid": {"type": "string"},
+    "primary_view": {"type": "string"},
+    "previous_state": {"type": "string"},
+    "new_state": {"type": "string"},
+    "reason": {"type": "string", "minLength": 1},
+    "evidence_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "previous_event_sha256": {"type": "string", "pattern": "^$|^[a-f0-9]{64}$"},
+    "event_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  },
+  "additionalProperties": false
+}

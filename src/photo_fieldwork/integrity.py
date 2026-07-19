@@ -19,6 +19,24 @@ def membership_sha256(values: Iterable[str]) -> str:
     return digest.hexdigest()
 
 
+def assignment_sha256(rows: Iterable[dict]) -> str:
+    assignments = []
+    seen = set()
+    for row in rows:
+        identifier = base_identifier(str(row.get("uuid") or ""))
+        if not identifier:
+            raise ValueError("assignment manifest contains a blank UUID")
+        if identifier in seen:
+            raise ValueError(f"assignment manifest contains duplicate canonical UUID: {identifier}")
+        seen.add(identifier)
+        assignments.append({
+            "uuid": identifier,
+            "primary_view": str(row.get("primary_view") or "").strip(),
+            "safety_status": str(row.get("safety_status") or "").strip().lower(),
+        })
+    return canonical_json_sha256(sorted(assignments, key=lambda row: row["uuid"]))
+
+
 def canonical_json_sha256(value: object, excluded_keys: set[str] | None = None) -> str:
     if isinstance(value, dict) and excluded_keys:
         value = {key: item for key, item in value.items() if key not in excluded_keys}

@@ -12,7 +12,7 @@ Requirements: Python 3.11 or newer. The practice workflow has no third-party dep
 make demo
 ```
 
-This creates a synthetic inventory, runs a deterministic selection, quarantines unsafe records, produces a stratified evaluation sample, applies practice feedback, and validates the result under `runs/practice/`.
+This creates a synthetic inventory, runs a deterministic selection, quarantines unsafe records, produces a stratified evaluation sample, applies practice feedback, validates the result, audits a final holdout, records a synthetic editorial decision, and seals the exact editor-field candidate under `runs/practice/`.
 
 Inspect the outputs:
 
@@ -20,6 +20,7 @@ Inspect the outputs:
 open runs/practice/reports/selection-summary.md
 open runs/practice/reports/evaluation-report.md
 open runs/practice/manifests/eval-sample.csv
+open runs/practice/manifests/release-seal.json
 ```
 
 Run the tests:
@@ -43,8 +44,9 @@ The eval runner starts from valid synthetic workflows, recursively applies harml
 3. Run the selection and create an evaluation sample.
 4. Inspect sampled images locally and record `fit`, `reject`, or `uncertain`.
 5. Evaluate, revise, and repeat until the agreed criteria pass.
-6. Generate a digest-bound catalog write plan. Test ten items before any production write.
-7. Verify the committed album membership independently and read-only.
+6. Freeze the pre-clearance safety baseline, audit the final holdout, verify the run-bound decision ledger, and seal the exact editor-field candidate.
+7. Generate release-bound test and production plans. Test ten items before any production write.
+8. Verify the committed album membership and release identity independently and read-only.
 
 ```bash
 ./bin/photo-fieldwork select \
@@ -76,6 +78,23 @@ The eval runner starts from valid synthetic workflows, recursively applies harml
   --source-identifier SOURCE-ID \
   --source-members path/to/source-members.csv \
   --output runs/my-run/manifests/catalog-plan.json
+
+./bin/photo-fieldwork audit-holdout \
+  --tuning runs/my-run/manifests/eval-sample.csv \
+  --holdout runs/my-run/manifests/final-holdout.csv \
+  --output runs/my-run/reports/holdout-audit.json
+
+./bin/photo-fieldwork release-audit \
+  --config path/to/config.json \
+  --master runs/my-run/manifests/proposed-master.csv \
+  --holds runs/my-run/manifests/hold-sensitive.csv \
+  --feedback runs/my-run/manifests/eval-sample.csv \
+  --holdout runs/my-run/manifests/final-holdout.csv \
+  --safety-baseline runs/my-run/manifests/pre-clearance-safety-baseline.csv \
+  --plan runs/my-run/manifests/catalog-plan.json \
+  --decision-ledger runs/my-run/manifests/decision-events.jsonl \
+  --holdout-report runs/my-run/reports/holdout-audit.json \
+  --output runs/my-run/manifests/release-seal.json
 ```
 
 The selector uses deterministic capacity flow so overlapping candidate views can satisfy exact quotas when the candidate graph is feasible. Infeasible configurations report deficient views and candidate reach instead of silently backfilling another category.
@@ -140,7 +159,10 @@ Those are different questions. Photo Fieldwork keeps them different.
 - Stratified evaluation samples and precision thresholds.
 - Wilson intervals, small-sample warnings, and separated review dimensions.
 - Resumable phase checkpoints and version-comparison reports.
-- Source, plan, album, and master membership digests.
+- Source, plan, album, master-membership, and master-assignment digests.
+- Hash-chained, run-bound decision history with asset-specific human safety-clearance transitions.
+- Asset- and cluster-level holdout contamination audits recomputed from the current split manifests at release.
+- Candidate-bound editor-field release seals carried through writer and independent-verifier receipts.
 - A static offline review workspace and public-safe evidence handoff.
 - A fully synthetic practice run.
 - Apple Photos integration guidance and adapter contracts.
@@ -154,7 +176,7 @@ Those are different questions. Photo Fieldwork keeps them different.
 - Direct writes to Photos SQLite.
 - A claim that the generated corpus is the final edit.
 
-Read [the workflow](docs/workflow.md), [the architecture](docs/architecture.md), [the safety model](docs/safety.md), [the evaluation system](docs/evals.md), and [the Apple Photos guide](docs/apple-photos.md) before using a private archive.
+Read [the workflow](docs/workflow.md), [the architecture](docs/architecture.md), [the safety model](docs/safety.md), [the evaluation system](docs/evals.md), [the composite note](docs/composite-D.md), and [the Apple Photos guide](docs/apple-photos.md) before using a private archive.
 
 ## Use it as a Codex skill
 
