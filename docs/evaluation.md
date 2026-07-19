@@ -46,3 +46,24 @@ sample without relabeling already-reviewed views.
 After the last revision, create a final sample large enough to include every selected row.
 Pass the frozen master to `evaluate --master`. Only a report with `full_master_audit: true`
 and the matching audited UUID-set hash can be used to generate a catalog plan.
+
+## Evaluate the workflow itself
+
+The bundled skill has an adversarial bank at
+`skills/curate-apple-photos/evals/evals.json`. These cases test whether an operator or agent
+blocks plausible shortcuts involving source substitution, reused evidence, unsupported views,
+safety clearance, interrupted state, candidate drift, helper compatibility, write
+disagreement, public-data leakage, and publication permission.
+
+Run candidate and previous-skill responses under the same model and permissions. Preserve
+failed outputs, grade consequential actions rather than cautionary language, and add newly
+discovered failures as regression cases. After tuning, use an unseen holdout; do not count
+tuning examples, targeted supplements, or regression canaries as fresh evidence of quality.
+
+Before opening a visual holdout, run `audit_eval_split.py`. It compares canonical UUIDs and
+local perceptual, duplicate, and burst clusters across tuning, canary, and holdout manifests.
+The default report exposes counts and membership digests rather than private identifiers.
+
+This workflow-level holdout is distinct from the full-master audit. The holdout estimates
+whether the operating instructions generalize. The full-master audit authorizes an exact,
+already-frozen master for a membership-only write.

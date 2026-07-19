@@ -35,6 +35,10 @@ It is intentionally an operational hardening release, not an attempt to automate
   verifies that compact snapshot as immutable and removes it.
 - **Regression coverage:** synthetic tests exercise source contracts, retrieval channels,
   preview corruption, per-view gates, state drift, and WAL-visible album verification.
+- **Skill evals:** ten adversarial prompts exercise release-critical decisions from source
+  selection through publication handoff. Candidate and baseline runs are recursively graded;
+  reused tuning evidence is separated from a frozen final holdout. An executable split audit
+  catches canonical-UUID and local perceptual-cluster leakage before the holdout is opened.
 
 ## Deliberately retained boundaries
 

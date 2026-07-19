@@ -42,7 +42,8 @@ checks. Install the declared extra in an isolated environment with `pip install 
 4. Cluster local near-duplicates, run selection, and create an evaluation sample.
 5. Inspect sampled images locally and record `fit`, `reject`, or `uncertain`.
 6. Validate and apply structured feedback. Evaluate per view, revise weak views, and repeat.
-7. Freeze the master and fully audit every selected image. A targeted audit cannot authorize a write.
+7. Freeze the candidate, audit a genuinely unseen holdout, then fully audit every selected
+   image. A targeted audit or tuning sample cannot authorize a write.
 8. Generate a hash-bound catalog plan. Test ten items before any production write.
 9. Verify the committed album membership independently and read-only.
 
@@ -71,6 +72,14 @@ checks. Install the declared extra in an isolated environment with `pip install 
   --master runs/my-run/manifests/proposed-master.csv \
   --config path/to/config.json \
   --output runs/my-run/reports
+
+# Before opening a final holdout, prove it is disjoint from tuning and canary evidence.
+python3 skills/curate-apple-photos/scripts/audit_eval_split.py \
+  --tuning runs/my-run/manifests/eval-round-01.csv \
+  --tuning runs/my-run/manifests/eval-round-02.csv \
+  --canary runs/my-run/manifests/regression-canaries.csv \
+  --holdout runs/my-run/manifests/final-holdout.csv \
+  --output runs/my-run/reports/holdout-split-audit.json
 
 # After an interruption, inspect artifact hashes and the next incomplete phase.
 ./bin/photo-fieldwork state resume --workspace runs/my-run
@@ -117,6 +126,7 @@ Those are different questions. Photo Fieldwork keeps them different.
 - A fully synthetic practice run.
 - Versioned source profiles, whole-library inventory support, and adapter capability checks.
 - Fail-closed preview validation and WAL-aware independent verification.
+- An adversarial skill-eval bank and executable holdout-leakage audit.
 - A case study of how visual inspection changed a real workflow.
 
 ## What is not included

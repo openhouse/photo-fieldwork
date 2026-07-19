@@ -22,6 +22,9 @@ python3 scripts/photo_archive_bridge.py doctor --source-manifest RUN/source.json
    - `retrieval.json`, defining views, terms, people, albums, places, and supporting date ranges;
    - `config.json`, defining target, quotas, seed, uncertainty view, and evaluation thresholds.
 4. Initialize a uniquely named run under `/Users/jburkart/Documents/Jamie-Photo-Archive-2026/` with `photo_archive_bridge.py init-run`. Never reuse or overwrite another run. Use `photo-fieldwork state resume --workspace RUN` after any interruption.
+5. For a new workflow release, read [evals/README.md](evals/README.md) and run its
+   adversarial cases without live Photos mutation. Preserve the previous accepted skill as
+   the baseline and retain failed runs.
 
 ## Governing invariants
 
@@ -36,11 +39,17 @@ python3 scripts/photo_archive_bridge.py doctor --source-manifest RUN/source.json
 - Use `minimal` or `retrieval` inventory profiles by default. Exact coordinates and source
   paths are allowed only in explicitly private debug artifacts.
 - A potential sensitive item enters HOLD before ranking and cannot enter the master.
+- Automation, an AI assistant, and role-play cannot clear a protected safety state. An
+  identified authorized human must record the bounded reason and decision while preserving
+  the original flag.
 - A missing, corrupt, or undecodable preview is `unavailable` and cannot enter the master.
 - Preserve `Unclassified / Editor Field`. Do not force every photograph into a project story.
 - Label project-specific views `EDITOR HYPOTHESIS` unless visible evidence plus provenance supports stronger wording.
 - Apple aesthetic scores may break ties only inside true duplicate or burst clusters.
 - Dates support retrieval but are not narrative authority; imported film and scans may be misdated.
+- Editor-field membership is not publication permission. Keep rights or license, consent,
+  provenance, factual-claim support, contextual risk, and publication approval as separate
+  human-reviewed states that default closed when unresolved.
 
 Read [safety.md](references/safety.md) whenever a brief concerns private homes, minors, health, legal strategy, financial records, identity documents, or vulnerable collaborators.
 
@@ -94,6 +103,8 @@ Read [evaluation-loop.md](references/evaluation-loop.md) before the first visual
    apply it with `feedback-apply`.
 6. Run `photo-fieldwork evaluate`. Read all rejections and a stratified uncertainty sample.
 7. Read global and per-view gates. Change retrieval, assignments, penalties, quotas, or hold rules in response to observed errors. Keep the seed fixed. Save each round separately.
+   Preserve known failures as regression canaries, but do not count reused canaries or tuning
+   examples as fresh evidence of quality.
 8. Repeat until:
    - evaluation coverage and precision meet `config.json`;
    - every view has been visually sampled;
@@ -105,9 +116,26 @@ Read [evaluation-loop.md](references/evaluation-loop.md) before the first visual
 
 Do not claim success from Vision labels or metadata alone. The recursive loop requires actual preview inspection in the chat.
 
+## Freeze an independent assessment
+
+1. After tuning, freeze the source, configuration, candidate assignments, master membership,
+   and proposal identity. Any candidate-affecting change invalidates later assessment and
+   write artifacts.
+2. Draw a final quality holdout that excludes tuning examples, targeted per-view supplements,
+   and regression canaries. Do not change retrieval, assignment, scoring, quotas, or hold
+   rules after reading it; a change starts a new candidate and requires a new holdout.
+   Before opening it, run `scripts/audit_eval_split.py` against every tuning round, the
+   canary manifest, and the proposed holdout. Require `PASS`; UUID, perceptual-cluster,
+   duplicate-group, or burst leakage invalidates the holdout.
+3. Report holdout quality separately from targeted diagnostics. An overall pass cannot hide
+   a failed material view or an unsupported requested view.
+4. After the holdout decision, inspect every selected row for the separate full-master audit.
+   The full-master audit authorizes this exact candidate for a membership plan; it is not an
+   unbiased estimate of generalization.
+
 ## Validate and commit
 
-1. Freeze the final master after its last change. Create a final sample that includes every
+1. Freeze the final master after its last change. Create a full-master audit that includes every
    selected row, inspect it, and save a passing report with `full_master_audit: true`.
    Run `photo-fieldwork evaluate --master FINAL-MASTER.csv`; targeted audits may supplement
    but cannot replace this final audit.
@@ -120,11 +148,16 @@ Do not claim success from Vision labels or metadata alone. The recursive loop re
 7. Independently verify every album against the plan using the WAL-aware compact verifier.
    Do not open a live, changing Photos database as immutable. The verifier must clean its
    temporary snapshot and report missing, unexpected, outside-source, and HOLD overlap counts.
+   A helper receipt or a visually complete album is not completion evidence when independent
+   verification disagrees. Preserve the failed report, repair from a new bounded plan, and
+   verify again.
 8. Mark each phase complete with the hashes of its supporting artifacts and run
    `photo-fieldwork state audit --workspace RUN`. Write a completion report containing exact
    counts, identifiers, evaluation results, privacy facts, and unresolved uncertainty.
 9. Label completion artifacts by sensitivity. Before any public share, run
-   `lint_public_report.py`; its PASS does not replace human review.
+   `lint_public_report.py`; its PASS does not replace human privacy, rights, consent, claim,
+   and contextual review. Publish from an allowlisted public handoff, never the private run
+   directory.
 
 The helper invocation may require a Codex permission approval for `open -W`; request a reusable approval scoped to `/Applications/Jamie Photo Archive.app`. The app's Photos permission itself should persist under its stable bundle identity.
 
