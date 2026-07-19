@@ -10,6 +10,8 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 
+from photo_fieldwork.execution import validate_execution_attempt
+
 
 VISIBLE_LIBRARY_STILLS = "visible-library-stills://v1"
 VISIBLE_PREDICATE = """
@@ -238,6 +240,7 @@ def main() -> None:
     receipt = json.loads(args.receipt.read_text(encoding="utf-8"))
     plan_hash = sha256(args.plan)
     receipt_hash = sha256(args.receipt)
+    validate_execution_attempt(plan, receipt)
     extract_evidence(args.photos_db, args.evidence_db, plan, receipt, plan_hash, receipt_hash)
     verified, count = verify_evidence(args.evidence_db, plan, receipt)
     evidence_hash = sha256(args.evidence_db)

@@ -89,6 +89,9 @@ def practice_feedback(sample_path: Path) -> None:
     for index, row in enumerate(rows):
         row["judgment"] = "reject" if index == 3 else "fit"
         row["evaluation_note"] = "Synthetic practice judgment; inspect real pixels in production."
+        row["reviewer_actor"] = "Synthetic Practice Reviewer"
+        row["reviewer_kind"] = "human"
+        row["round_id"] = "synthetic-final-01"
     with sample_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()

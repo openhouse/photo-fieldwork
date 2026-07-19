@@ -121,6 +121,38 @@ def content_sha256(value: dict, digest_field: str = "plan_sha256") -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def canonical_sha256(value: object) -> str:
+    canonical = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def feedback_sha256(rows: Iterable[dict[str, str]]) -> str:
+    """Bind evaluation to decisions, visible reasons, and human provenance."""
+    payload = [
+        {
+            "uuid": str(row.get("uuid", "")).strip(),
+            "primary_view": str(row.get("primary_view", "")).strip(),
+            "judgment": str(row.get("judgment", "")).strip().casefold(),
+            "visible_reason": str(
+                row.get("visible_reason") or row.get("evaluation_note") or ""
+            ).strip(),
+            "safety_status": str(row.get("safety_status", "")).strip().casefold(),
+            "reviewer_actor": str(row.get("reviewer_actor", "")).strip(),
+            "reviewer_kind": str(row.get("reviewer_kind", "")).strip().casefold(),
+            "round_id": str(row.get("round_id", "")).strip(),
+            "replacement": truthy(row.get("replacement")),
+        }
+        for row in rows
+    ]
+    if any(not item["uuid"] or not item["primary_view"] for item in payload):
+        raise ValueError("feedback identity requires UUID and primary_view on every row")
+    edges = [(item["uuid"], item["primary_view"]) for item in payload]
+    if len(edges) != len(set(edges)):
+        raise ValueError("feedback contains duplicate image-view decisions")
+    payload.sort(key=lambda item: (item["primary_view"], item["uuid"]))
+    return canonical_sha256(payload)
+
+
 def is_hold(row: dict[str, str]) -> bool:
     return (
         str(row.get("safety_status", "clear")).lower() in {"hold", "needs-review"}
@@ -133,6 +165,47 @@ def is_hold(row: dict[str, str]) -> bool:
 
 def is_known_reject(row: dict[str, str]) -> bool:
     return truthy(row.get("known_reject")) or str(row.get("prior_judgment", "")).casefold() == "reject"
+
+
+def apply_relational_holds(
+    inventory: list[dict[str, str]],
+) -> tuple[list[dict[str, str]], set[str], int]:
+    """Propagate safety holds through exact duplicate, perceptual, and burst relations."""
+    rows = [dict(row) for row in inventory]
+    relation_fields = (
+        "duplicate_group",
+        "duplicate_group_id",
+        "perceptual_cluster_id",
+        "burst_group",
+    )
+    groups: dict[tuple[str, str], set[str]] = defaultdict(set)
+    relations_by_uuid: dict[str, set[tuple[str, str]]] = defaultdict(set)
+    for row in rows:
+        uuid = row["uuid"]
+        for field in relation_fields:
+            value = str(row.get(field, "")).strip()
+            if value:
+                key = (field, value)
+                groups[key].add(uuid)
+                relations_by_uuid[uuid].add(key)
+
+    seeds = {row["uuid"] for row in rows if is_hold(row)}
+    held = set(seeds)
+    queue = deque(sorted(seeds))
+    while queue:
+        uuid = queue.popleft()
+        for relation in relations_by_uuid.get(uuid, set()):
+            for related in groups[relation]:
+                if related not in held:
+                    held.add(related)
+                    queue.append(related)
+
+    for row in rows:
+        if row["uuid"] in held and row["uuid"] not in seeds:
+            row["safety_status"] = "hold"
+            row["safety_reason"] = "related duplicate, perceptual match, or burst is protected"
+            row["relational_hold"] = "true"
+    return rows, held, len(held - seeds)
 
 
 def attention_score(row: dict[str, str]) -> float:
@@ -356,10 +429,15 @@ def assign_exact_quotas(rows: list[dict[str, str]], config: dict) -> tuple[dict[
 
 
 def select(inventory: list[dict[str, str]], config: dict) -> tuple[list[dict], list[dict], dict]:
-    holds = [dict(row) for row in inventory if is_hold(row)]
-    known_rejects = [dict(row) for row in inventory if is_known_reject(row)]
+    normalized, held_ids, relational_hold_count = apply_relational_holds(inventory)
+    holds = [dict(row) for row in normalized if row["uuid"] in held_ids]
+    known_rejects = [dict(row) for row in normalized if is_known_reject(row)]
     eligible = cluster_representatives(
-        [dict(row) for row in inventory if not is_hold(row) and not is_known_reject(row)],
+        [
+            dict(row)
+            for row in normalized
+            if row["uuid"] not in held_ids and not is_known_reject(row)
+        ],
         config,
     )
 
@@ -492,6 +570,7 @@ def select(inventory: list[dict[str, str]], config: dict) -> tuple[list[dict], l
         "inventory_count": len(inventory),
         "eligible_after_cluster_reduction": len(eligible),
         "hold_count": len(holds),
+        "relational_hold_count": relational_hold_count,
         "known_reject_count": len(known_rejects),
         "selected_count": len(selected),
         "view_counts": dict(sorted(Counter(row["primary_view"] for row in selected).items())),
@@ -531,6 +610,9 @@ def make_sample(master: list[dict[str, str]], per_view: int, seed: int) -> list[
             item = dict(row)
             item["judgment"] = ""
             item["evaluation_note"] = ""
+            item["reviewer_actor"] = ""
+            item["reviewer_kind"] = ""
+            item["round_id"] = ""
             sample.append(item)
     return sample
 
@@ -551,6 +633,19 @@ def evaluate(feedback: list[dict[str, str]], config: dict, final_field: bool = F
     if len(master_hashes) > 1 or len(proposal_ids) > 1:
         raise ValueError("evaluation feedback mixes more than one proposed master")
     judged = [row for row in feedback if row.get("judgment", "").strip().lower() in allowed]
+    feedback_digest = feedback_sha256(feedback) if feedback else canonical_sha256([])
+    config_digest = canonical_sha256(config)
+    decision_provenance = [
+        row
+        for row in judged
+        if str(row.get("evaluation_note") or row.get("visible_reason") or "").strip()
+        and str(row.get("reviewer_actor", "")).strip()
+        and str(row.get("reviewer_kind", "")).strip().casefold() == "human"
+        and str(row.get("round_id", "")).strip()
+    ]
+    decision_provenance_coverage = (
+        len(decision_provenance) / len(judged) if judged else 0.0
+    )
     fit = sum(row["judgment"].strip().lower() == "fit" for row in judged)
     reject = sum(row["judgment"].strip().lower() == "reject" for row in judged)
     uncertain = sum(row["judgment"].strip().lower() == "uncertain" for row in judged)
@@ -587,10 +682,14 @@ def evaluate(feedback: list[dict[str, str]], config: dict, final_field: bool = F
         and precision >= float(config.get("minimum_eval_precision", 0.75))
         and all(item["passed"] for view, item in by_view.items() if view in expected_views)
         and (not final_field or replacement_coverage == 1.0)
+        and (not final_field or decision_provenance_coverage == 1.0)
     )
     report = {
         "proposal_id": next(iter(proposal_ids), None),
         "master_sha256": next(iter(master_hashes), None),
+        "config_sha256": config_digest,
+        "feedback_sha256": feedback_digest,
+        "evaluation_scope": "final-stratified-sample" if final_field else "learning-sample",
         "sample_count": len(feedback),
         "judged_count": len(judged),
         "fit": fit,
@@ -605,6 +704,7 @@ def evaluate(feedback: list[dict[str, str]], config: dict, final_field: bool = F
         "final_field_audit": final_field,
         "replacement_count": len(replacements),
         "replacement_coverage": round(replacement_coverage, 4),
+        "decision_provenance_coverage": round(decision_provenance_coverage, 4),
         "passed": passed,
         "by_view": by_view,
     }
@@ -685,6 +785,12 @@ def validate(
     for label, (actual, minimum) in floor_checks.items():
         if actual < minimum:
             errors.append(f"master misses {label} floor: {actual} < {minimum}")
+    final_feedback_digest = None
+    if final_feedback:
+        try:
+            final_feedback_digest = feedback_sha256(final_feedback)
+        except ValueError as error:
+            errors.append(str(error))
     if config.get("require_final_field_audit"):
         if not evaluation_report:
             errors.append("final-field evaluation report is required")
@@ -694,6 +800,19 @@ def validate(
             errors.append("evaluation master identity does not match the frozen field")
         if evaluation_report and proposal_id and evaluation_report.get("proposal_id") != proposal_id:
             errors.append("evaluation proposal identity does not match the frozen field")
+        config_digest = canonical_sha256(config)
+        if evaluation_report and evaluation_report.get("config_sha256") != config_digest:
+            errors.append("evaluation config identity does not match the active configuration")
+        if evaluation_report and evaluation_report.get("evaluation_scope") != "final-stratified-sample":
+            errors.append("evaluation scope is not the required final stratified sample")
+        if not final_feedback:
+            errors.append("final feedback is required to verify evaluation identity")
+        if (
+            evaluation_report
+            and final_feedback_digest
+            and evaluation_report.get("feedback_sha256") != final_feedback_digest
+        ):
+            errors.append("evaluation feedback identity does not match final feedback")
         replacements = {row["uuid"] for row in master if truthy(row.get("replacement"))}
         if replacements:
             judged = {
@@ -716,6 +835,12 @@ def validate(
         "final_field_audit": bool(evaluation_report and evaluation_report.get("final_field_audit")),
         "master_sha256": digest,
         "proposal_id": proposal_id,
+        "config_sha256": canonical_sha256(config),
+        "feedback_sha256": final_feedback_digest,
+        "evaluation_report_sha256": (
+            content_sha256(evaluation_report, digest_field="report_sha256")
+            if evaluation_report else None
+        ),
     }
     return errors, metrics
 
@@ -735,18 +860,27 @@ def build_catalog_plan(
     """Build a release-bound, adapter-neutral membership plan."""
     digest = master_sha256(master)
     proposal_id = f"pfp-{digest[:16]}"
+    config_digest = canonical_sha256(config)
     if not evaluation_report.get("passed") or not evaluation_report.get("final_field_audit"):
         raise ValueError("catalog plan requires a passing final-field evaluation")
     if evaluation_report.get("master_sha256") != digest:
         raise ValueError("evaluated master identity does not match the catalog plan")
     if evaluation_report.get("proposal_id") != proposal_id:
         raise ValueError("evaluated proposal identity does not match the catalog plan")
+    if evaluation_report.get("config_sha256") != config_digest:
+        raise ValueError("evaluated config identity does not match the catalog plan")
+    if not evaluation_report.get("feedback_sha256"):
+        raise ValueError("catalog plan requires evaluation feedback identity")
     if validation_report.get("status") != "PASS":
         raise ValueError("catalog plan requires a passing validation report")
     if validation_report.get("master_sha256") != digest:
         raise ValueError("validated master identity does not match the catalog plan")
     if validation_report.get("proposal_id") != proposal_id:
         raise ValueError("validated proposal identity does not match the catalog plan")
+    if validation_report.get("config_sha256") != config_digest:
+        raise ValueError("validated config identity does not match the catalog plan")
+    if validation_report.get("feedback_sha256") != evaluation_report.get("feedback_sha256"):
+        raise ValueError("validation feedback identity does not match evaluation")
     if source_count < len(master):
         raise ValueError("source count cannot be smaller than the proposed master")
     if len(source_membership_sha256) != 64 or any(
@@ -775,6 +909,10 @@ def build_catalog_plan(
         "plan_id": plan_id,
         "proposal_id": proposal_id,
         "master_sha256": digest,
+        "config_sha256": config_digest,
+        "feedback_sha256": evaluation_report["feedback_sha256"],
+        "release_class": "editor-field-verified",
+        "publication_state": "publication-review-required",
         "created_at": datetime.now(timezone.utc).isoformat(),
         "safety_mode": "create-folders-albums-and-add-membership-only",
         "source": {
@@ -788,12 +926,16 @@ def build_catalog_plan(
             "final_field_audit": True,
             "proposal_id": proposal_id,
             "master_sha256": digest,
+            "config_sha256": config_digest,
+            "feedback_sha256": evaluation_report["feedback_sha256"],
             "report_sha256": content_sha256(evaluation_report, digest_field="report_sha256"),
         },
         "validation": {
             "status": "PASS",
             "proposal_id": proposal_id,
             "master_sha256": digest,
+            "config_sha256": config_digest,
+            "feedback_sha256": validation_report["feedback_sha256"],
             "report_sha256": content_sha256(validation_report, digest_field="report_sha256"),
         },
         "expected_master_count": len(master),

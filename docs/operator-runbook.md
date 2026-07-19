@@ -27,16 +27,17 @@ Inspect every view at low, middle, and high scores. Read all rejections. Persist
 
 ## 6. Freeze and validate
 
-Mark post-pass replacements. Audit the actual frozen field and every replacement. Run validation with the final evaluation report and feedback. Confirm that source, proposal, master, evaluation, validation, and plan identities agree. Freeze the validated master, HOLD, config, feedback, and plans by checksum.
+Mark post-pass replacements. Audit tuning, canaries, and holdout for UUID and relation leakage. Audit the actual frozen field and every replacement with identified-human decisions. Run validation with the final evaluation report and feedback. Confirm that source, proposal, master, config, feedback, evaluation, validation, and plan identities agree. Freeze the validated master, HOLD, config, feedback, and plans by checksum.
 
 ## 7. Write and verify
 
 1. Run the ten-item plan.
 2. Extract compact WAL-aware evidence and verify exact test membership.
-3. Run the production plan.
-4. Rerun production and require the same identifiers and counts.
-5. Extract new compact evidence and verify every album exactly.
-6. Confirm zero missing, unexpected, outside-source, or HOLD-overlap memberships.
+3. Run production attempt 01 and preserve its receipt.
+4. Run production attempt 02 from its distinct plan and preserve its receipt.
+5. Validate each complete attempt before comparing them. Require matching album identifiers and counts.
+6. Extract compact evidence for each attempt and verify every album exactly.
+7. Confirm zero missing, unexpected, outside-source, or HOLD-overlap memberships.
 
 Select a reviewed PhotoKit or AppleScript adapter before writing. Do not improvise a new mutation path mid-run.
 
@@ -44,4 +45,4 @@ Select a reviewed PhotoKit or AppleScript adapter before writing. Do not improvi
 
 Record independent verification as passing. Generate the completion report from receipts. Run the cleanup report to identify storage that may be removed later. Preserve manifests, evaluations, plans, receipts, checksums, final reports, and every prior Photos version.
 
-The run is editor-ready, not publication-ready. Rights, consent, caption accuracy, attribution, and contextual dignity remain separate editorial work.
+The run is editor-ready, not publication-ready. Rights, consent, collaborator approval, caption accuracy, attribution, alt text, public destination, and contextual dignity remain separate item-level human decisions. Fictionalized expert lenses may advise that review; they cannot authorize it.

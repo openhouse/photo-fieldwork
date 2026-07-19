@@ -33,6 +33,18 @@ class PipelineTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
+    def mark_final(self, rows):
+        for row in rows:
+            row.update(
+                {
+                    "judgment": "fit",
+                    "evaluation_note": "Synthetic visible fit.",
+                    "reviewer_actor": "Synthetic Human",
+                    "reviewer_kind": "human",
+                    "round_id": "final-01",
+                }
+            )
+
     def test_selection_is_deterministic_and_excludes_holds(self):
         first, holds, _ = select(self.inventory, self.config)
         second, _, _ = select(self.inventory, self.config)
@@ -69,8 +81,7 @@ class PipelineTests(unittest.TestCase):
     def test_validation_enforces_invariants(self):
         master, holds, _ = select(self.inventory, self.config)
         sample = make_sample(master, 3, 20260710)
-        for row in sample:
-            row["judgment"] = "fit"
+        self.mark_final(sample)
         report, passed = evaluate(sample, self.config, final_field=True)
         self.assertTrue(passed)
         errors, metrics = validate(master, holds, self.config, report, sample)
@@ -86,6 +97,7 @@ class PipelineTests(unittest.TestCase):
     def test_material_view_failure_blocks_evaluation(self):
         master, _, _ = select(self.inventory, self.config)
         sample = make_sample(master, 3, 20260710)
+        self.mark_final(sample)
         weak_view = sample[0]["primary_view"]
         for row in sample:
             row["judgment"] = "reject" if row["primary_view"] == weak_view else "fit"
@@ -105,8 +117,7 @@ class PipelineTests(unittest.TestCase):
         master, holds, _ = select(self.inventory, self.config)
         master[0]["replacement"] = "true"
         sample = make_sample(master, 3, 20260710)
-        for row in sample:
-            row["judgment"] = "fit"
+        self.mark_final(sample)
         report, _ = evaluate(sample, self.config, final_field=True)
         final_feedback = [row for row in sample if row["uuid"] != master[0]["uuid"]]
         errors, _ = validate(master, holds, self.config, report, final_feedback)
@@ -115,8 +126,7 @@ class PipelineTests(unittest.TestCase):
     def test_catalog_plan_allows_only_membership_writes(self):
         master, holds, _ = select(self.inventory, self.config)
         sample = make_sample(master, 3, 20260710)
-        for row in sample:
-            row["judgment"] = "fit"
+        self.mark_final(sample)
         evaluation, passed = evaluate(sample, self.config, final_field=True)
         self.assertTrue(passed)
         errors, validation = validate(master, holds, self.config, evaluation, sample)

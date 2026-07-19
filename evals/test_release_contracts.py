@@ -85,11 +85,15 @@ class ReleaseContractEvals(unittest.TestCase):
             "final_field_audit": True,
             "master_sha256": digest,
             "proposal_id": proposal_id,
+            "config_sha256": pipeline.canonical_sha256(make_config({"a": 1, "b": 1})),
+            "feedback_sha256": "f" * 64,
         }
         validation = {
             "status": "PASS",
             "master_sha256": digest,
             "proposal_id": proposal_id,
+            "config_sha256": evaluation["config_sha256"],
+            "feedback_sha256": evaluation["feedback_sha256"],
         }
         return evaluation, validation, digest
 
@@ -194,7 +198,15 @@ class ReleaseContractEvals(unittest.TestCase):
         config = make_config({"a": 1})
         master, holds, _ = pipeline.select([row("ONE", "a")], config)
         sample = pipeline.make_sample(master, 1, 20260719)
-        sample[0]["judgment"] = "fit"
+        sample[0].update(
+            {
+                "judgment": "fit",
+                "evaluation_note": "Visible synthetic fit.",
+                "reviewer_actor": "Synthetic Human",
+                "reviewer_kind": "human",
+                "round_id": "final-01",
+            }
+        )
         evaluation, passed = pipeline.evaluate(sample, config, final_field=True)
         self.assertTrue(passed)
         evaluation["master_sha256"] = "0" * 64
@@ -312,6 +324,278 @@ class ReleaseContractEvals(unittest.TestCase):
             state = derive_state(workspace)
             self.assertEqual(state["status"], "blocked")
             self.assertEqual(state["integrity"]["issues"][0]["kind"], "artifact-missing")
+
+    def test_hold_propagates_across_duplicate_and_burst_relations(self):
+        config = make_config({"a": 1})
+        inventory = [
+            row("HELD", "a", safety_status="hold", duplicate_group="dup-1"),
+            row("CROP", "a", duplicate_group="dup-1", burst_group="burst-1"),
+            row("EDIT", "a", burst_group="burst-1"),
+            row("CLEAR", "a"),
+        ]
+        master, holds, summary = pipeline.select(inventory, config)
+        self.assertEqual({item["uuid"] for item in master}, {"CLEAR"})
+        self.assertEqual({item["uuid"] for item in holds}, {"HELD", "CROP", "EDIT"})
+        self.assertEqual(summary["relational_hold_count"], 2)
+
+    def test_final_evaluation_requires_identified_human_decision_provenance(self):
+        config = make_config({"a": 1})
+        master, _, _ = pipeline.select([row("ONE", "a")], config)
+        sample = pipeline.make_sample(master, 1, 20260719)
+        sample[0]["judgment"] = "fit"
+        report, passed = pipeline.evaluate(sample, config, final_field=True)
+        self.assertFalse(passed)
+        self.assertEqual(report["decision_provenance_coverage"], 0)
+
+    def test_validation_rejects_feedback_changed_after_evaluation(self):
+        config = make_config({"a": 1})
+        master, holds, _ = pipeline.select([row("ONE", "a")], config)
+        sample = pipeline.make_sample(master, 1, 20260719)
+        sample[0].update(
+            {
+                "judgment": "fit",
+                "evaluation_note": "Visible synthetic fit.",
+                "reviewer_actor": "Synthetic Human",
+                "reviewer_kind": "human",
+                "round_id": "final-01",
+            }
+        )
+        report, passed = pipeline.evaluate(sample, config, final_field=True)
+        self.assertTrue(passed)
+        changed = deepcopy(sample)
+        changed[0]["evaluation_note"] = "Changed after the report passed."
+        errors, _ = pipeline.validate(master, holds, config, report, changed)
+        self.assertTrue(any("feedback" in error and "identity" in error for error in errors))
+
+    def test_release_plan_binds_config_feedback_and_release_boundary(self):
+        config = make_config({"a": 1})
+        master, holds, _ = pipeline.select([row("ONE", "a")], config)
+        sample = pipeline.make_sample(master, 1, 20260719)
+        sample[0].update(
+            {
+                "judgment": "fit",
+                "evaluation_note": "Visible synthetic fit.",
+                "reviewer_actor": "Synthetic Human",
+                "reviewer_kind": "human",
+                "round_id": "final-01",
+            }
+        )
+        evaluation, passed = pipeline.evaluate(sample, config, final_field=True)
+        self.assertTrue(passed)
+        errors, validation = pipeline.validate(master, holds, config, evaluation, sample)
+        self.assertEqual(errors, [])
+        plan = pipeline.build_catalog_plan(
+            master,
+            config,
+            "composite",
+            "Synthetic source",
+            "synthetic://source",
+            evaluation_report=evaluation,
+            validation_report=validation,
+            source_count=1,
+            source_membership_sha256=pipeline.membership_sha256(["ONE"]),
+        )
+        self.assertEqual(plan["release_class"], "editor-field-verified")
+        self.assertEqual(plan["publication_state"], "publication-review-required")
+        self.assertEqual(plan["config_sha256"], evaluation["config_sha256"])
+        self.assertEqual(plan["feedback_sha256"], evaluation["feedback_sha256"])
+
+    def test_eval_bank_has_typed_oracles_counterfactuals_and_positive_control(self):
+        from photo_fieldwork.evalbank import validate_eval_bank
+
+        bank = json.loads((ROOT / "evals" / "evals.json").read_text(encoding="utf-8"))
+        report = validate_eval_bank(bank)
+        self.assertEqual(report["status"], "PASS")
+        self.assertTrue(any(item["expected_decision"] == "PROCEED" for item in bank["evals"]))
+
+    def test_holdout_audit_detects_uuid_and_relation_leakage(self):
+        from photo_fieldwork.evalsplit import audit_split
+
+        tuning = [row("TUNE", "a", duplicate_group="dup")]
+        holdout = [row("HOLDOUT", "a", duplicate_group="dup")]
+        canaries = [row("HOLDOUT", "a")]
+        report = audit_split(tuning, holdout, canaries)
+        self.assertEqual(report["status"], "FAIL")
+        self.assertEqual(report["leakage"]["canary_uuid_overlap_count"], 1)
+        self.assertEqual(report["leakage"]["tuning_cluster_overlap_count"], 1)
+
+    def test_publication_clearance_requires_an_identified_human_and_item_evidence(self):
+        from photo_fieldwork.governance import validate_publication_clearance
+
+        rows = [
+            {
+                "uuid": "ONE",
+                "publication_cleared": "true",
+                "rights_status": "cleared",
+                "consent_status": "cleared",
+                "collaborator_approval": "approved",
+                "caption": "A synthetic image.",
+                "caption_provenance": "Synthetic fixture.",
+                "credit": "Synthetic creator.",
+                "alt_text": "Synthetic test image.",
+                "public_destination": "example.invalid",
+                "reviewer_actor": "Imagined panel",
+                "reviewer_kind": "delegated-lens",
+                "review_date": "2026-07-19",
+            }
+        ]
+        errors, report = validate_publication_clearance(rows)
+        self.assertEqual(report["status"], "FAIL")
+        self.assertTrue(any("identified human" in error for error in errors))
+
+    def test_idempotence_rejects_two_identically_incomplete_receipts(self):
+        from photo_fieldwork.execution import compare_execution_attempts
+
+        plan_one = {"plan_id": "production-01", "attempt_id": "attempt-01"}
+        plan_two = {"plan_id": "production-02", "attempt_id": "attempt-02"}
+        incomplete = {"plan_id": "production-01", "attempt_id": "attempt-01"}
+        with self.assertRaisesRegex(ValueError, "missing"):
+            compare_execution_attempts(plan_one, incomplete, plan_two, dict(incomplete))
+
+    def test_eval_bank_validator_detects_mutated_oracles(self):
+        from photo_fieldwork.evalbank import validate_eval_bank
+
+        bank = json.loads((ROOT / "evals" / "evals.json").read_text(encoding="utf-8"))
+        no_positive = deepcopy(bank)
+        for item in no_positive["evals"]:
+            item["expected_decision"] = "BLOCK"
+        self.assertEqual(validate_eval_bank(no_positive)["status"], "FAIL")
+
+        no_holdout = deepcopy(bank)
+        for item in no_holdout["evals"]:
+            item["tags"] = [tag for tag in item["tags"] if tag != "holdout"]
+        self.assertEqual(validate_eval_bank(no_holdout)["status"], "FAIL")
+
+        no_counterfactual = deepcopy(bank)
+        no_counterfactual["evals"][0]["counterfactual"] = ""
+        self.assertEqual(validate_eval_bank(no_counterfactual)["status"], "FAIL")
+
+        malformed_shortcuts = deepcopy(bank)
+        malformed_shortcuts["evals"][0]["unsafe_shortcuts"] = "sounds cautious"
+        self.assertEqual(validate_eval_bank(malformed_shortcuts)["status"], "FAIL")
+
+    def test_clean_holdout_passes_without_exposing_identifiers(self):
+        from photo_fieldwork.evalsplit import audit_split
+
+        report = audit_split(
+            [row("TUNE", "a", duplicate_group="tuning")],
+            [row("HOLDOUT", "a", duplicate_group="holdout")],
+            [row("CANARY", "a", duplicate_group="canary")],
+        )
+        self.assertEqual(report["status"], "PASS")
+        self.assertNotIn("private_details", report)
+        self.assertEqual(len(report["digests"]["holdout_uuid_sha256"]), 64)
+
+        empty = audit_split([], [], [])
+        self.assertEqual(empty["status"], "FAIL")
+        self.assertEqual(empty["leakage"]["holdout_empty_count"], 1)
+
+    def test_publication_clearance_is_default_closed_and_human_clearable(self):
+        from photo_fieldwork.governance import (
+            scaffold_publication_clearance,
+            validate_publication_clearance,
+        )
+
+        rows = scaffold_publication_clearance([row("ONE", "a")])
+        self.assertEqual(rows[0]["publication_cleared"], "false")
+        errors, report = validate_publication_clearance(rows)
+        self.assertEqual(errors, [])
+        self.assertEqual(report["publication_state"], "publication-review-required")
+
+        rows[0].update(
+            {
+                "publication_cleared": "true",
+                "rights_status": "cleared",
+                "consent_status": "cleared",
+                "collaborator_approval": "not-needed",
+                "caption": "Synthetic caption.",
+                "caption_provenance": "Synthetic fixture.",
+                "credit": "Synthetic creator.",
+                "alt_text": "A synthetic test image.",
+                "public_destination": "https://example.invalid/item",
+                "reviewer_actor": "Synthetic Human",
+                "reviewer_kind": "human",
+                "review_date": "2026-07-19",
+            }
+        )
+        errors, report = validate_publication_clearance(rows)
+        self.assertEqual(errors, [])
+        self.assertEqual(report["publication_state"], "item-level-clearance-recorded")
+
+    def test_two_complete_bound_attempts_prove_idempotence(self):
+        from photo_fieldwork.execution import compare_execution_attempts
+
+        binding = {
+            "release_plan_id": "release",
+            "proposal_id": "pfp-aaaaaaaaaaaaaaaa",
+            "release_plan_sha256": "a" * 64,
+            "master_sha256": "b" * 64,
+            "config_sha256": "c" * 64,
+            "feedback_sha256": "d" * 64,
+            "source_membership_sha256": "e" * 64,
+            "evaluation_report_sha256": "f" * 64,
+            "validation_report_sha256": "0" * 64,
+        }
+
+        def plan(plan_id: str, attempt_id: str) -> dict:
+            value = {
+                "plan_id": plan_id,
+                "attempt_id": attempt_id,
+                "release_binding": binding,
+                "source_album_identifier": "SOURCE",
+                "expected_source_count": 2,
+                "albums": [
+                    {"title": "00 MASTER", "asset_identifiers": ["ONE", "TWO"]}
+                ],
+            }
+            value["plan_sha256"] = pipeline.content_sha256(value)
+            return value
+
+        def receipt(plan_value: dict) -> dict:
+            return {
+                "plan_id": plan_value["plan_id"],
+                "attempt_id": plan_value["attempt_id"],
+                "plan_sha256": plan_value["plan_sha256"],
+                "release_binding": binding,
+                "helper_capability_version": 3,
+                "helper_bundle_identifier": "art.jamieburk.photo-fieldwork",
+                "source_album_identifier": "SOURCE",
+                "source_count": 2,
+                "folders": [{"title": "Photo Archive", "identifier": "folder-1"}],
+                "albums": [{"title": "00 MASTER", "identifier": "album-1", "count": 2}],
+            }
+
+        first_plan = plan("production-01", "attempt-01")
+        second_plan = plan("production-02", "attempt-02")
+        report = compare_execution_attempts(
+            first_plan,
+            receipt(first_plan),
+            second_plan,
+            receipt(second_plan),
+        )
+        self.assertEqual(report["status"], "PASS")
+        self.assertTrue(report["idempotent"])
+
+        second_plan["attempt_id"] = "attempt-01"
+        second_plan["plan_sha256"] = pipeline.content_sha256(second_plan)
+        with self.assertRaisesRegex(ValueError, "distinct"):
+            compare_execution_attempts(
+                first_plan,
+                receipt(first_plan),
+                second_plan,
+                receipt(second_plan),
+            )
+
+        second_plan["attempt_id"] = "attempt-02"
+        second_plan["albums"][0]["asset_identifiers"] = ["ONE", "THREE"]
+        second_plan["plan_sha256"] = pipeline.content_sha256(second_plan)
+        with self.assertRaisesRegex(ValueError, "memberships"):
+            compare_execution_attempts(
+                first_plan,
+                receipt(first_plan),
+                second_plan,
+                receipt(second_plan),
+            )
 
 
 if __name__ == "__main__":

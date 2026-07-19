@@ -113,6 +113,18 @@ photo-fieldwork validate \
 
 Validation enforces exact view quotas, evaluation coverage and precision, material-view precision, replacement review, HOLD and known-reject exclusion, event concentration, evidence lineage, and configured representation floors.
 
+Before treating a final sample as untouched, audit UUID and relation leakage:
+
+```bash
+photo-fieldwork audit-split \
+  --tuning RUN/evaluations/tuning.csv \
+  --canary RUN/evaluations/regression-canaries.csv \
+  --holdout RUN/evaluations/final-holdout.csv \
+  --output RUN/reports/holdout-audit.json
+```
+
+The default report includes counts and membership digests without printing private identifiers. Use `--include-identifiers` only for a protected local diagnosis.
+
 Create a release-bound membership plan only after final evaluation and validation pass:
 
 ```bash
@@ -129,11 +141,11 @@ photo-fieldwork plan \
   --output RUN/plans/catalog-plan.json
 ```
 
-The plan carries source, proposal, master, exact evaluation-report, exact validation-report, and plan identities. Replacing an image, changing its assigned view, or changing either release report invalidates the old release evidence.
+The plan carries source, proposal, master, config, final feedback, exact evaluation-report, exact validation-report, and plan identities. Replacing an image, changing its assigned view, editing a visible review reason, changing thresholds, or changing either release report invalidates the old release evidence. A release plan classifies the result as `editor-field-verified`; publication remains `publication-review-required`.
 
 ## Evaluation bank
 
-`make evals` runs the synthetic release-contract bank, including feasible overlap assignment, explicit infeasibility, stale-evaluation rejection, receipt drift, protected states, weak-view detection, replacement audits, plan tampering, and a deterministic 4,000-item assignment. See [`evals/README.md`](evals/README.md) for the prompt bank and recursive hill-climb record.
+`make evals` runs a typed prompt bank plus executable release contracts, including positive controls, mutation checks, relation-aware holds, holdout leakage, human decision provenance, stale config and feedback, default-closed publication, incomplete receipts, and a deterministic 4,000-item assignment. See [`evals/README.md`](evals/README.md) and [`docs/composite-A.md`](docs/composite-A.md).
 
 ## Apple Photos integration
 
@@ -145,6 +157,29 @@ The bundled `curate-apple-photos` skill and helper adapter add:
 - preview decode verification and a transparent local cache;
 - test-first, membership-only Photos plans;
 - compact WAL-aware verification evidence.
+
+`snapshot-plans` emits one write-test plan and two distinct production plans with separate receipt paths. Validate and compare the preserved attempts after both writes:
+
+```bash
+python3 skills/curate-apple-photos/scripts/photo_archive_bridge.py compare-attempts \
+  --first-plan RUN/manifests/VERSION-production-plan.json \
+  --first-receipt RUN/manifests/VERSION-photo-archive-receipt-01.json \
+  --second-plan RUN/manifests/VERSION-production-rerun-plan.json \
+  --second-receipt RUN/manifests/VERSION-photo-archive-receipt-02.json \
+  --output RUN/reports/production-idempotence.json
+```
+
+Publication is a separate, default-closed workflow:
+
+```bash
+photo-fieldwork publication scaffold \
+  --master RUN/manifests/proposed-master.csv \
+  --output RUN/manifests/publication-clearance.csv
+
+photo-fieldwork publication validate \
+  --clearance RUN/manifests/publication-clearance.csv \
+  --output RUN/reports/publication
+```
 
 The helper source is a template. Existing signed installations should retain their stable bundle identity unless the operator deliberately accepts a new Photos permission prompt.
 

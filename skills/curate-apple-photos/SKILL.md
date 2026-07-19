@@ -9,7 +9,7 @@ Turn a brief into a locally inspected, recursively evaluated, versioned Apple Ph
 
 ## Start
 
-1. Keep requested editorial lenses visible. Their judgments guide interpretation; receipts establish operational facts.
+1. Keep requested editorial lenses visible. Their judgments guide interpretation; they are not eyewitnesses, rights holders, consent authorities, or substitutes for an identified human decision. Receipts establish operational facts.
 2. Read [machine-profile.md](references/machine-profile.md), then run:
 
 ```bash
@@ -33,6 +33,7 @@ When resuming, run `photo-fieldwork run status` before doing work. It rechecks b
 - Use existing People names only. Never identify unnamed faces or infer sensitive traits.
 - Keep exact private locations and raw OCR out of reports.
 - A potential sensitive item enters HOLD before ranking and cannot enter the master.
+- Propagate HOLD through exact duplicate, perceptual-match, and burst relations before ranking. Do not clear a related crop, edit, or sequence neighbor independently.
 - Preserve `Unclassified / Editor Field`.
 - Label project-specific views `EDITOR HYPOTHESIS` unless visible evidence plus provenance supports stronger wording.
 - Treat `not recovered` as an evidence result, never as proof that relevant photographs do not exist. Keep hypotheses distinct from provenance.
@@ -63,25 +64,26 @@ Read [evaluation-loop.md](references/evaluation-loop.md).
 1. Run `photo-fieldwork select`.
 2. Read the capacity report. Multi-view candidates must be assigned jointly to exact quotas. If a view has a deficit, report the gap; never pad it, silently change its quota, or coerce unrelated material.
 3. Sample low, middle, and high scores from every populated view.
-4. Generate contact sheets and the local review workbench. Inspect actual previews, opening individual images when context or safety is unclear.
-5. Record `fit`, `reject`, or `uncertain`, a visible reason, a safety state, and an error category.
-6. Run `photo-fieldwork evaluate`. Read every rejection and representative uncertainty.
-7. Revise retrieval, assignments, penalties, quotas, event limits, or hold rules in response to observed errors. Keep the seed fixed.
-8. Persist known rejects and historical holds so they cannot return under another label.
-9. Repeat until overall and material-view gates pass.
-10. Audit the actual frozen field with `--final-field`, including every replacement introduced after an earlier pass.
+4. Keep tuning, canaries, and the frozen final holdout separate. Run `photo-fieldwork audit-split`; UUID or duplicate, perceptual, or burst relation leakage invalidates the holdout.
+5. Generate contact sheets and the local review workbench. Inspect actual previews, opening individual images when context or safety is unclear.
+6. Record `fit`, `reject`, or `uncertain`, a visible reason, a safety state, an identified human reviewer, reviewer kind, review round, and error category.
+7. Run `photo-fieldwork evaluate`. Read every rejection and representative uncertainty.
+8. Revise retrieval, assignments, penalties, quotas, event limits, or hold rules in response to observed errors. Keep the seed fixed.
+9. Persist known rejects and historical holds so they cannot return under another label.
+10. Repeat until overall and material-view gates pass.
+11. Audit the actual frozen field with `--final-field`, including every replacement introduced after an earlier pass. The final report binds the exact config and feedback content.
 
 Do not claim success from Vision labels or metadata alone. The recursive loop requires actual preview inspection.
 
 ## Validate and commit
 
 1. Run `photo-fieldwork validate` with the final evaluation report and feedback.
-2. Confirm that the master, final evaluation, and validation report share one `proposal_id` and `master_sha256`.
-3. Generate the schema-2 release plan with `photo-fieldwork plan`. Confirm that it binds the frozen source count and membership SHA-256, `proposal_id`, `master_sha256`, final evaluation identity, validation identity, and its own `plan_sha256`. A prerequisite report is not bound merely because it passed or shares a filename.
-4. Generate helper test and production plans with `photo_archive_bridge.py snapshot-plans --release-plan RELEASE_PLAN`. The bridge must reject a stale or altered release plan.
+2. Confirm that the master, final evaluation, and validation report share one `proposal_id`, `master_sha256`, `config_sha256`, and `feedback_sha256`.
+3. Generate the schema-2 release plan with `photo-fieldwork plan`. Confirm that it binds the frozen source count and membership SHA-256, proposal, master, config, feedback, final evaluation, validation, and its own `plan_sha256`. It must say `release_class: editor-field-verified` and `publication_state: publication-review-required`.
+4. Generate helper test and two production-attempt plans with `photo_archive_bridge.py snapshot-plans --release-plan RELEASE_PLAN`. The bridge must reject a stale or altered release plan.
 5. Inspect the frozen plans, source identity, target, folder title, HOLD separation, membership-only mode, and `plan_sha256`.
 6. Run the ten-item write test and independently verify it.
-7. Run production, rerun it once for idempotence, and independently verify it through compact WAL-aware evidence.
+7. Run both production plans. Preserve both receipts, validate each before comparing them, run `photo_archive_bridge.py compare-attempts`, and independently verify each through compact WAL-aware evidence.
 8. Record every phase receipt and generate the completion report from receipts.
 
 ## Final response
@@ -97,3 +99,5 @@ Return:
 - links to the run report, master manifest, evaluation report, app receipt, compact evidence, and independent verification.
 
 State clearly that the result is an editor-ready field, not the final publication edit.
+
+If the user later asks to publish selected photographs, create a default-closed register with `photo-fieldwork publication scaffold` and validate item-level human decisions with `photo-fieldwork publication validate`. Never convert role-play, library ownership, or editor-field membership into publication clearance.

@@ -12,6 +12,9 @@ license = {text = "MIT"}
 authors = [{name = "Photo Fieldwork contributors"}]
 dependencies = []
 
+[project.optional-dependencies]
+review = ["Pillow>=10"]
+
 [project.scripts]
 photo-fieldwork = "photo_fieldwork.cli:main"
 

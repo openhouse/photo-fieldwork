@@ -9,6 +9,8 @@
 - Bind catalog plans to frozen source membership, exact master assignments, exact final-evaluation and validation reports, and plan content.
 - Recheck receipt artifacts while deriving run state and block later passing phases after evidence drift.
 - Preserve the measured deterministic and paired-agent Revision A hill climbs in `evals/iterations/`.
+- Compose relation-aware safety, untouched holdouts, identified-human decisions, config and feedback binding, default-closed publication, and complete two-attempt execution receipts into the Revision A spine.
+- Expand the prompt bank to 13 typed cases and the executable bank to 31 cases, including evaluator mutation and positive-control checks.
 
 ### Added
 

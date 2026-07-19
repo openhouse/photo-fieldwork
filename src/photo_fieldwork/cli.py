@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 
 from . import __version__
+from .evalsplit import audit_split
+from .governance import scaffold_publication_clearance, validate_publication_clearance
 from .pipeline import (
     build_catalog_plan,
     evaluate,
@@ -115,6 +117,43 @@ def command_review(args: argparse.Namespace) -> int:
     render_workbench(rows, args.previews, args.output)
     print(f"wrote local review workbench to {args.output}")
     return 0
+
+
+def command_audit_split(args: argparse.Namespace) -> int:
+    tuning = [row for path in args.tuning for row in read_csv(path)]
+    holdout = read_csv(args.holdout)
+    canaries = [row for path in args.canary for row in read_csv(path)]
+    report = audit_split(
+        tuning,
+        holdout,
+        canaries,
+        include_identifiers=args.include_identifiers,
+    )
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    print(f"holdout audit {report['status']}: {args.output}")
+    return 0 if report["status"] == "PASS" else 2
+
+
+def command_publication_scaffold(args: argparse.Namespace) -> int:
+    rows = scaffold_publication_clearance(read_csv(args.master))
+    write_csv(args.output, rows)
+    print(f"wrote {len(rows)} default-closed publication rows to {args.output}")
+    return 0
+
+
+def command_publication_validate(args: argparse.Namespace) -> int:
+    errors, report = validate_publication_clearance(read_csv(args.clearance))
+    report["errors"] = errors
+    args.output.mkdir(parents=True, exist_ok=True)
+    (args.output / "publication-clearance-report.json").write_text(
+        json.dumps(report, indent=2) + "\n", encoding="utf-8"
+    )
+    (args.output / "publication-clearance-report.md").write_text(
+        markdown_report("Publication clearance report", report), encoding="utf-8"
+    )
+    print(f"publication clearance {report['status']}")
+    return 0 if not errors else 2
 
 
 def command_profile_check(args: argparse.Namespace) -> int:
@@ -288,6 +327,29 @@ def parser() -> argparse.ArgumentParser:
     review.add_argument("--previews", type=Path, required=True)
     review.add_argument("--output", type=Path, required=True)
     review.set_defaults(func=command_review)
+
+    split = sub.add_parser("audit-split", help="audit a frozen holdout for UUID and relation leakage")
+    split.add_argument("--tuning", type=Path, action="append", default=[])
+    split.add_argument("--holdout", type=Path, required=True)
+    split.add_argument("--canary", type=Path, action="append", default=[])
+    split.add_argument("--output", type=Path, required=True)
+    split.add_argument(
+        "--include-identifiers",
+        action="store_true",
+        help="include private UUID and relation details in the local report",
+    )
+    split.set_defaults(func=command_audit_split)
+
+    publication = sub.add_parser("publication", help="manage separate item-level publication review")
+    publication_sub = publication.add_subparsers(dest="publication_command", required=True)
+    publication_scaffold = publication_sub.add_parser("scaffold", help="create a default-closed clearance register")
+    publication_scaffold.add_argument("--master", type=Path, required=True)
+    publication_scaffold.add_argument("--output", type=Path, required=True)
+    publication_scaffold.set_defaults(func=command_publication_scaffold)
+    publication_validate = publication_sub.add_parser("validate", help="validate item-level publication decisions")
+    publication_validate.add_argument("--clearance", type=Path, required=True)
+    publication_validate.add_argument("--output", type=Path, required=True)
+    publication_validate.set_defaults(func=command_publication_validate)
 
     profile = sub.add_parser("profile", help="validate a local machine profile")
     profile_sub = profile.add_subparsers(dest="profile_command", required=True)

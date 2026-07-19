@@ -52,13 +52,17 @@ An inspector may add local visible-context, technical-quality, and generalized s
 
 A writer consumes `catalog-plan.json`. It may create version folders, create albums, and add existing stable IDs. It must not invent selection logic. It must emit a receipt and be safe to rerun.
 
-Plan schema 2 binds the exact source membership, proposed-master membership and assignments, exact passing final-evaluation and validation reports, and plan content. A writer must reject a missing or mismatched identity rather than reconstructing authorization from filenames.
+Plan schema 2 binds the exact source membership, proposed-master membership and assignments, config, final feedback, exact passing final-evaluation and validation reports, and plan content. Snapshot plan schema 2 adds a distinct attempt identity and content digest. A writer receipt echoes that attempt, exact snapshot-plan digest, complete release binding, stable helper bundle identity, folder identities, album identities, and counts.
+
+Idempotence is computed only after two preserved production attempts validate independently. Equal but incomplete receipts are not evidence.
 
 ## Verifier adapters
 
 A verifier independently compares plan and catalog. It should be read-only and should not share mutation code with the writer.
 
 For Apple Photos, the verifier first opens the live catalog in one WAL-aware, read-only transaction and extracts only relevant source checks and target memberships into compact evidence. Verification then reopens that evidence with immutable and query-only flags.
+
+Publication review is outside the writer. Its register defaults closed and records item-level human decisions without changing editor-field membership.
 
 ## Machine profiles
 

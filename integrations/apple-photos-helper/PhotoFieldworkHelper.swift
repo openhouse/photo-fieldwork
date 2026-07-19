@@ -61,13 +61,28 @@ struct AlbumSpec: Codable {
     let asset_identifiers: [String]
 }
 
+struct ReleaseBinding: Codable, Equatable {
+    let release_plan_id: String
+    let release_plan_sha256: String
+    let proposal_id: String
+    let master_sha256: String
+    let config_sha256: String
+    let feedback_sha256: String
+    let source_membership_sha256: String
+    let evaluation_report_sha256: String
+    let validation_report_sha256: String
+}
+
 struct SnapshotPlan: Codable {
     let operation: String?
     let schema_version: Int
     let plan_id: String
+    let attempt_id: String
+    let plan_sha256: String
     let safety_mode: String
     let source_album_identifier: String
     let expected_source_count: Int
+    let release_binding: ReleaseBinding
     let batch_size: Int
     let log_path: String
     let receipt_path: String
@@ -147,6 +162,10 @@ struct AlbumReceipt: Codable {
 struct SnapshotReceipt: Codable {
     let completed_at: String
     let plan_id: String
+    let attempt_id: String
+    let plan_sha256: String
+    let release_binding: ReleaseBinding
+    let helper_bundle_identifier: String
     let source_album_identifier: String
     let source_count: Int
     let safety_mode: String
@@ -564,11 +583,14 @@ final class ArchiveRunner {
     }
 
     func run() throws -> SnapshotReceipt {
-        guard plan.schema_version == 1 else {
+        guard plan.schema_version == 2 else {
             throw ArchiveError.invalidPlan("unsupported schema_version")
         }
         guard plan.safety_mode == "create-folders-albums-and-add-membership-only" else {
             throw ArchiveError.invalidPlan("unrecognized safety_mode")
+        }
+        guard !plan.attempt_id.isEmpty else {
+            throw ArchiveError.invalidPlan("attempt_id is required")
         }
         guard (1...2000).contains(plan.batch_size) else {
             throw ArchiveError.invalidPlan("batch_size outside 1...2000")
@@ -621,12 +643,16 @@ final class ArchiveRunner {
         return SnapshotReceipt(
             completed_at: ISO8601DateFormatter().string(from: Date()),
             plan_id: plan.plan_id,
+            attempt_id: plan.attempt_id,
+            plan_sha256: plan.plan_sha256,
+            release_binding: plan.release_binding,
+            helper_bundle_identifier: Bundle.main.bundleIdentifier ?? "unknown",
             source_album_identifier: plan.source_album_identifier,
             source_count: sourceCount,
             safety_mode: plan.safety_mode,
             folders: folderReceipts,
             albums: albumReceipts,
-            helper_capability_version: 2
+            helper_capability_version: 3
         )
     }
 

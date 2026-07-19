@@ -9,7 +9,11 @@
     "plan_id",
     "proposal_id",
     "master_sha256",
+    "config_sha256",
+    "feedback_sha256",
     "plan_sha256",
+    "release_class",
+    "publication_state",
     "created_at",
     "safety_mode",
     "source",
@@ -25,7 +29,11 @@
     "plan_id": {"type": "string", "minLength": 1},
     "proposal_id": {"type": "string", "pattern": "^pfp-[0-9a-f]{16}$"},
     "master_sha256": {"$ref": "#/$defs/sha256"},
+    "config_sha256": {"$ref": "#/$defs/sha256"},
+    "feedback_sha256": {"$ref": "#/$defs/sha256"},
     "plan_sha256": {"$ref": "#/$defs/sha256"},
+    "release_class": {"const": "editor-field-verified"},
+    "publication_state": {"const": "publication-review-required"},
     "created_at": {"type": "string", "format": "date-time"},
     "safety_mode": {"const": "create-folders-albums-and-add-membership-only"},
     "source": {
@@ -42,23 +50,27 @@
     "evaluation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["passed", "final_field_audit", "proposal_id", "master_sha256", "report_sha256"],
+      "required": ["passed", "final_field_audit", "proposal_id", "master_sha256", "config_sha256", "feedback_sha256", "report_sha256"],
       "properties": {
         "passed": {"const": true},
         "final_field_audit": {"const": true},
         "proposal_id": {"type": "string", "pattern": "^pfp-[0-9a-f]{16}$"},
         "master_sha256": {"$ref": "#/$defs/sha256"},
+        "config_sha256": {"$ref": "#/$defs/sha256"},
+        "feedback_sha256": {"$ref": "#/$defs/sha256"},
         "report_sha256": {"$ref": "#/$defs/sha256"}
       }
     },
     "validation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["status", "proposal_id", "master_sha256", "report_sha256"],
+      "required": ["status", "proposal_id", "master_sha256", "config_sha256", "feedback_sha256", "report_sha256"],
       "properties": {
         "status": {"const": "PASS"},
         "proposal_id": {"type": "string", "pattern": "^pfp-[0-9a-f]{16}$"},
         "master_sha256": {"$ref": "#/$defs/sha256"},
+        "config_sha256": {"$ref": "#/$defs/sha256"},
+        "feedback_sha256": {"$ref": "#/$defs/sha256"},
         "report_sha256": {"$ref": "#/$defs/sha256"}
       }
     },

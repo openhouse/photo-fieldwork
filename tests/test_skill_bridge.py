@@ -2,6 +2,7 @@ import importlib.util
 import json
 import tempfile
 import unittest
+from argparse import Namespace
 from pathlib import Path
 
 from photo_fieldwork.pipeline import content_sha256, master_sha256
@@ -34,17 +35,50 @@ class SkillBridgeTests(unittest.TestCase):
         self.assertEqual(by_key["audit"]["existing_identifier"], "AUDIT/L0/020")
         self.assertEqual(by_key["version"]["title"], "v03 example")
 
+    def test_snapshot_plan_is_attempt_and_content_bound(self):
+        binding = {
+            "release_plan_id": "release",
+            "proposal_id": "pfp-aaaaaaaaaaaaaaaa",
+            "release_plan_sha256": "a" * 64,
+            "master_sha256": "b" * 64,
+            "config_sha256": "c" * 64,
+            "feedback_sha256": "d" * 64,
+            "source_membership_sha256": "e" * 64,
+            "evaluation_report_sha256": "f" * 64,
+            "validation_report_sha256": "0" * 64,
+        }
+        plan = bridge.snapshot_plan(
+            Namespace(batch_size=500, workspace=Path("/private/tmp/synthetic-run")),
+            "production-01",
+            "attempt-01",
+            [{"key": "version", "title": "Version", "parent_key": None, "existing_identifier": None}],
+            [bridge.album("00 MASTER", "version", ["ONE", "TWO"])],
+            "receipt-01.json",
+            "SOURCE",
+            2,
+            binding,
+        )
+        self.assertEqual(plan["schema_version"], 2)
+        self.assertEqual(plan["attempt_id"], "attempt-01")
+        self.assertEqual(plan["plan_sha256"], content_sha256(plan))
+
     def test_release_binding_rejects_a_tampered_or_stale_plan(self):
         rows = [
             {"uuid": "ONE", "primary_view": "a"},
             {"uuid": "TWO", "primary_view": "b"},
         ]
         digest = master_sha256(rows)
+        config_digest = "d" * 64
+        feedback_digest = "e" * 64
         plan = {
             "schema_version": 2,
             "plan_id": "release",
             "proposal_id": f"pfp-{digest[:16]}",
             "master_sha256": digest,
+            "config_sha256": config_digest,
+            "feedback_sha256": feedback_digest,
+            "release_class": "editor-field-verified",
+            "publication_state": "publication-review-required",
             "expected_master_count": 2,
             "source": {
                 "identifier": "SOURCE",
@@ -56,12 +90,16 @@ class SkillBridgeTests(unittest.TestCase):
                 "final_field_audit": True,
                 "proposal_id": f"pfp-{digest[:16]}",
                 "master_sha256": digest,
+                "config_sha256": config_digest,
+                "feedback_sha256": feedback_digest,
                 "report_sha256": "b" * 64,
             },
             "validation": {
                 "status": "PASS",
                 "proposal_id": f"pfp-{digest[:16]}",
                 "master_sha256": digest,
+                "config_sha256": config_digest,
+                "feedback_sha256": feedback_digest,
                 "report_sha256": "c" * 64,
             },
             "albums": [{"key": "master", "asset_ids": ["ONE", "TWO"]}],

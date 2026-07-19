@@ -14,6 +14,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from photo_fieldwork.execution import compare_execution_attempts, validate_execution_attempt
 from photo_fieldwork.pipeline import content_sha256, master_sha256
 
 
@@ -300,12 +301,20 @@ def release_binding(
     proposal_id = f"pfp-{digest[:16]}"
     if plan.get("proposal_id") != proposal_id:
         raise ValueError("release plan proposal identity does not match the bridge master")
+    if plan.get("release_class") != "editor-field-verified":
+        raise ValueError("release plan is not an editor-field-verified release")
+    if plan.get("publication_state") != "publication-review-required":
+        raise ValueError("release plan improperly claims publication clearance")
+    config_digest = plan.get("config_sha256", "")
+    feedback_digest = plan.get("feedback_sha256", "")
     evaluation = plan.get("evaluation", {})
     if (
         evaluation.get("passed") is not True
         or evaluation.get("final_field_audit") is not True
         or evaluation.get("proposal_id") != proposal_id
         or evaluation.get("master_sha256") != digest
+        or evaluation.get("config_sha256") != config_digest
+        or evaluation.get("feedback_sha256") != feedback_digest
     ):
         raise ValueError("release plan evaluation binding is invalid")
     validation = plan.get("validation", {})
@@ -313,10 +322,14 @@ def release_binding(
         validation.get("status") != "PASS"
         or validation.get("proposal_id") != proposal_id
         or validation.get("master_sha256") != digest
+        or validation.get("config_sha256") != config_digest
+        or validation.get("feedback_sha256") != feedback_digest
     ):
         raise ValueError("release plan validation binding is invalid")
     for label, value in (
         ("source membership", plan.get("source", {}).get("membership_sha256", "")),
+        ("config", config_digest),
+        ("feedback", feedback_digest),
         ("evaluation report", evaluation.get("report_sha256", "")),
         ("validation report", validation.get("report_sha256", "")),
     ):
@@ -344,6 +357,8 @@ def release_binding(
         "release_plan_sha256": plan["plan_sha256"],
         "proposal_id": proposal_id,
         "master_sha256": plan["master_sha256"],
+        "config_sha256": config_digest,
+        "feedback_sha256": feedback_digest,
         "source_membership_sha256": plan["source"]["membership_sha256"],
         "evaluation_report_sha256": evaluation["report_sha256"],
         "validation_report_sha256": validation["report_sha256"],
@@ -353,6 +368,7 @@ def release_binding(
 def snapshot_plan(
     args: argparse.Namespace,
     plan_id: str,
+    attempt_id: str,
     folders: list[dict],
     albums: list[dict],
     receipt: str,
@@ -360,10 +376,11 @@ def snapshot_plan(
     source_count: int,
     binding: dict,
 ) -> dict:
-    return {
+    plan = {
         "operation": "snapshot-membership",
-        "schema_version": 1,
+        "schema_version": 2,
         "plan_id": plan_id,
+        "attempt_id": attempt_id,
         "safety_mode": "create-folders-albums-and-add-membership-only",
         "source_album_identifier": source_id,
         "expected_source_count": source_count,
@@ -374,6 +391,8 @@ def snapshot_plan(
         "folders": folders,
         "albums": albums,
     }
+    plan["plan_sha256"] = content_sha256(plan)
+    return plan
 
 
 def command_snapshot_plans(args: argparse.Namespace) -> int:
@@ -422,6 +441,7 @@ def command_snapshot_plans(args: argparse.Namespace) -> int:
     test = snapshot_plan(
         args,
         f"{args.version}-write-test",
+        f"{args.version}-write-test-01",
         folder_specs(args.folder_title, include_version=False, profile=profile),
         [album(test_title, "audit", test_ids)],
         f"{args.version}-write-test-receipt.json",
@@ -442,20 +462,35 @@ def command_snapshot_plans(args: argparse.Namespace) -> int:
     production_albums.append(album(test_title, "audit", test_ids))
     production = snapshot_plan(
         args,
-        f"{args.version}-production",
+        f"{args.version}-production-01",
+        f"{args.version}-production-01",
         folder_specs(args.folder_title, include_version=True, profile=profile),
         production_albums,
-        f"{args.version}-photo-archive-receipt.json",
+        f"{args.version}-photo-archive-receipt-01.json",
+        source_id,
+        source_count,
+        binding,
+    )
+    production_rerun = snapshot_plan(
+        args,
+        f"{args.version}-production-02",
+        f"{args.version}-production-02",
+        folder_specs(args.folder_title, include_version=True, profile=profile),
+        production_albums,
+        f"{args.version}-photo-archive-receipt-02.json",
         source_id,
         source_count,
         binding,
     )
     test_path = args.workspace / "manifests" / f"{args.version}-write-test-plan.json"
     production_path = args.workspace / "manifests" / f"{args.version}-production-plan.json"
+    rerun_path = args.workspace / "manifests" / f"{args.version}-production-rerun-plan.json"
     dump_json(test_path, test)
     dump_json(production_path, production)
+    dump_json(rerun_path, production_rerun)
     print(f"test_plan={test_path}")
     print(f"production_plan={production_path}")
+    print(f"production_rerun_plan={rerun_path}")
     print(f"production_albums={len(production_albums)}")
     print(f"production_memberships={sum(len(item['asset_identifiers']) for item in production_albums)}")
     return 0
@@ -493,7 +528,24 @@ def command_run_plan(args: argparse.Namespace) -> int:
     if before is not None and before == after:
         raise ValueError(f"receipt was not refreshed: {receipt_path}")
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    if plan.get("operation") == "snapshot-membership":
+        validate_execution_attempt(plan, receipt)
+        expected_bundle = profile.get("helper", {}).get("bundle_id")
+        if receipt.get("helper_bundle_identifier") != expected_bundle:
+            raise ValueError("receipt helper bundle identity does not match the machine profile")
     print(json.dumps(receipt, indent=2, ensure_ascii=False))
+    return 0
+
+
+def command_compare_attempts(args: argparse.Namespace) -> int:
+    report = compare_execution_attempts(
+        json.loads(args.first_plan.read_text(encoding="utf-8")),
+        json.loads(args.first_receipt.read_text(encoding="utf-8")),
+        json.loads(args.second_plan.read_text(encoding="utf-8")),
+        json.loads(args.second_receipt.read_text(encoding="utf-8")),
+    )
+    dump_json(args.output, report)
+    print(f"production attempts {report['status']}: {args.output}")
     return 0
 
 
@@ -567,6 +619,14 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument("--plan", type=Path, required=True)
     run.add_argument("--adapter", choices=("photokit", "applescript"))
     run.set_defaults(func=command_run_plan)
+
+    compare = sub.add_parser("compare-attempts", help="validate and compare two preserved production attempts")
+    compare.add_argument("--first-plan", type=Path, required=True)
+    compare.add_argument("--first-receipt", type=Path, required=True)
+    compare.add_argument("--second-plan", type=Path, required=True)
+    compare.add_argument("--second-receipt", type=Path, required=True)
+    compare.add_argument("--output", type=Path, required=True)
+    compare.set_defaults(func=command_compare_attempts)
     return root
 
 
