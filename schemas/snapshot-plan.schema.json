@@ -10,6 +10,7 @@
     "safety_mode",
     "source_album_identifier",
     "expected_source_count",
+    "release_seal_fingerprint",
     "folders",
     "albums"
   ],
@@ -22,6 +23,7 @@
     "source_album_identifier": {"type": "string"},
     "expected_source_count": {"type": "integer", "minimum": 0},
     "expected_source_membership_sha256": {"type": ["string", "null"]},
+    "release_seal_fingerprint": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
     "batch_size": {"type": "integer", "minimum": 1, "maximum": 2000},
     "log_path": {"type": "string"},
     "receipt_path": {"type": "string"},

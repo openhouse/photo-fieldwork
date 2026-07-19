@@ -8,6 +8,7 @@
     "target_count": {"type": "integer", "minimum": 1},
     "unclassified_view": {"type": "string"},
     "burst_limit": {"type": "integer", "minimum": 1},
+    "event_cluster_limit": {"type": "integer", "minimum": 0},
     "minimum_eval_precision": {"type": "number", "minimum": 0, "maximum": 1},
     "minimum_eval_coverage": {"type": "number", "minimum": 0, "maximum": 1},
     "minimum_view_precision": {"type": "number", "minimum": 0, "maximum": 1},

@@ -98,6 +98,7 @@ struct InspectionRow: Codable {
 
 struct InspectionReceipt: Codable {
     let completed_at: String
+    let execution_nonce: String
     let plan_id: String
     let plan_sha256: String?
     let source_album_identifier: String
@@ -127,6 +128,7 @@ struct AlbumReceipt: Codable {
 
 struct SnapshotReceipt: Codable {
     let completed_at: String
+    let execution_nonce: String
     let plan_id: String
     let source_album_identifier: String
     let source_count: Int
@@ -151,7 +153,7 @@ enum ArchiveError: Error, CustomStringConvertible {
     var description: String {
         switch self {
         case .usage:
-            return "Usage: JamiePhotoArchive --plan /absolute/path/plan.json"
+            return "Usage: JamiePhotoArchive --plan /absolute/path/plan.json --launch-nonce 32-lowercase-hex"
         case .authorization(let status):
             return "Full Photos access unavailable; authorization status=\(status)"
         case .invalidPlan(let reason):
@@ -174,11 +176,13 @@ enum ArchiveError: Error, CustomStringConvertible {
 
 final class InspectionRunner {
     private let plan: InspectionPlan
+    private let executionNonce: String
     private let imageManager = PHImageManager.default()
     private let encoder = JSONEncoder()
 
-    init(plan: InspectionPlan) {
+    init(plan: InspectionPlan, executionNonce: String) {
         self.plan = plan
+        self.executionNonce = executionNonce
         encoder.outputFormatting = [.sortedKeys]
     }
 
@@ -301,6 +305,7 @@ final class InspectionRunner {
 
         return InspectionReceipt(
             completed_at: ISO8601DateFormatter().string(from: Date()),
+            execution_nonce: executionNonce,
             plan_id: plan.plan_id,
             plan_sha256: plan.plan_sha256,
             source_album_identifier: plan.source_album_identifier,
@@ -511,10 +516,12 @@ final class InspectionRunner {
 final class ArchiveRunner {
     private let library = PHPhotoLibrary.shared()
     private let plan: SnapshotPlan
+    private let executionNonce: String
     private var folderByKey: [String: PHCollectionList] = [:]
 
-    init(plan: SnapshotPlan) {
+    init(plan: SnapshotPlan, executionNonce: String) {
         self.plan = plan
+        self.executionNonce = executionNonce
     }
 
     func log(_ message: String) {
@@ -593,6 +600,7 @@ final class ArchiveRunner {
 
         return SnapshotReceipt(
             completed_at: ISO8601DateFormatter().string(from: Date()),
+            execution_nonce: executionNonce,
             plan_id: plan.plan_id,
             source_album_identifier: plan.source_album_identifier,
             source_count: sourceCount,
@@ -798,15 +806,21 @@ func writeReceipt(_ receipt: SnapshotReceipt, to path: String) throws {
 do {
     let arguments = CommandLine.arguments
     guard let planIndex = arguments.firstIndex(of: "--plan"),
-          arguments.indices.contains(planIndex + 1) else {
+          arguments.indices.contains(planIndex + 1),
+          let nonceIndex = arguments.firstIndex(of: "--launch-nonce"),
+          arguments.indices.contains(nonceIndex + 1) else {
         throw ArchiveError.usage
+    }
+    let executionNonce = arguments[nonceIndex + 1]
+    guard executionNonce.range(of: #"^[a-f0-9]{32}$"#, options: .regularExpression) != nil else {
+        throw ArchiveError.invalidPlan("launch nonce must be 32 lowercase hex characters")
     }
     let planURL = URL(fileURLWithPath: arguments[planIndex + 1])
     let planData = try Data(contentsOf: planURL)
     let header = try JSONDecoder().decode(PlanHeader.self, from: planData)
     if header.operation == "inspect-local-images" {
         let plan = try JSONDecoder().decode(InspectionPlan.self, from: planData)
-        let runner = InspectionRunner(plan: plan)
+        let runner = InspectionRunner(plan: plan, executionNonce: executionNonce)
         let receipt = try runner.run()
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -819,7 +833,7 @@ do {
         runner.log("completed receipt=\(plan.receipt_path)")
     } else {
         let plan = try JSONDecoder().decode(SnapshotPlan.self, from: planData)
-        let runner = ArchiveRunner(plan: plan)
+        let runner = ArchiveRunner(plan: plan, executionNonce: executionNonce)
         let receipt = try runner.run()
         try writeReceipt(receipt, to: plan.receipt_path)
         runner.log("completed receipt=\(plan.receipt_path)")

@@ -33,9 +33,10 @@ make check
 
 The synthetic [skill evaluation bank](evals/README.md) covers recovery,
 fresh-evidence discipline, source and artifact identity, stratified quality,
-safety and consent, catalog verification, privacy-safe handoff, and epistemic
-provenance. It includes adversarial shortcuts so an agreeable but unsafe answer
-does not count as a pass.
+safety and consent, exact assignment, release sealing, holdout independence,
+catalog verification, publication clearance, privacy-safe handoff, and
+epistemic provenance. It includes adversarial shortcuts and a positive control
+so neither agreeable risk nor refusal-only behavior counts as success.
 
 The latest [evaluation hill climb](docs/eval-hillclimb.md) records how weak
 assertions were challenged and promoted into executable regressions.
@@ -46,9 +47,11 @@ assertions were challenged and promoted into executable regressions.
 2. Prepare a CSV using `schemas/inventory-fields.md`.
 3. Run the selection and create an evaluation sample.
 4. Inspect sampled images locally and record `fit`, `reject`, or `uncertain`.
-5. Evaluate, revise, and repeat until the agreed criteria pass.
-6. Generate a catalog write plan. Test ten items before any production write.
-7. Verify the committed album membership independently and read-only.
+5. Evaluate, revise, and audit a cluster-disjoint final holdout.
+6. Validate and seal the exact release candidate.
+7. Generate a seal-bound catalog plan. Test ten items before production.
+8. Verify two distinct production executions independently and read-only.
+9. Handle any public use through a separate default-closed clearance ledger.
 
 ```bash
 ./bin/photo-fieldwork select \
@@ -63,6 +66,7 @@ assertions were challenged and promoted into executable regressions.
 
 ./bin/photo-fieldwork evaluate \
   --feedback runs/my-run/manifests/eval-sample.csv \
+  --master runs/my-run/manifests/proposed-master.csv \
   --config path/to/config.json \
   --output runs/my-run/reports
 
@@ -72,12 +76,26 @@ assertions were challenged and promoted into executable regressions.
   --config path/to/config.json \
   --output runs/my-run/reports
 
+./bin/photo-fieldwork release-seal \
+  --master runs/my-run/manifests/proposed-master.csv \
+  --holds runs/my-run/manifests/hold-sensitive.csv \
+  --config path/to/config.json \
+  --source-snapshot runs/my-run/source-snapshot.json \
+  --evaluation-report runs/my-run/reports/evaluation-report.json \
+  --validation-report runs/my-run/reports/validation-report.json \
+  --output runs/my-run/reports/release-seal.json
+
 ./bin/photo-fieldwork plan \
   --master runs/my-run/manifests/proposed-master.csv \
+  --holds runs/my-run/manifests/hold-sensitive.csv \
   --config path/to/config.json \
   --plan-id my-run-v01 \
   --source-title "Wide retrieval - do not edit" \
   --source-identifier SOURCE-ID \
+  --source-snapshot runs/my-run/source-snapshot.json \
+  --evaluation-report runs/my-run/reports/evaluation-report.json \
+  --validation-report runs/my-run/reports/validation-report.json \
+  --release-seal runs/my-run/reports/release-seal.json \
   --output runs/my-run/manifests/catalog-plan.json
 ```
 
@@ -123,12 +141,15 @@ not be edited by hand.
 
 - A deterministic, configurable selection engine.
 - Safety holds that cannot enter the master.
-- Duplicate and burst controls.
+- Duplicate, burst, event-cap, and overlapping-view assignment controls.
 - Named-people and visible-apparatus signals.
 - An unclassified editor field for honest uncertainty.
 - Stratified evaluation samples and precision thresholds.
 - Enforced overall, per-view, coverage, decisive-sample, and uncertainty gates.
 - Frozen source membership digests and append-only run events.
+- Candidate-bound release seals and cluster-aware final holdout audits.
+- Default-closed per-asset publication clearance.
+- Distinct-execution idempotence evidence with per-attempt verification.
 - Provenance-aware safety states and explicit human review.
 - A fully synthetic practice run.
 - Apple Photos integration guidance and adapter contracts.
@@ -170,6 +191,11 @@ production album creation, and independent verification.
 ```
 
 The skill integrates with the installed `/Applications/Jamie Photo Archive.app`, preserving its stable Photos permission identity. Its reviewed source is retained under `integrations/jamie-photo-archive/`; replacing or rebuilding the installed app is a separate, explicit operation because macOS may request Photos authorization again.
+
+This revision adds helper-attested launch nonces. Before using its updated
+bridge for a real run, rebuild the installed app from the reviewed Swift source
+while preserving the bundle identifier. An older helper that omits the nonce is
+rejected closed and cannot supply idempotence evidence.
 
 Production plans are content-addressed. The helper archives every execution as a
 separate attempt receipt, and the independent verifier checks exact membership,

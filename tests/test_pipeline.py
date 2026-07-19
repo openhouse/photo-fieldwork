@@ -34,6 +34,14 @@ class PipelineTests(unittest.TestCase):
         selected = {row["uuid"] for row in master}
         self.assertFalse({"DEMO-011", "DEMO-012"}.issubset(selected))
 
+    def test_perceptual_cluster_retains_one_representative(self):
+        rows = [dict(row) for row in self.inventory]
+        rows[0]["perceptual_cluster_id"] = "near-identical"
+        rows[1]["perceptual_cluster_id"] = "near-identical"
+        reduced = select(rows, self.config)[0]
+        selected = {row["uuid"] for row in reduced}
+        self.assertLessEqual(len(selected & {rows[0]["uuid"], rows[1]["uuid"]}), 1)
+
     def test_sample_covers_every_selected_view(self):
         master, _, _ = select(self.inventory, self.config)
         sample = make_sample(master, 3, 20260710)
@@ -125,14 +133,89 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(metrics["status"], "FAIL")
         self.assertTrue(any("view quota mismatch" in error for error in errors))
 
+    def test_validation_enforces_event_cluster_limit(self):
+        config = {**self.config, "event_cluster_limit": 1}
+        master, holds, _ = select(self.inventory, config)
+        master[0]["event_cluster"] = "same-event"
+        master[1]["event_cluster"] = "same-event"
+        errors, metrics = validate(master, holds, config)
+        self.assertEqual(metrics["event_cluster_overages"], {"same-event": 2})
+        self.assertTrue(any("event cluster limit exceeded" in error for error in errors))
+
+    def test_selection_solves_overlapping_views_with_event_capacity(self):
+        config = {
+            "seed": 7,
+            "target_count": 6,
+            "unclassified_view": "A",
+            "burst_limit": 2,
+            "event_cluster_limit": 1,
+            "views": [
+                {"id": "A", "label": "A", "quota": 3},
+                {"id": "B", "label": "B", "quota": 3},
+            ],
+        }
+        rows = [
+            {"uuid": "AB1", "filename": "1.jpg", "candidate_views": "A;B", "event_cluster": "event-1"},
+            {"uuid": "AB2", "filename": "2.jpg", "candidate_views": "A;B", "event_cluster": "event-1"},
+            {"uuid": "AB3", "filename": "3.jpg", "candidate_views": "A;B", "event_cluster": "event-1"},
+            {"uuid": "AB4", "filename": "4.jpg", "candidate_views": "A;B"},
+            {"uuid": "A1", "filename": "5.jpg", "candidate_views": "A"},
+            {"uuid": "A2", "filename": "6.jpg", "candidate_views": "A"},
+            {"uuid": "B1", "filename": "7.jpg", "candidate_views": "B"},
+            {"uuid": "B2", "filename": "8.jpg", "candidate_views": "B"},
+        ]
+        master, _, summary = select(rows, config)
+        self.assertEqual(summary["view_counts"], {"A": 3, "B": 3})
+        self.assertEqual(summary["assignment_capacity"]["status"], "PASS")
+        self.assertEqual(sum(row.get("event_cluster") == "event-1" for row in master), 1)
+        self.assertEqual(len({row["uuid"] for row in master}), 6)
+
+    def test_selection_reports_exact_capacity_deficit(self):
+        config = {
+            "seed": 7,
+            "target_count": 6,
+            "unclassified_view": "A",
+            "burst_limit": 2,
+            "event_cluster_limit": 1,
+            "views": [
+                {"id": "A", "label": "A", "quota": 3},
+                {"id": "B", "label": "B", "quota": 3},
+            ],
+        }
+        rows = [
+            {"uuid": "AB1", "filename": "1.jpg", "candidate_views": "A;B", "event_cluster": "event-1"},
+            {"uuid": "AB2", "filename": "2.jpg", "candidate_views": "A;B", "event_cluster": "event-1"},
+            {"uuid": "AB3", "filename": "3.jpg", "candidate_views": "A;B", "event_cluster": "event-1"},
+            {"uuid": "AB4", "filename": "4.jpg", "candidate_views": "A;B"},
+            {"uuid": "A1", "filename": "5.jpg", "candidate_views": "A"},
+            {"uuid": "A2", "filename": "6.jpg", "candidate_views": "A"},
+            {"uuid": "B1", "filename": "7.jpg", "candidate_views": "B"},
+        ]
+        with self.assertRaisesRegex(ValueError, r'exact view quota deficit: .*"deficits"'):
+            select(rows, config)
+
     def test_catalog_plan_allows_only_membership_writes(self):
         master, _, _ = select(self.inventory, self.config)
-        plan = build_catalog_plan(master, self.config, "practice", "Source", "SOURCE-1")
+        seal = "sha256:" + "a" * 64
+        plan = build_catalog_plan(
+            master,
+            self.config,
+            "practice",
+            "Source",
+            "SOURCE-1",
+            release_seal_fingerprint=seal,
+        )
         self.assertEqual(plan["safety_mode"], "create-folders-albums-and-add-membership-only")
         self.assertEqual(plan["expected_master_count"], 12)
         self.assertEqual(plan["write_test_count"], 10)
         self.assertEqual(len(plan["albums"][0]["asset_ids"]), 12)
+        self.assertEqual(plan["release_seal_fingerprint"], seal)
         self.assertEqual(plan["plan_sha256"], object_digest(plan, {"plan_sha256"}))
+
+    def test_catalog_plan_requires_release_seal(self):
+        master, _, _ = select(self.inventory, self.config)
+        with self.assertRaisesRegex(ValueError, "release seal"):
+            build_catalog_plan(master, self.config, "practice", "Source", "SOURCE-1")
 
 
 if __name__ == "__main__":

@@ -9,9 +9,13 @@ from pathlib import Path
 
 from . import __version__
 from .artifacts import build_source_snapshot, verify_source_snapshot
+from .integrity import create_release_seal, row_artifact_fingerprint, verify_release_seal
 from .pipeline import build_catalog_plan, evaluate, make_sample, read_config, read_csv, select, validate, write_csv
+from .publication import CLEARANCE_FIELDS, scaffold, validate_clearance
+from .receipts import audit_idempotence_evidence
 from .practice import create_demo_inventory, practice_feedback, write_demo_readme
 from .run_ledger import PHASES, derive_state, initialize_run, next_phase, record_phase
+from .splits import audit_split
 
 
 def markdown_report(title: str, data: dict) -> str:
@@ -26,13 +30,22 @@ def markdown_report(title: str, data: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def read_csv_allow_empty(path: Path) -> list[dict[str, str]]:
+    with path.open(newline="", encoding="utf-8-sig") as handle:
+        return list(csv.DictReader(handle))
+
+
 def command_select(args: argparse.Namespace) -> int:
     config = read_config(args.config)
     inventory = read_csv(args.inventory)
     master, holds, summary = select(inventory, config)
     output = args.output
     write_csv(output / "manifests" / "proposed-master.csv", master)
-    write_csv(output / "manifests" / "hold-sensitive.csv", holds)
+    write_csv(
+        output / "manifests" / "hold-sensitive.csv",
+        holds,
+        list(inventory[0]) if not holds else None,
+    )
     reports = output / "reports"
     reports.mkdir(parents=True, exist_ok=True)
     (reports / "selection-summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
@@ -52,7 +65,16 @@ def command_sample(args: argparse.Namespace) -> int:
 def command_evaluate(args: argparse.Namespace) -> int:
     config = read_config(args.config)
     feedback = read_csv(args.feedback)
+    master = read_csv(args.master)
+    master_ids = {row["uuid"].strip() for row in master}
+    feedback_ids = {row["uuid"].strip() for row in feedback}
+    unexpected = sorted(feedback_ids - master_ids)
+    if unexpected:
+        raise ValueError(f"evaluation contains UUIDs outside the master: {', '.join(unexpected)}")
     report, passed = evaluate(feedback, config)
+    report["master_count"] = len(master)
+    report["master_fingerprint"] = row_artifact_fingerprint(master)
+    report["evaluated_sample_fingerprint"] = row_artifact_fingerprint(feedback)
     args.output.mkdir(parents=True, exist_ok=True)
     (args.output / "evaluation-report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     (args.output / "evaluation-report.md").write_text(markdown_report("Evaluation report", report), encoding="utf-8")
@@ -63,11 +85,13 @@ def command_evaluate(args: argparse.Namespace) -> int:
 def command_validate(args: argparse.Namespace) -> int:
     config = read_config(args.config)
     master = read_csv(args.master)
-    holds = read_csv(args.holds)
+    holds = read_csv_allow_empty(args.holds)
     errors, metrics = validate(master, holds, config)
     args.output.mkdir(parents=True, exist_ok=True)
     report = dict(metrics)
     report["errors"] = errors
+    report["master_fingerprint"] = row_artifact_fingerprint(master)
+    report["holds_fingerprint"] = row_artifact_fingerprint(holds, allow_empty=True)
     (args.output / "validation-report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     (args.output / "validation-report.md").write_text(markdown_report("Validation report", report), encoding="utf-8")
     print(f"validation {metrics['status']}")
@@ -77,8 +101,22 @@ def command_validate(args: argparse.Namespace) -> int:
 def command_plan(args: argparse.Namespace) -> int:
     config = read_config(args.config)
     master = read_csv(args.master)
-    source_snapshot_path = getattr(args, "source_snapshot", None)
-    source_snapshot = json.loads(source_snapshot_path.read_text(encoding="utf-8")) if source_snapshot_path else None
+    holds = read_csv_allow_empty(args.holds)
+    source_snapshot = json.loads(args.source_snapshot.read_text(encoding="utf-8"))
+    evaluation_report = json.loads(args.evaluation_report.read_text(encoding="utf-8"))
+    validation_report = json.loads(args.validation_report.read_text(encoding="utf-8"))
+    release_seal = json.loads(args.release_seal.read_text(encoding="utf-8"))
+    seal_errors = verify_release_seal(
+        release_seal,
+        master,
+        holds,
+        config,
+        source_snapshot,
+        evaluation_report,
+        validation_report,
+    )
+    if seal_errors:
+        raise ValueError("release seal verification failed: " + "; ".join(seal_errors))
     plan = build_catalog_plan(
         master,
         config,
@@ -86,11 +124,73 @@ def command_plan(args: argparse.Namespace) -> int:
         args.source_title,
         args.source_identifier,
         source_snapshot,
+        release_seal["seal_fingerprint"],
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
     print(f"wrote membership-only catalog plan to {args.output}")
     return 0
+
+
+def command_release_seal(args: argparse.Namespace) -> int:
+    master = read_csv(args.master)
+    holds = read_csv_allow_empty(args.holds)
+    config = read_config(args.config)
+    source_snapshot = json.loads(args.source_snapshot.read_text(encoding="utf-8"))
+    evaluation_report = json.loads(args.evaluation_report.read_text(encoding="utf-8"))
+    validation_report = json.loads(args.validation_report.read_text(encoding="utf-8"))
+    seal = create_release_seal(
+        master,
+        holds,
+        config,
+        source_snapshot,
+        evaluation_report,
+        validation_report,
+    )
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(seal, indent=2) + "\n", encoding="utf-8")
+    print(f"release_seal={seal['seal_fingerprint']}")
+    return 0
+
+
+def command_publication_scaffold(args: argparse.Namespace) -> int:
+    rows = scaffold(read_csv(args.master))
+    write_csv(args.output, rows, CLEARANCE_FIELDS)
+    print(f"publication_rows={len(rows)}")
+    print("publication_cleared=0")
+    return 0
+
+
+def command_publication_validate(args: argparse.Namespace) -> int:
+    master_ids = {row["uuid"].strip() for row in read_csv(args.master)}
+    rows = read_csv(args.ledger)
+    errors, report = validate_clearance(rows, master_ids=master_ids)
+    report["errors"] = errors
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    print(f"publication_validation={report['status']}")
+    return 0 if not errors else 2
+
+
+def command_split_audit(args: argparse.Namespace) -> int:
+    tuning = [row for path in args.tuning for row in read_csv(path)]
+    holdout = read_csv(args.holdout)
+    canaries = [row for path in args.canary for row in read_csv(path)]
+    report = audit_split(tuning, holdout, canaries, include_identifiers=args.include_identifiers)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    print(f"split_audit={report['status']}")
+    return 0 if report["status"] == "PASS" else 2
+
+
+def command_idempotence_audit(args: argparse.Namespace) -> int:
+    attempts = [json.loads(path.read_text(encoding="utf-8")) for path in args.attempt]
+    verifications = [json.loads(path.read_text(encoding="utf-8")) for path in args.verification]
+    report = audit_idempotence_evidence(attempts, verifications, args.plan_sha256)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    print(f"idempotence_audit={report['status']}")
+    return 0 if report["status"] == "PASS" else 2
 
 
 def inventory_ids(path: Path, id_column: str) -> list[str]:
@@ -178,6 +278,7 @@ def command_demo(args: argparse.Namespace) -> int:
     shutil.copy2(root / "config" / "starter.json", config)
     write_demo_readme(workspace / "README.md")
     command_select(argparse.Namespace(config=config, inventory=inventory, output=workspace))
+    master_path = workspace / "manifests" / "proposed-master.csv"
     sample_path = workspace / "manifests" / "eval-sample.csv"
     command_sample(
         argparse.Namespace(
@@ -188,7 +289,9 @@ def command_demo(args: argparse.Namespace) -> int:
         )
     )
     practice_feedback(sample_path)
-    eval_code = command_evaluate(argparse.Namespace(config=config, feedback=sample_path, output=workspace / "reports"))
+    eval_code = command_evaluate(
+        argparse.Namespace(config=config, feedback=sample_path, master=master_path, output=workspace / "reports")
+    )
     validation_code = command_validate(
         argparse.Namespace(
             config=config,
@@ -197,13 +300,37 @@ def command_demo(args: argparse.Namespace) -> int:
             output=workspace / "reports",
         )
     )
+    holds_path = workspace / "manifests" / "hold-sensitive.csv"
+    source_snapshot_path = workspace / "source-snapshot.json"
+    source_snapshot = build_source_snapshot(
+        [row["uuid"] for row in read_csv(inventory)],
+        "synthetic-practice://v1",
+    )
+    source_snapshot_path.write_text(json.dumps(source_snapshot, indent=2) + "\n", encoding="utf-8")
+    seal_path = workspace / "reports" / "release-seal.json"
+    command_release_seal(
+        argparse.Namespace(
+            master=master_path,
+            holds=holds_path,
+            config=config,
+            source_snapshot=source_snapshot_path,
+            evaluation_report=workspace / "reports" / "evaluation-report.json",
+            validation_report=workspace / "reports" / "validation-report.json",
+            output=seal_path,
+        )
+    )
     command_plan(
         argparse.Namespace(
             config=config,
-            master=workspace / "manifests" / "proposed-master.csv",
+            master=master_path,
+            holds=holds_path,
             plan_id="synthetic-practice-plan",
             source_title="Synthetic practice corpus",
             source_identifier="SYNTHETIC-ONLY",
+            source_snapshot=source_snapshot_path,
+            evaluation_report=workspace / "reports" / "evaluation-report.json",
+            validation_report=workspace / "reports" / "validation-report.json",
+            release_seal=seal_path,
             output=workspace / "manifests" / "catalog-plan.json",
         )
     )
@@ -235,6 +362,7 @@ def parser() -> argparse.ArgumentParser:
 
     evaluation = sub.add_parser("evaluate", help="measure labeled evaluation feedback")
     evaluation.add_argument("--feedback", type=Path, required=True)
+    evaluation.add_argument("--master", type=Path, required=True)
     evaluation.add_argument("--config", type=Path, required=True)
     evaluation.add_argument("--output", type=Path, required=True)
     evaluation.set_defaults(func=command_evaluate)
@@ -252,9 +380,49 @@ def parser() -> argparse.ArgumentParser:
     plan.add_argument("--plan-id", required=True)
     plan.add_argument("--source-title", required=True)
     plan.add_argument("--source-identifier", required=True)
-    plan.add_argument("--source-snapshot", type=Path)
+    plan.add_argument("--source-snapshot", type=Path, required=True)
+    plan.add_argument("--holds", type=Path, required=True)
+    plan.add_argument("--evaluation-report", type=Path, required=True)
+    plan.add_argument("--validation-report", type=Path, required=True)
+    plan.add_argument("--release-seal", type=Path, required=True)
     plan.add_argument("--output", type=Path, required=True)
     plan.set_defaults(func=command_plan)
+
+    seal = sub.add_parser("release-seal", help="bind the exact candidate and passing release evidence")
+    seal.add_argument("--master", type=Path, required=True)
+    seal.add_argument("--holds", type=Path, required=True)
+    seal.add_argument("--config", type=Path, required=True)
+    seal.add_argument("--source-snapshot", type=Path, required=True)
+    seal.add_argument("--evaluation-report", type=Path, required=True)
+    seal.add_argument("--validation-report", type=Path, required=True)
+    seal.add_argument("--output", type=Path, required=True)
+    seal.set_defaults(func=command_release_seal)
+
+    publication_scaffold = sub.add_parser("publication-scaffold", help="create a default-closed publication ledger")
+    publication_scaffold.add_argument("--master", type=Path, required=True)
+    publication_scaffold.add_argument("--output", type=Path, required=True)
+    publication_scaffold.set_defaults(func=command_publication_scaffold)
+
+    publication_validate = sub.add_parser("publication-validate", help="validate explicit per-asset publication clearance")
+    publication_validate.add_argument("--master", type=Path, required=True)
+    publication_validate.add_argument("--ledger", type=Path, required=True)
+    publication_validate.add_argument("--output", type=Path, required=True)
+    publication_validate.set_defaults(func=command_publication_validate)
+
+    split_audit = sub.add_parser("split-audit", help="audit tuning, holdout, and canary independence")
+    split_audit.add_argument("--tuning", type=Path, action="append", required=True)
+    split_audit.add_argument("--holdout", type=Path, required=True)
+    split_audit.add_argument("--canary", type=Path, action="append", default=[])
+    split_audit.add_argument("--include-identifiers", action="store_true")
+    split_audit.add_argument("--output", type=Path, required=True)
+    split_audit.set_defaults(func=command_split_audit)
+
+    idempotence = sub.add_parser("idempotence-audit", help="verify two distinct executions and their independent checks")
+    idempotence.add_argument("--attempt", type=Path, action="append", required=True)
+    idempotence.add_argument("--verification", type=Path, action="append", required=True)
+    idempotence.add_argument("--plan-sha256", required=True)
+    idempotence.add_argument("--output", type=Path, required=True)
+    idempotence.set_defaults(func=command_idempotence_audit)
 
     snapshot = sub.add_parser("source-snapshot", help="freeze source membership with a count and digest")
     snapshot.add_argument("--inventory", type=Path, required=True)

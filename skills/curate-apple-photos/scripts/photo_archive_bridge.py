@@ -25,6 +25,7 @@ if not PROJECT_SRC.is_dir():
 if str(PROJECT_SRC) not in sys.path:
     sys.path.insert(0, str(PROJECT_SRC))
 
+from photo_fieldwork.integrity import verify_release_seal
 from photo_fieldwork.run_ledger import initialize_run, record_phase
 
 
@@ -50,6 +51,14 @@ def dump_json(path: Path, value: object) -> None:
     path.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while block := handle.read(1024 * 1024):
+            digest.update(block)
+    return digest.hexdigest()
+
+
 def local_identifier(value: str) -> str:
     value = value.strip()
     if not value:
@@ -61,11 +70,14 @@ def base_identifier(value: str) -> str:
     return value.split("/", 1)[0]
 
 
-def read_csv(path: Path) -> list[dict[str, str]]:
+def read_csv(path: Path, allow_empty: bool = False) -> list[dict[str, str]]:
     with path.open(newline="", encoding="utf-8-sig") as handle:
-        rows = list(csv.DictReader(handle))
-    if not rows or "uuid" not in rows[0]:
+        reader = csv.DictReader(handle)
+        rows = list(reader)
+    if "uuid" not in (reader.fieldnames or []):
         raise ValueError(f"CSV requires uuid rows: {path}")
+    if not rows and not allow_empty:
+        raise ValueError(f"CSV requires at least one row: {path}")
     return rows
 
 
@@ -244,6 +256,7 @@ def snapshot_plan(args: argparse.Namespace, plan_id: str, folders: list[dict], a
         "source_album_identifier": args.source_id,
         "expected_source_count": args.source_count,
         "expected_source_membership_sha256": args.source_sha256,
+        "release_seal_fingerprint": args.release_seal_fingerprint,
         "batch_size": args.batch_size,
         "log_path": str(args.workspace / "logs" / "jamie-photo-archive-app.log"),
         "receipt_path": str(args.workspace / "manifests" / receipt),
@@ -257,7 +270,26 @@ def snapshot_plan(args: argparse.Namespace, plan_id: str, folders: list[dict], a
 
 def command_snapshot_plans(args: argparse.Namespace) -> int:
     master_rows = read_csv(args.master)
-    hold_rows = read_csv(args.holds)
+    hold_rows = read_csv(args.holds, allow_empty=True)
+    config = json.loads(args.config.read_text(encoding="utf-8"))
+    source_snapshot = json.loads(args.source_snapshot.read_text(encoding="utf-8"))
+    evaluation_report = json.loads(args.evaluation_report.read_text(encoding="utf-8"))
+    validation_report = json.loads(args.validation_report.read_text(encoding="utf-8"))
+    release_seal = json.loads(args.release_seal.read_text(encoding="utf-8"))
+    seal_errors = verify_release_seal(
+        release_seal,
+        master_rows,
+        hold_rows,
+        config,
+        source_snapshot,
+        evaluation_report,
+        validation_report,
+    )
+    if seal_errors:
+        raise ValueError("release seal verification failed: " + "; ".join(seal_errors))
+    args.source_count = int(source_snapshot["observed_count"])
+    args.source_sha256 = source_snapshot["membership_sha256"]
+    args.release_seal_fingerprint = release_seal["seal_fingerprint"]
     master_ids = [base_identifier(row["uuid"]) for row in master_rows]
     hold_ids = [base_identifier(row["uuid"]) for row in hold_rows]
     if len(master_ids) != args.target or len(set(master_ids)) != args.target:
@@ -270,9 +302,7 @@ def command_snapshot_plans(args: argparse.Namespace) -> int:
 
     by_view: dict[str, list[str]] = {}
     view_labels = {}
-    if args.config:
-        config = json.loads(args.config.read_text(encoding="utf-8"))
-        view_labels = {str(view["id"]): str(view["label"]) for view in config.get("views", [])}
+    view_labels = {str(view["id"]): str(view["label"]) for view in config.get("views", [])}
     for row in master_rows:
         view = row.get(args.view_column, "").strip() or "00"
         by_view.setdefault(view, []).append(base_identifier(row["uuid"]))
@@ -344,8 +374,25 @@ def command_run_plan(args: argparse.Namespace) -> int:
     receipt_path = Path(plan["receipt_path"])
     if not APP.is_dir():
         raise ValueError(f"permissioned app not found: {APP}")
+    if not APP_EXECUTABLE.is_file() or not APP_PLIST.is_file():
+        raise ValueError("permissioned app is missing its executable or Info.plist")
+    with APP_PLIST.open("rb") as handle:
+        bundle_id = plistlib.load(handle).get("CFBundleIdentifier")
+    if bundle_id != BUNDLE_ID:
+        raise ValueError(f"permissioned app bundle identifier changed: {bundle_id}")
+    execution_nonce = uuid.uuid4().hex
     before = receipt_path.stat().st_mtime_ns if receipt_path.exists() else None
-    command = ["/usr/bin/open", "-W", "-n", str(APP), "--args", "--plan", str(plan_path)]
+    command = [
+        "/usr/bin/open",
+        "-W",
+        "-n",
+        str(APP),
+        "--args",
+        "--plan",
+        str(plan_path),
+        "--launch-nonce",
+        execution_nonce,
+    ]
     print("launching permissioned helper; this may run for a long time", flush=True)
     completed = subprocess.run(command, check=False)
     if completed.returncode:
@@ -358,13 +405,21 @@ def command_run_plan(args: argparse.Namespace) -> int:
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     if receipt.get("plan_sha256") not in {None, expected_digest}:
         raise ValueError("receipt plan_sha256 does not match the executed plan")
+    if receipt.get("execution_nonce") != execution_nonce:
+        raise ValueError("receipt execution_nonce does not match the bridge launch")
     attempt_id = f"{datetime.now().astimezone().strftime('%Y%m%dT%H%M%S%z')}-{uuid.uuid4().hex[:8]}"
     attempt = {
         "schema_version": 1,
         "attempt_id": attempt_id,
+        "execution_nonce": execution_nonce,
         "captured_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "plan_id": plan["plan_id"],
         "plan_sha256": expected_digest,
+        "execution_fingerprint": {
+            "app_bundle_identifier": bundle_id,
+            "app_binary_sha256": file_sha256(APP_EXECUTABLE),
+            "plan_sha256": expected_digest,
+        },
         "receipt": receipt,
     }
     attempts_dir = args.attempts_dir or receipt_path.parent / "receipts" / plan["plan_id"]
@@ -465,7 +520,11 @@ def parser() -> argparse.ArgumentParser:
     plans.add_argument("--version", required=True)
     plans.add_argument("--folder-title", required=True)
     plans.add_argument("--view-column", default="primary_view")
-    plans.add_argument("--config", type=Path)
+    plans.add_argument("--config", type=Path, required=True)
+    plans.add_argument("--source-snapshot", type=Path, required=True)
+    plans.add_argument("--evaluation-report", type=Path, required=True)
+    plans.add_argument("--validation-report", type=Path, required=True)
+    plans.add_argument("--release-seal", type=Path, required=True)
     plans.add_argument("--source-id", default=SOURCE_ID)
     plans.add_argument("--source-count", type=int, default=SOURCE_COUNT)
     plans.add_argument("--source-sha256")

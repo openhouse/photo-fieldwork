@@ -26,7 +26,9 @@ The selector accepts UTF-8 CSV. Unknown columns are preserved. Boolean values ma
 | `hidden` | Excludes the item when true. |
 | `missing` | Excludes the item when true. |
 | `duplicate_group` | Exact-duplicate group identifier. One representative is retained. |
+| `perceptual_cluster_id` | Near-identical image-family identifier used for deduplication and split-leakage audit. |
 | `burst_group` | Near-identical burst group identifier. The configured limit is retained. |
+| `event_cluster_id` | Broader event identifier. Selection enforces `event_cluster_limit` across overlapping views. |
 | `aesthetic_score` | Optional Apple score used only within a duplicate or burst group. |
 | `date` | Capture or import date. Treat as fallible provenance. |
 | `place` | Coarsened place only in editor-facing exports. |

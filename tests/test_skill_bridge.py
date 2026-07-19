@@ -14,6 +14,12 @@ SPEC.loader.exec_module(bridge)
 
 
 class SkillBridgeTests(unittest.TestCase):
+    def test_empty_hold_manifest_is_valid_when_explicitly_allowed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "holds.csv"
+            path.write_text("uuid,filename,safety_status\n", encoding="utf-8")
+            self.assertEqual(bridge.read_csv(path, allow_empty=True), [])
+
     def test_local_identifier_is_canonical(self):
         self.assertEqual(bridge.local_identifier("ABC"), "ABC/L0/001")
         self.assertEqual(bridge.local_identifier("ABC/L0/001"), "ABC/L0/001")
@@ -33,6 +39,7 @@ class SkillBridgeTests(unittest.TestCase):
                 source_id="visible-library-stills://v1",
                 source_count=3,
                 source_sha256="source-digest",
+                release_seal_fingerprint="sha256:" + "a" * 64,
                 batch_size=100,
                 workspace=Path(temporary),
             )
@@ -49,6 +56,7 @@ class SkillBridgeTests(unittest.TestCase):
             ).hexdigest()
             self.assertEqual(plan["plan_sha256"], expected)
             self.assertEqual(plan["expected_source_membership_sha256"], "source-digest")
+            self.assertEqual(plan["release_seal_fingerprint"], "sha256:" + "a" * 64)
 
     def test_inspection_plan_is_content_addressed(self):
         with tempfile.TemporaryDirectory() as temporary:

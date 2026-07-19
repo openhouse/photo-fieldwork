@@ -13,6 +13,11 @@
 9. State the observed failure pattern and one system change.
 10. Rebuild deterministically and repeat.
 
+Reserve the final holdout before judging it. Audit tuning, holdout, and canary
+manifests for overlap across UUID, perceptual cluster, duplicate group, and
+burst group. A different UUID is not fresh evidence when it is another export
+or nearby frame from a photo family already used for tuning.
+
 ## Required feedback fields
 
 - `uuid`
@@ -51,6 +56,7 @@ If the active config is unavailable, do not claim a numeric pass or failure.
 - Exact target, unique IDs, stills only, HOLD disjoint, all pixels locally available unless historically exceptional and explicitly recorded.
 - Generic social scenes do not dominate work evidence.
 - Named relationships and person-free material context both remain visible.
+- The final holdout is independent of tuning rounds and canaries across every configured photo-family identity.
 
 ## Stop conditions
 

@@ -93,17 +93,29 @@ def source_members(conn: sqlite3.Connection, identifier: str) -> tuple[set[str],
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--plan", type=Path, required=True)
-    parser.add_argument("--receipt", type=Path, required=True)
+    receipt_group = parser.add_mutually_exclusive_group(required=True)
+    receipt_group.add_argument("--receipt", type=Path)
+    receipt_group.add_argument("--attempt-receipt", type=Path)
     parser.add_argument("--report", type=Path, required=True)
+    parser.add_argument("--json-report", type=Path)
     parser.add_argument("--photos-db", type=Path, default=DEFAULT_DB)
     args = parser.parse_args()
 
     plan = json.loads(args.plan.read_text(encoding="utf-8"))
-    receipt = json.loads(args.receipt.read_text(encoding="utf-8"))
+    attempt = None
+    if args.attempt_receipt:
+        attempt = json.loads(args.attempt_receipt.read_text(encoding="utf-8"))
+        receipt = attempt.get("receipt") or {}
+    else:
+        receipt = json.loads(args.receipt.read_text(encoding="utf-8"))
     if object_digest(plan) != plan.get("plan_sha256"):
         raise RuntimeError("plan_sha256 is missing or does not match the plan")
     if receipt.get("plan_sha256") not in {None, plan["plan_sha256"]}:
         raise RuntimeError("receipt plan_sha256 differs from the plan")
+    if attempt and attempt.get("plan_sha256") != plan["plan_sha256"]:
+        raise RuntimeError("attempt receipt plan_sha256 differs from the plan")
+    if attempt and receipt.get("execution_nonce") != attempt.get("execution_nonce"):
+        raise RuntimeError("helper receipt execution_nonce differs from the archived attempt")
     if receipt.get("plan_id") != plan.get("plan_id"):
         raise RuntimeError("receipt plan_id differs from the plan")
     plan_titles = [item["title"] for item in plan["albums"]]
@@ -204,6 +216,24 @@ def main() -> None:
     ]
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    if args.json_report:
+        structured = {
+            "schema_version": 1,
+            "status": "PASS",
+            "attempt_id": attempt.get("attempt_id") if attempt else None,
+            "plan_id": plan["plan_id"],
+            "plan_sha256": plan["plan_sha256"],
+            "source_count": len(source),
+            "source_membership_sha256": source_sha256,
+            "verified_album_count": len(verified),
+            "verified_folder_count": len(folder_receipts),
+            "exact_membership": True,
+            "exact_topology": True,
+            "source_unchanged": True,
+            "master_hold_overlap": 0,
+        }
+        args.json_report.parent.mkdir(parents=True, exist_ok=True)
+        args.json_report.write_text(json.dumps(structured, indent=2) + "\n", encoding="utf-8")
     print(f"verified_albums={len(verified)}")
     print(f"source_count={len(source)}")
 

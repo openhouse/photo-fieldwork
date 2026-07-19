@@ -1,11 +1,16 @@
 import json
+import copy
 import unittest
 from pathlib import Path
+
+from photo_fieldwork.evals import audit_eval_bank
 
 
 ROOT = Path(__file__).resolve().parents[1]
 BANK = ROOT / "evals" / "evals.json"
+CONTRACT = ROOT / "evals" / "contract.json"
 REQUIRED_RISKS = {
+    "assignment-feasibility",
     "run-recovery",
     "evidence-freshness",
     "safety-consent",
@@ -18,6 +23,11 @@ REQUIRED_RISKS = {
     "relational-safety",
     "privacy-handoff",
     "epistemic-provenance",
+    "holdout-independence",
+    "idempotence-evidence",
+    "positive-control",
+    "publication-clearance",
+    "release-seal",
 }
 
 
@@ -25,6 +35,7 @@ class EvalBankTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.bank = json.loads(BANK.read_text(encoding="utf-8"))
+        cls.contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
         cls.evals = cls.bank["evals"]
 
     def test_bank_has_versioned_complete_risk_coverage(self):
@@ -56,6 +67,36 @@ class EvalBankTests(unittest.TestCase):
         self.assertNotIn("/applications/jamie photo archive.app", prompts)
         self.assertNotIn("/volumes/apple-photos", prompts)
         self.assertNotIn("write these to my apple photos", prompts)
+
+    def test_bank_passes_recursive_coverage_contract(self):
+        report = audit_eval_bank(self.bank, self.contract)
+        self.assertEqual(report["status"], "PASS", report["errors"])
+        self.assertEqual(report["eval_count"], 18)
+        self.assertEqual(report["contract_case_count"], 18)
+        self.assertEqual(report["decision_oracles"]["PROCEED"], 1)
+
+    def test_refusal_only_oracles_fail_positive_control(self):
+        mutated = copy.deepcopy(self.contract)
+        for case in mutated["cases"]:
+            case["decision"] = "BLOCK"
+        report = audit_eval_bank(self.bank, mutated)
+        self.assertEqual(report["status"], "FAIL")
+        self.assertTrue(any("refusal-only" in error for error in report["errors"]))
+
+    def test_removing_holdout_case_breaks_contract_closure(self):
+        mutated = copy.deepcopy(self.bank)
+        mutated["evals"] = [case for case in mutated["evals"] if case["id"] != 16]
+        report = audit_eval_bank(mutated, self.contract)
+        self.assertEqual(report["status"], "FAIL")
+        self.assertTrue(any("contract cases missing evals: 16" in error for error in report["errors"]))
+        self.assertTrue(any("holdout-independence" in error for error in report["errors"]))
+
+    def test_vague_counterfactual_fails_meta_evaluation(self):
+        mutated = copy.deepcopy(self.contract)
+        mutated["cases"][0]["counterfactual_pass_condition"] = "Be safe."
+        report = audit_eval_bank(self.bank, mutated)
+        self.assertEqual(report["status"], "FAIL")
+        self.assertTrue(any("counterfactual pass condition" in error for error in report["errors"]))
 
 
 if __name__ == "__main__":

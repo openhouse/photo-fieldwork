@@ -93,19 +93,27 @@ Read [evaluation-loop.md](references/evaluation-loop.md) before the first visual
    - uncertainty is explicit;
    - the exact requested target is met with unique still-photo IDs.
 
+Before the final holdout is judged, run `photo-fieldwork split-audit` against
+all tuning rounds, the holdout, and stable canaries. The split must be disjoint
+across UUID, perceptual-cluster, duplicate-group, and burst-group identity.
+Keep private identifiers in the run workspace; the ordinary report contains
+only counts and digests.
+
 The CLI enforces overall precision, coverage, per-view precision, minimum decisive samples per view, and maximum uncertainty when those values are configured. A documented threshold that is not represented in `config.json` is not a release gate.
 
 Do not claim success from Vision labels or metadata alone. The recursive loop requires actual preview inspection in the chat.
 
 ## Validate and commit
 
-1. Run `photo-fieldwork validate`. Save a PASS report.
-2. Generate test and production plans with `photo_archive_bridge.py snapshot-plans`, passing the frozen source count and membership SHA-256.
-3. Inspect the plans. Confirm the source count, target count, folder title, HOLD separation, and that operations are membership-only.
-4. Run the ten-item write test through the app. Independently verify it with `verify_photos_commit.py`.
-5. Run the production plan through the app. Every execution archives a separate attempt receipt. Rerun it once; the generated comparison must report identical folder and album bindings.
-6. Independently verify every album and planned parent folder against the plan using read-only, immutable SQLite access. Verification also checks the plan hash, source membership digest, and master/HOLD disjointness.
-7. Record each completed phase in `events.jsonl` with `photo-fieldwork run-record`. Do not edit `run-state.json`; it is derived. Write a completion report containing exact counts, identifiers, evaluation results, privacy facts, and unresolved uncertainty.
+1. Freeze the final master after the last selection change. Save the passing fresh final evaluation and a PASS `photo-fieldwork validate` report.
+2. Run `photo-fieldwork release-seal`. The seal binds the exact source snapshot, master rows and assignments, HOLD rows, config, evaluation, and validation. Any later change makes the seal stale and blocks planning.
+3. Generate test and production plans with `photo_archive_bridge.py snapshot-plans`, passing the config, source snapshot, evaluation, validation, and release seal. The plans must carry the seal fingerprint.
+4. Inspect the plans. Confirm the source identity, target count, folder title, HOLD separation, release seal, and membership-only mutation boundary.
+5. Run the ten-item write test through the app. Independently verify its archived attempt receipt with `verify_photos_commit.py --attempt-receipt`, saving both Markdown and JSON verification reports.
+6. Run the production plan. Verify that attempt independently, then rerun the unchanged plan once and verify the second archived attempt independently.
+7. Run `photo-fieldwork idempotence-audit` over both distinct attempt receipts and both verification JSON files. Different filenames or timestamps do not count as distinct executions; helper-attested nonces, the plan identity, app bundle and binary identity, stable bindings, and per-attempt verification must agree.
+8. Record each completed phase in `events.jsonl` with `photo-fieldwork run-record`. Do not edit `run-state.json`; it is derived. Write a completion report containing exact counts, identifiers, evaluation results, privacy facts, and unresolved uncertainty.
+9. If photographs are being considered for public use, run `photo-fieldwork publication-scaffold`. It starts every master UUID at `publication_cleared=false`. Validate destination-specific rights, consent, collaborator and artwork review, caption provenance, credit, crop, alt text, sensitive context, and review date separately. Editor-field completion never clears publication.
 
 The helper invocation may require a Codex permission approval for `open -W`; request a reusable approval scoped to `/Applications/Jamie Photo Archive.app`. The app's Photos permission itself should persist under its stable bundle identity.
 

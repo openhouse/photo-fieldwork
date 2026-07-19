@@ -20,6 +20,9 @@ taste and they never require access to a real photo library.
    public handoff, and the difference between visible evidence and provenance.
 6. Add a new scenario only when it exercises a distinct failure mode. Do not
    grow the bank with paraphrases of an existing test.
+7. Run `audit_eval_bank` against `contract.json`. The contract requires full
+   case closure, declared risk dimensions, concrete counterfactual pass
+   conditions, multiple fail-closed cases, and a positive `PROCEED` control.
 
 ## Grading rules
 
