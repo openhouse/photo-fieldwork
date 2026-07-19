@@ -174,19 +174,16 @@ def main() -> None:
                 selected_set.add(uuid)
 
     if len(selected) < candidate_target:
-        needed = candidate_target - len(selected)
         fallback = conn.execute(
             """
             SELECT uuid FROM asset
             WHERE is_photo = 1 AND hidden = 0 AND trashed = 0
               AND (favorite = 1 OR edited = 1 OR face_count > 0)
             ORDER BY (favorite + edited) DESC, face_count DESC, uuid
-            LIMIT ?
-            """,
-            (needed * 4,),
+            """
         )
         for (uuid,) in fallback:
-            if uuid not in selected_set:
+            if uuid not in selected_set and uuid not in excluded_ids:
                 selected.append(uuid)
                 selected_set.add(uuid)
                 if len(selected) == candidate_target:

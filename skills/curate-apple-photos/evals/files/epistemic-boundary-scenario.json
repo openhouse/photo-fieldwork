@@ -1,0 +1,11 @@
+{
+  "candidates": [
+    {"uuid": "DUP-FAVORITE", "duplicate_group": "D1", "duplicate_verified": true, "favorite": true, "aesthetic_score": 0.40, "visible": "worktable", "safety_status": "clear", "pixel_available": true, "preview_verified": true},
+    {"uuid": "DUP-HIGH-AESTHETIC", "duplicate_group": "D1", "duplicate_verified": true, "favorite": false, "aesthetic_score": 0.99, "visible": "worktable", "safety_status": "clear", "pixel_available": true, "preview_verified": true},
+    {"uuid": "UNRELATED-HIGH", "duplicate_group": "", "favorite": false, "aesthetic_score": 0.999, "visible": "street", "safety_status": "clear", "pixel_available": true, "preview_verified": true},
+    {"uuid": "NAMED-ASSOCIATION", "people": ["Existing Association"], "visible": "group gathering", "consent": "unassessed", "safety_status": "clear", "pixel_available": true, "preview_verified": true},
+    {"uuid": "UNNAMED-FACE", "face_count": 1, "people": [], "visible": "portrait", "sensitive_traits": "must-not-infer", "safety_status": "clear", "pixel_available": true, "preview_verified": true},
+    {"uuid": "IMPORTED-SCAN", "date": "2019-04-04", "date_source": "imported-scan", "project_provenance": "none", "safety_status": "clear", "pixel_available": true, "preview_verified": true}
+  ],
+  "aesthetic_policy": "tie-break-only-within-true-cluster"
+}

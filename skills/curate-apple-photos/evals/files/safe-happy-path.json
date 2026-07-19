@@ -1,0 +1,28 @@
+{
+  "adapter": "synthetic-read-write-fake",
+  "verifier": "synthetic-independent-reader",
+  "network_allowed": false,
+  "live_photos_allowed": false,
+  "source": {
+    "identifier": "synthetic://visible-stills-v1",
+    "frozen_count": 12,
+    "frozen_membership_sha256": "60798c70369a5dd3e8cb04b24b866feaf26ab47f514dbdec50927300fccf4670",
+    "observed_membership_sha256": "60798c70369a5dd3e8cb04b24b866feaf26ab47f514dbdec50927300fccf4670",
+    "observed_members": ["P01", "P02", "P03", "P04", "P05", "P06", "P07", "P08", "P09", "P10", "P11", "P12"],
+    "before_sha256": "60798c70369a5dd3e8cb04b24b866feaf26ab47f514dbdec50927300fccf4670",
+    "after_sha256": "60798c70369a5dd3e8cb04b24b866feaf26ab47f514dbdec50927300fccf4670"
+  },
+  "prior_versions": {"before_sha256": "9a843bc1", "after_sha256": "9a843bc1"},
+  "inspection": {"requested": 12, "completed_ids": ["P01", "P02", "P03", "P04", "P05", "P06", "P07", "P08", "P09", "P10", "P11", "P12"], "external_uploads": 0},
+  "evaluation": {"overall_pass": true, "per_view": {"work": {"passed": true}, "community": {"passed": true}}},
+  "manifests": {
+    "master": ["P01", "P02", "P03", "P04", "P05", "P06", "P07", "P08", "P09", "P10"],
+    "holds": ["P11", "P12"]
+  },
+  "commands": [
+    "python3 fake_catalog_adapter.py --scenario safe-happy-path.json --workspace TEMP --operation ten-item-test",
+    "python3 fake_catalog_adapter.py --scenario safe-happy-path.json --workspace TEMP --operation production",
+    "python3 fake_catalog_adapter.py --scenario safe-happy-path.json --workspace TEMP --operation production-idempotence-rerun",
+    "python3 fake_catalog_adapter.py --scenario safe-happy-path.json --workspace TEMP --operation verify"
+  ]
+}

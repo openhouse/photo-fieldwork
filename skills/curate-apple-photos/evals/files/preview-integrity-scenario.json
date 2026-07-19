@@ -1,0 +1,22 @@
+{
+  "required_directory_mode": "0700",
+  "required_file_mode": "0600",
+  "previews": [
+    {"uuid": "CLEAN-01", "decoded": true, "unique": true, "contained": true, "symlink": false, "exif": false, "mode": "0600", "pixel_available": true},
+    {"uuid": "CLEAN-02", "decoded": true, "unique": true, "contained": true, "symlink": false, "exif": false, "mode": "0600", "pixel_available": true},
+    {"uuid": "MISSING", "exists": false},
+    {"uuid": "CORRUPT", "decoded": false},
+    {"uuid": "DUPLICATE-SHARD", "decoded": true, "unique": false},
+    {"uuid": "EXIF-BEARING", "decoded": true, "exif": true},
+    {"uuid": "SYMLINK", "decoded": true, "symlink": true},
+    {"uuid": "OUTSIDE-WORKSPACE", "decoded": true, "contained": false},
+    {"uuid": "UNAVAILABLE", "pixel_available": false},
+    {"uuid": "OVER-PERMISSIONED", "decoded": true, "unique": true, "contained": true, "symlink": false, "exif": false, "mode": "0644", "pixel_available": true}
+  ],
+  "state_policy": {
+    "missing-corrupt-duplicate-exif": "derivative-quarantine-and-re-export",
+    "symlink-or-outside-workspace": "derivative-quarantine-and-re-export",
+    "pixel-unavailable": "asset-hold",
+    "over-permissioned": "ineligible-until-corrected-and-reverified"
+  }
+}

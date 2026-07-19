@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Add an adversarial skill-eval bank and recursive hill-climb protocol.
+- Keep album exclusions active during fallback retrieval.
+- Fail closed on unresolved safety states during selection and replacement.
+- Require structured verification artifacts for run reconciliation.
+
 ## 0.2.0 - 2026-07-13
 
 - Add resumable, artifact-hashed run reconciliation and guarded finalization.

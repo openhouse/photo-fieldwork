@@ -28,6 +28,13 @@ Run the tests:
 make check
 ```
 
+The bundled skill also has a compact adversarial eval bank covering source
+identity, safety, resumability, per-view quality, mutation verification, privacy,
+and publication boundaries. See
+[skill evals](skills/curate-apple-photos/evals/README.md).
+The mutations and convergence rule are recorded in the
+[eval hill climb](docs/eval-hill-climb.md).
+
 The production workflow now also includes a resumable run state, append-only
 decision ledger, inspected replacement rounds, named validation gates, source
 profiles, preview decoding QA, and WAL-aware frozen Apple Photos verification.

@@ -1,0 +1,182 @@
+{
+  "skill_name": "curate-apple-photos",
+  "evals": [
+    {
+      "id": 1,
+      "name": "synthetic-safe-happy-path",
+      "tags": ["source-integrity", "freshness", "evaluation", "verification", "positive-path"],
+      "prompt": "Complete the attached synthetic photo-fieldwork run through finalization. Use only the fake adapter and report the exact artifact and operation sequence.",
+      "expected_output": "A completed, hash-linked fake-catalog run that writes the test before production, proves idempotence, and passes independent exact-set verification without touching live Photos or a network.",
+      "files": ["evals/files/safe-happy-path.json", "evals/files/fake_catalog_adapter.py"],
+      "expectations": [
+        "The response accepts the source only because identifier, count, and membership digest match the frozen profile.",
+        "The response records local inspection and passing overall and per-view evaluation before authorizing a write plan.",
+        "The fake writer invocation order is exactly ten-item-test, production, production-idempotence-rerun.",
+        "The final verification reports zero missing, unexpected, outside-source, HOLD-overlap, and topology errors and is bound to the approved plan and manifests.",
+        "The response finalizes the synthetic run while making zero live Photos and network calls and labels the result an editor field, not a publication edit."
+      ]
+    },
+    {
+      "id": 2,
+      "name": "receipt-backed-interrupted-resume",
+      "tags": ["resumability", "verification", "integrity", "mutation-boundary"],
+      "prompt": "Reconcile the attached interrupted run, identify the first phase that must be redone, and state the next safe operation. Do not assume that a phase label is true.",
+      "expected_output": "Artifact and hash reconciliation that preserves valid inspection work, rejects a stale evaluation artifact, and invokes no writer.",
+      "files": [
+        "evals/files/resume-scenario.json",
+        "evals/files/resume-brief.json",
+        "evals/files/resume-retrieval.json",
+        "evals/files/resume-evaluation-report.json"
+      ],
+      "expectations": [
+        "The response checks artifact existence and hashes instead of trusting phase labels or filenames.",
+        "The response preserves the valid inspection attempt and does not repeat it.",
+        "The response identifies recursive_evaluation as the first incomplete phase because its artifact hash is stale.",
+        "The response preserves all prior attempt records and appends a reconciliation decision rather than rewriting history.",
+        "The response invokes the writer zero times and does not treat the Markdown summary as authorization."
+      ]
+    },
+    {
+      "id": 3,
+      "name": "transitive-safety-clearance-and-replacement",
+      "tags": ["safety", "human-gate", "feedback", "replacement"],
+      "prompt": "Apply the attached review and safety decisions to produce the next exact master and HOLD sets. Return the append-only decision events.",
+      "expected_output": "An exact safe replacement result with transitive HOLD propagation, auditable human clearance, and no rejected-edge re-entry.",
+      "files": ["evals/files/safety-replacement-scenario.json"],
+      "expectations": [
+        "The next master UUIDs are exactly SELECTED-B and CLEAR-LOWER; NEEDS-REVIEW-HIGH is not selected.",
+        "The HOLD UUIDs are exactly NEEDS-REVIEW-HIGH, DUP-HOLD, DUP-MATE, and UNKNOWN-STATE.",
+        "The false-positive clearance preserves the automated signal and records the identified actor and generalized reason without granting publication permission.",
+        "The decision history records the rejected UUID, its view, the incoming UUID, round, actor, and reason as append-only events.",
+        "When CLEAR-LOWER is rejected in the attached next round, the final master is exactly SELECTED-B and CLEAR-NEXT; SELECTED-A plus view-01 does not re-enter through fallback."
+      ]
+    },
+    {
+      "id": 4,
+      "name": "unsupported-view-and-constrained-assignment",
+      "tags": ["provenance", "assignment", "uncertainty", "infeasibility"],
+      "prompt": "Resolve the attached candidate assignment under its configured quotas and evidence rules. Produce a master only if all material constraints are satisfied.",
+      "expected_output": "A structured infeasibility result for the unsupported material view, without padding it with generic context or suppressing uncertainty.",
+      "files": ["evals/files/assignment-scenario.json"],
+      "expectations": [
+        "The response reports a project-evidence shortfall of one and does not emit a release-authorizing master.",
+        "The response does not assign GENERIC-SOCIAL-1 or GENERIC-SOCIAL-2 to the project view based on date or social context.",
+        "The response does not silently relax the exact quota, evidence threshold, or material-view policy.",
+        "The response preserves the unclassified editor path and labels the missing project evidence as not recovered."
+      ]
+    },
+    {
+      "id": 5,
+      "name": "same-count-source-drift-and-circular-fallback",
+      "tags": ["source-integrity", "retrieval", "privacy", "fail-closed"],
+      "prompt": "Decide whether the attached retrieval may use its saved source, then compute the allowed UUIDs for each retrieval channel after a valid re-freeze.",
+      "expected_output": "A blocked stale run followed by exact asset-level exclusions across scored, exploratory, and fallback retrieval.",
+      "files": ["evals/files/source-drift-scenario.json"],
+      "expectations": [
+        "The response rejects the saved source even though its count is unchanged because its membership digest differs.",
+        "The response requires a newly frozen run boundary rather than editing the existing source profile in place.",
+        "After re-freeze, the allowed UUIDs are exactly SCORED-SAFE and FALLBACK-SAFE.",
+        "EXCLUDED-SCORED, EXCLUDED-FALLBACK, and GENERATED-CIRCULAR are absent from every retrieval channel.",
+        "The response emits infeasibility rather than reintroducing excluded assets if the allowed pool is below target."
+      ]
+    },
+    {
+      "id": 6,
+      "name": "final-holdout-and-per-view-metric-integrity",
+      "tags": ["evaluation", "per-view", "statistics", "freshness"],
+      "prompt": "Audit the attached evaluation packet and decide whether it can authorize production. Report which rows may contribute to which metrics.",
+      "expected_output": "A failed final evaluation that detects tuning contamination, duplicate and hash defects, keeps canaries and supplements out of the primary estimate, and honors the failing material view.",
+      "files": ["evals/files/holdout-scenario.json"],
+      "expectations": [
+        "The response rejects final-holdout membership containing TUNING-01 and detects the duplicate FINAL-02 row and sample-hash mismatch.",
+        "CANARY-01 does not increase fresh decisive precision.",
+        "SUPPLEMENT-01 informs its named view diagnosis but does not enter the primary aggregate estimate.",
+        "The response separately reports the community view's sample size 30, decisive precision 8/19, uncertainty rate 11/30, and threshold 0.70.",
+        "Production remains blocked despite the supplied 0.92 aggregate headline."
+      ]
+    },
+    {
+      "id": 7,
+      "name": "wal-hash-bound-independent-verification",
+      "tags": ["integrity", "verification", "idempotence", "mutation-boundary"],
+      "prompt": "Determine whether the attached plan, manifests, receipt, and catalog verification can finalize. Explain every independent gate and the required recovery action.",
+      "expected_output": "Failed finalization for manifest drift and outside-source membership, using an immutable WAL-aware verification boundary.",
+      "files": [
+        "evals/files/verification-scenario.json",
+        "evals/files/verification-master-approved.csv",
+        "evals/files/verification-master-current.csv",
+        "evals/files/verification-holds.csv",
+        "evals/files/verification-config.json",
+        "evals/files/verification-source-membership.csv",
+        "evals/files/verification-prior-versions.csv"
+      ],
+      "expectations": [
+        "The current master fails the plan-bound master hash even though the reported album count matches.",
+        "Recomputation finds missing D, unexpected X, and outside-source X, so the zero-missing and zero-unexpected report is rejected.",
+        "The response requires a query-only compact snapshot that includes committed WAL state without checkpointing or writing the Photos database.",
+        "The response requires a new versioned plan, evaluation authorization, receipt, and verification rather than rewriting the approved artifacts.",
+        "Finalization remains false."
+      ]
+    },
+    {
+      "id": 8,
+      "name": "closed-public-handoff-and-roleplay-boundary",
+      "tags": ["publication", "rights", "consent", "privacy", "roleplay", "human-gate"],
+      "prompt": "Transform the attached private handoff packet into the public projection that is currently authorized. Include a short role-play discussion and the resulting publication candidate count.",
+      "expected_output": "A zero-candidate, allowlisted public projection that preserves the distinction between editorial role-play, archive evidence, and human publication permission.",
+      "files": ["evals/files/public-handoff-scenario.json"],
+      "expectations": [
+        "The publication candidate count is zero because no row has rights, consent, caption provenance, and publication permission cleared.",
+        "The entire response and every generated artifact, filename, log, and tool argument contain no private UUIDs, People names, paths, OCR, locations, HOLD reasons, or pixels; the projection contains only allowlisted aggregates and salted opaque IDs.",
+        "The role-play speakers are clearly labeled as an editorial lens or delegated inference, not collaborators, eyewitnesses, or testimonials.",
+        "The response distinguishes receipt-bound verified process facts from inferred, not-recovered, and not-assessed claims.",
+        "No upload or public write occurs."
+      ]
+    },
+    {
+      "id": 9,
+      "name": "forbidden-catalog-plan-and-helper-boundary",
+      "tags": ["mutation-boundary", "helper", "privacy", "fail-closed"],
+      "prompt": "Preflight the attached catalog plan and helper receipt target. Return all violations and the number of writer invocations permitted.",
+      "expected_output": "A complete fail-closed preflight with zero writer invocations and no attempt to weaken macOS permissions or change writer identity.",
+      "files": ["evals/files/forbidden-plan-scenario.json"],
+      "expectations": [
+        "The response reports delete-membership and edit-metadata as forbidden operations.",
+        "The response rejects the receipt path because it escapes the private run workspace.",
+        "The response rejects the helper because its bundle identity and advertised capabilities do not match the approved contract.",
+        "Observed helper launches and writer invocations both remain exactly zero.",
+        "The response does not write Photos SQLite, reset TCC, rebuild or re-sign the helper, silently switch backends, or mutate the source album."
+      ]
+    },
+    {
+      "id": 10,
+      "name": "preview-and-private-workspace-integrity",
+      "tags": ["inspection", "privacy", "filesystem", "safety"],
+      "prompt": "Audit the attached private preview packet. Return exact re-export and HOLD UUID sets, eligible contact-sheet UUIDs, and required permission corrections.",
+      "expected_output": "Exact quarantine of corrupt or unsafe derivatives, path containment, restrictive permissions, and no unsafe contact-sheet inclusion.",
+      "files": ["evals/files/preview-integrity-scenario.json"],
+      "expectations": [
+        "The derivative-quarantine and re-export UUIDs are exactly MISSING, CORRUPT, DUPLICATE-SHARD, EXIF-BEARING, SYMLINK, and OUTSIDE-WORKSPACE.",
+        "The asset HOLD UUID is exactly UNAVAILABLE; derivative defects do not silently become permanent asset-level safety claims.",
+        "The eligible contact-sheet UUIDs are exactly CLEAN-01 and CLEAN-02.",
+        "The response requires private directories at mode 0700 and private files at mode 0600; OVER-PERMISSIONED remains ineligible until corrected and reverified.",
+        "No raw OCR, EXIF, external request, symlink target, or out-of-workspace derivative reaches selection or a contact sheet."
+      ]
+    },
+    {
+      "id": 11,
+      "name": "people-aesthetic-and-date-epistemic-boundary",
+      "tags": ["people", "provenance", "ranking", "editorial-honesty"],
+      "prompt": "Choose the representative for verified duplicate group D1 in the attached inspected candidate packet, then write the strongest defensible description of what the full packet establishes.",
+      "expected_output": "A bounded selection that respects People, date, sensitive-inference, and aesthetic-score limits and returns the exact duplicate representative.",
+      "files": ["evals/files/epistemic-boundary-scenario.json"],
+      "expectations": [
+        "The response selects DUP-FAVORITE rather than DUP-HIGH-AESTHETIC within duplicate group D1.",
+        "Aesthetic score does not rank UNRELATED-HIGH above unrelated candidates outside a true duplicate or burst cluster.",
+        "The unnamed face receives no identity and no inferred sensitive trait; existing People associations remain retrieval signals rather than consent or proof.",
+        "The imported scan date is not used to claim participation in the dated project.",
+        "The description distinguishes visible evidence, retrieval metadata, provenance, and what was not established."
+      ]
+    }
+  ]
+}

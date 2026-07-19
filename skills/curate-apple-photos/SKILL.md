@@ -29,13 +29,19 @@ python3 scripts/photo_archive_bridge.py doctor
 - Use the existing 124,484-item wide album as the default immutable source, or
   an explicit versioned source profile when the brief requires the whole visible
   still-photo library. Verify the profile identifier, observed count, and
-  inventory fingerprint before work.
+  inventory fingerprint before work. Equal counts do not establish equal
+  membership; any identifier or fingerprint drift requires a new freeze.
 - Do not alter source albums, originals, metadata, faces, favorite status, dates, locations, or prior versions.
 - Never write Photos SQLite. The permissioned app may only inspect locally or create folders/albums and add existing membership.
 - Do not upload pixels, previews, OCR, faces, coordinates, or manifests.
 - Use existing People names. Never identify unnamed faces or infer sensitive traits.
 - Keep exact private locations and raw OCR out of reports.
-- A potential sensitive item enters HOLD before ranking and cannot enter the master.
+- Treat only recognized clear states (`clear`, `clear-automated`, and identified-
+  human `clear-human-reviewed`) as eligible. `needs-review`, `unavailable`,
+  unknown states, hidden, missing, and HOLD assets are excluded before ranking
+  and from every replacement path.
+- Preserve an automated concern when a human clears a false positive: append the
+  actor, generalized reason, prior signal, and decision without rewriting history.
 - Preserve `Unclassified / Editor Field`. Do not force every photograph into a project story.
 - Label project-specific views `EDITOR HYPOTHESIS` unless visible evidence plus provenance supports stronger wording.
 - Apple aesthetic scores may break ties only inside true duplicate or burst clusters.
@@ -83,7 +89,9 @@ Read [evaluation-loop.md](references/evaluation-loop.md) before the first visual
 6. Run `photo-fieldwork evaluate`. Read all rejections and a stratified uncertainty sample.
 7. Change retrieval, assignments, penalties, quotas, or hold rules in response to observed errors. Keep the seed fixed. Save each round separately.
    Apply reviewed rejections with `photo-fieldwork round apply`; replacements
-   must already be locally inspected, previewed, and clear.
+   must already be locally inspected, previewed, and explicitly clear. Key
+   feedback to stable UUID plus view; a rejected image-view edge cannot re-enter
+   through reranking or fallback.
 8. Repeat until:
    - evaluation coverage and precision meet `config.json`;
    - every view has been visually sampled;
@@ -112,7 +120,13 @@ Do not claim success from Vision labels or metadata alone. The recursive loop re
 7. Run `photo-fieldwork run reconcile` after every durable phase. Finalize only
    after all artifact-backed phases pass; generate the completion report from
    state, hashes, receipts, evaluation results, privacy facts, and unresolved
-   uncertainty.
+   uncertainty. Structured JSON status and bound hashes authorize phases;
+   filenames and prose Markdown reports never do.
+
+Run the adversarial cases in [evals/evals.json](evals/evals.json) when changing
+source, safety, evaluation, state, mutation, verification, or reporting behavior.
+Follow [the eval hill-climb protocol](evals/README.md) and treat any failed
+safety, mutation, verification, privacy, or publication expectation as blocking.
 
 The helper invocation may require a Codex permission approval for `open -W`; request a reusable approval scoped to `/Applications/Jamie Photo Archive.app`. The app's Photos permission itself should persist under its stable bundle identity.
 
@@ -128,3 +142,6 @@ Return:
 - links to the run README, master manifest, evaluation report, app receipt, and independent verification.
 
 State clearly that this is an editor-ready field, not the final publication edit.
+Safety clearance and exact catalog verification do not establish consent,
+rights, factual caption provenance, or publication permission. Those require a
+separate item-level human decision whose default is not cleared.

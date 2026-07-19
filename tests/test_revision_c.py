@@ -58,6 +58,27 @@ class LifecycleTests(unittest.TestCase):
             state = reconcile(workspace)
             self.assertEqual(state["phases"]["write_test"]["status"], "pending")
 
+    def test_markdown_counts_cannot_authorize_independent_verification(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory) / "run"
+            initialize(
+                workspace,
+                run_id="run-1",
+                version="v01",
+                target_count=1,
+                source_identifier="SOURCE",
+                expected_source_count=1,
+            )
+            (workspace / "manifests" / "v01-photo-archive-receipt.json").write_text("{}")
+            (workspace / "reports" / "production-verification.md").write_text(
+                "Status: FAIL\nMissing memberships: 0\nUnexpected memberships: 0\nOutside source: 1\n"
+            )
+
+            state = reconcile(workspace)
+
+            self.assertEqual(state["phases"]["production_commit"]["status"], "complete")
+            self.assertEqual(state["phases"]["independent_verification"]["status"], "pending")
+
     def test_reconcile_and_finalize_from_receipts(self):
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory) / "run"
@@ -114,11 +135,33 @@ class RoundTests(unittest.TestCase):
                 "selection_reason": "eligible", "safety_status": "clear",
                 "pixel_available": "false", "preview_exported": "false",
             },
+            {
+                "uuid": "E", "filename": "e.jpg", "primary_view": "01", "score_total": "12",
+                "selection_reason": "eligible", "safety_status": "needs-review",
+                "pixel_available": "true", "preview_exported": "true",
+            },
         ]
         feedback = [{"uuid": "A", "judgment": "reject", "safety_status": "clear", "visible_reason": "mismatch"}]
         updated, events = apply_feedback(master, inventory, feedback, round_id="round-2")
         self.assertEqual({row["uuid"] for row in updated}, {"B", "C"})
         self.assertEqual([event["event_type"] for event in events], ["reviewed-reject", "replaced"])
+
+    def test_unavailable_feedback_removes_selected_asset(self):
+        master = [{
+            "uuid": "A", "filename": "a.jpg", "primary_view": "01",
+            "score_total": "9", "selection_reason": "selected",
+        }]
+        inventory = master + [{
+            "uuid": "B", "filename": "b.jpg", "primary_view": "01",
+            "score_total": "8", "selection_reason": "eligible", "safety_status": "clear",
+            "pixel_available": "true", "preview_exported": "true",
+        }]
+        feedback = [{"uuid": "A", "judgment": "fit", "safety_status": "unavailable"}]
+
+        updated, events = apply_feedback(master, inventory, feedback, round_id="round-3")
+
+        self.assertEqual([row["uuid"] for row in updated], ["B"])
+        self.assertEqual(events[0]["event_type"], "placed-on-hold")
 
 
 class GateTests(unittest.TestCase):
@@ -181,6 +224,30 @@ class GateTests(unittest.TestCase):
 
 
 class ConstraintTests(unittest.TestCase):
+    def test_only_recognized_clear_safety_states_are_eligible(self):
+        config = {
+            "seed": 7,
+            "target_count": 1,
+            "unclassified_view": "00",
+            "quota_mode": "exact",
+            "views": [{"id": "00", "label": "Unclassified", "quota": 1}],
+        }
+        inventory = [
+            {
+                "uuid": "AUTOMATED-CLEAR", "filename": "clear.jpg",
+                "candidate_views": "00", "safety_status": "clear-automated",
+            },
+            {
+                "uuid": "UNKNOWN-HIGH", "filename": "unknown.jpg",
+                "candidate_views": "00", "safety_status": "mystery", "favorite": "true",
+            },
+        ]
+
+        master, holds, _ = select(inventory, config)
+
+        self.assertEqual([row["uuid"] for row in master], ["AUTOMATED-CLEAR"])
+        self.assertEqual([row["uuid"] for row in holds], ["UNKNOWN-HIGH"])
+
     def test_event_limit_prevents_one_event_from_dominating(self):
         config = {
             "seed": 7,
@@ -264,16 +331,21 @@ class RetrievalTests(unittest.TestCase):
                 );
                 """
             )
-            for uuid in ("EXCLUDED", "PRIOR-ASSET", "FRESH-ASSET"):
+            for uuid, title, favorite in (
+                ("EXCLUDED", "studio work", 0),
+                ("PRIOR-ASSET", "studio work", 0),
+                ("FRESH-ASSET", "studio work", 0),
+                ("FALLBACK-SAFE", "unmatched favorite", 1),
+            ):
                 conn.execute(
                     """
                     INSERT INTO asset(
                       uuid, filename, title, is_photo, is_movie, favorite, edited,
                       hidden, trashed, missing, screenshot, selfie, portrait, burst,
                       face_count
-                    ) VALUES (?, ?, 'studio work', 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+                    ) VALUES (?, ?, ?, 1, 0, ?, 0, 0, 0, 0, 0, 0, 0, 0, 0)
                     """,
-                    (uuid, f"{uuid}.jpg"),
+                    (uuid, f"{uuid}.jpg", title, favorite),
                 )
             conn.executemany(
                 "INSERT INTO asset_album VALUES (?, ?, ?)",
@@ -292,7 +364,7 @@ class RetrievalTests(unittest.TestCase):
                         "excluded_album_terms": ["private"],
                         "prior_corpus_album_title": "Previous corpus",
                         "minimum_outside_prior_fraction": 0.5,
-                        "views": [{"id": "00", "quota": 2, "terms": ["studio"]}],
+                        "views": [{"id": "00", "quota": 3, "terms": ["studio"]}],
                     }
                 )
             )
@@ -301,7 +373,7 @@ class RetrievalTests(unittest.TestCase):
             subprocess.run(
                 [
                     sys.executable, str(RETRIEVE_SCRIPT), "--db", str(database),
-                    "--retrieval", str(retrieval), "--target", "2",
+                    "--retrieval", str(retrieval), "--target", "3",
                     "--output", str(output), "--summary", str(summary),
                 ],
                 check=True,
@@ -310,10 +382,11 @@ class RetrievalTests(unittest.TestCase):
             )
             with output.open(newline="", encoding="utf-8") as handle:
                 selected = {row["uuid"] for row in csv.DictReader(handle)}
-            self.assertEqual(selected, {"PRIOR-ASSET", "FRESH-ASSET"})
+            self.assertEqual(selected, {"PRIOR-ASSET", "FRESH-ASSET", "FALLBACK-SAFE"})
+            self.assertNotIn("EXCLUDED", selected)
             report = json.loads(summary.read_text())
             self.assertEqual(report["excluded_assets"], 1)
-            self.assertEqual(report["outside_prior_fraction"], 0.5)
+            self.assertAlmostEqual(report["outside_prior_fraction"], 2 / 3)
 
 
 class FrozenVerificationTests(unittest.TestCase):

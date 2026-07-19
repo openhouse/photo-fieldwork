@@ -19,7 +19,10 @@
 
 ## Safety hold contract
 
-Any item marked `safety_status=hold`, hidden, or missing is excluded before ranking. Validation fails if a hold ID appears in the proposed master.
+Only recognized clear safety states are eligible. Any item marked `hold`,
+`needs-review`, `unavailable`, an unknown state, hidden, or missing is excluded
+before ranking and replacement. Validation fails if unresolved material or a
+hold ID appears in the proposed master.
 
 The HOLD set should be private and access-controlled. It is not an editor album and must not be exported casually.
 
@@ -36,4 +39,3 @@ A production adapter must:
 7. Support independent read-only verification.
 
 If an adapter cannot meet all seven conditions, it is not production-ready.
-

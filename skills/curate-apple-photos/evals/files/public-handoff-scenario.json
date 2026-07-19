@@ -1,0 +1,25 @@
+{
+  "allowed_public_fields": ["opaque_id", "view", "generalized_process_status"],
+  "rows": [
+    {
+      "uuid": "PRIVATE-UUID-01",
+      "opaque_id": "salted-001",
+      "view": "community",
+      "people": ["Private Person"],
+      "path": "private/run/preview-01.jpg",
+      "ocr": "private correspondence text",
+      "location": "exact private address",
+      "hold_reason": "generalized sensitive context",
+      "rights": "unassessed",
+      "consent": "unassessed",
+      "caption_provenance": "unassessed",
+      "publication_permission": "unassessed"
+    }
+  ],
+  "roleplay": {"speakers_are_real_collaborators": false, "purpose": "editorial lens"},
+  "verified_process_facts": [
+    {"claim": "local inspection completed", "receipt_ref": "inspection-receipt:sha256:1111"},
+    {"claim": "catalog membership independently verified", "receipt_ref": "verification-receipt:sha256:2222"}
+  ],
+  "external_uploads": 0
+}

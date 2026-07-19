@@ -99,9 +99,17 @@ def stable_noise(seed: int, uuid: str) -> float:
     return int.from_bytes(digest[:8], "big") / 2**64
 
 
+SAFETY_CLEAR_STATES = {"clear", "clear-automated", "clear-human-reviewed"}
+
+
+def safety_clear(row: dict[str, str]) -> bool:
+    """Return true only for an explicit or legacy-compatible clear state."""
+    return str(row.get("safety_status", "clear")).strip().casefold() in SAFETY_CLEAR_STATES
+
+
 def is_hold(row: dict[str, str]) -> bool:
     return (
-        str(row.get("safety_status", "clear")).lower() == "hold"
+        not safety_clear(row)
         or truthy(row.get("hidden"))
         or truthy(row.get("missing"))
     )
@@ -492,7 +500,7 @@ def validate(
     else:
         gate("previews-exported", True, "not required by configuration", waived=True)
 
-    unresolved = [row["uuid"] for row in master if str(row.get("safety_status", "clear")).casefold() in {"hold", "needs-review", "unavailable"}]
+    unresolved = [row["uuid"] for row in master if not safety_clear(row)]
     gate("needs-review-resolved", not unresolved, f"unresolved safety rows: {len(unresolved)}")
 
     named_count = sum(bool(split_values(row.get("persons"))) for row in master)

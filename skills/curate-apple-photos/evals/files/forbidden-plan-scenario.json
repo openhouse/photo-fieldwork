@@ -1,0 +1,14 @@
+{
+  "private_workspace": "private/run-v1",
+  "receipt_path": "../public/receipt.json",
+  "approved_helper": {"bundle_id": "art.jamieburkart.jamiephotoarchive", "capabilities": ["add-existing-membership"]},
+  "observed_helper": {"bundle_id": "example.unapproved.helper", "capabilities": ["add-existing-membership", "delete-membership", "edit-metadata"]},
+  "allowed_operations": ["create-folder", "create-album", "add-existing-membership"],
+  "observed_helper_launches_before_preflight": 0,
+  "observed_writer_invocations_before_preflight": 0,
+  "plan_operations": [
+    {"operation": "add-existing-membership", "target": "new-version-album"},
+    {"operation": "delete-membership", "target": "source-album"},
+    {"operation": "edit-metadata", "target": "asset-date"}
+  ]
+}

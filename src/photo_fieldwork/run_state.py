@@ -106,7 +106,6 @@ def infer_phases(workspace: Path) -> dict[str, tuple[str, list[Path]]]:
     test_receipts = sorted((workspace / "manifests").glob("*write-test-receipt.json"))
     production_receipts = sorted((workspace / "manifests").glob("*photo-archive-receipt.json"))
     verification_reports = sorted((workspace / "reports").glob("*verification.json"))
-    verification_markdown = sorted((workspace / "reports").glob("*verification.md"))
 
     inspection_complete = []
     for path in inspection_receipts:
@@ -119,11 +118,6 @@ def infer_phases(workspace: Path) -> dict[str, tuple[str, list[Path]]]:
     evaluation_pass = [path for path in evaluation_reports if _json_pass(path, "passed", "status")]
     validation_pass = [path for path in validation_reports if _json_pass(path, "status", "passed")]
     verification_pass = [path for path in verification_reports if _json_pass(path, "status", "passed")]
-    verification_pass.extend(
-        path for path in verification_markdown
-        if "Unexpected memberships: 0" in path.read_text(encoding="utf-8", errors="ignore")
-        and "Missing memberships: 0" in path.read_text(encoding="utf-8", errors="ignore")
-    )
 
     def verification_kind(path: Path) -> str:
         if path.suffix == ".json":

@@ -1,0 +1,29 @@
+{
+  "approved_plan": {
+    "plan_id": "synthetic-production-v1",
+    "master_file": "verification-master-approved.csv",
+    "master_sha256": "da0ec1d7abb25cdd643570c1053a005b75bda20a6edaeedb71490cf9bc309c46",
+    "holds_file": "verification-holds.csv",
+    "holds_sha256": "48310c6474dabfc18b187ec241490709818d54b54b67fabfcead7aa69573569d",
+    "config_file": "verification-config.json",
+    "config_sha256": "ec27aa05caeae1cac33b21bfca5309a48c4a66ec980a7c70ddeab52ab7fadf9f"
+  },
+  "current_master_file": "verification-master-current.csv",
+  "writer_receipt": {"plan_id": "synthetic-production-v1", "expected_count": 4, "reported_count": 4, "writer": "synthetic-writer"},
+  "snapshot_receipt": {
+    "source_mode": "ro-query-only",
+    "output_mode": "immutable-query-only",
+    "included_committed_wal": true,
+    "verifier": "synthetic-independent-verifier",
+    "source_membership_file": "verification-source-membership.csv",
+    "source_membership_sha256": "da0ec1d7abb25cdd643570c1053a005b75bda20a6edaeedb71490cf9bc309c46"
+  },
+  "protected_digests": {
+    "source_before": "da0ec1d7abb25cdd643570c1053a005b75bda20a6edaeedb71490cf9bc309c46",
+    "source_after": "da0ec1d7abb25cdd643570c1053a005b75bda20a6edaeedb71490cf9bc309c46",
+    "prior_versions_file": "verification-prior-versions.csv",
+    "prior_versions_before": "80cd7bbdecc830793b3a4eb862078115b873fb936d854ddc9dc392766b0baed1",
+    "prior_versions_after": "80cd7bbdecc830793b3a4eb862078115b873fb936d854ddc9dc392766b0baed1"
+  },
+  "untrusted_verification_report": {"missing": 0, "unexpected": 0, "outside_source": 1, "hold_overlap": 0, "topology_errors": 0}
+}

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from .pipeline import is_hold, split_values, truthy
+from .pipeline import is_hold, safety_clear, split_values, truthy
 
 
 def _review_ready(row: dict[str, str], allow_uninspected: bool) -> bool:
@@ -33,14 +33,14 @@ def apply_feedback(
         decision = decisions.get(row["uuid"], {})
         judgment = decision.get("judgment", "").strip().lower()
         safety = decision.get("safety_status", "clear").strip().lower()
-        if judgment == "reject" or safety in {"hold", "needs-review"}:
+        if judgment == "reject" or not safety_clear({"safety_status": safety}):
             removed.append(row)
             events.append(
                 {
                     "asset_uuid": row["uuid"],
-                    "event_type": "placed-on-hold" if safety != "clear" else "reviewed-reject",
+                    "event_type": "reviewed-reject" if safety_clear({"safety_status": safety}) else "placed-on-hold",
                     "previous_state": "selected",
-                    "new_state": safety if safety != "clear" else "rejected",
+                    "new_state": "rejected" if safety_clear({"safety_status": safety}) else safety,
                     "reason": decision.get("visible_reason") or decision.get("evaluation_note") or "round feedback",
                     "payload": {"round_id": round_id, "primary_view": row.get("primary_view", "")},
                 }
@@ -56,6 +56,7 @@ def apply_feedback(
         if row["uuid"] not in selected_ids
         and row["uuid"] not in removed_ids
         and not is_hold(row)
+        and safety_clear(row)
         and _review_ready(row, allow_uninspected)
     ]
     pool.sort(key=lambda row: (float(row.get("score_total") or 0), row["uuid"]), reverse=True)
