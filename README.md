@@ -4,7 +4,10 @@ Photo Fieldwork is a local-first practice and production workflow for reducing a
 
 It does not automate taste. It helps people automate retrieval, deduplication, balancing, safety review, provenance, evaluation, and reversible handoff while keeping final editorial judgment human.
 
-The production protocol treats a run as a chain of typed, auditable artifacts: active source profile, balanced retrieval allocation, local inspection ledger, relational safety decisions, recursive evaluation rounds, feedback and replacement review, sealed catalog plans, writer receipts, independent verification, and an artifact-derived completion report.
+Version 0.2 binds retrieval, explicit view assignment, visual evaluation, and
+catalog plans to one hashed proposal. It also adds whole-visible-library source
+support, private run workspaces, WAL-aware read-only Photos verification, and a
+resumable phase and artifact ledger.
 
 ## Try it in two minutes
 
@@ -40,13 +43,6 @@ make check
 6. Generate a catalog write plan. Test ten items before any production write.
 7. Verify the committed album membership independently and read-only.
 
-Validate and fingerprint the exact source before retrieval:
-
-```bash
-./bin/photo-fieldwork source-check \
-  --source-profile config/source-profile.example.json
-```
-
 ```bash
 ./bin/photo-fieldwork select \
   --inventory path/to/inventory.csv \
@@ -55,11 +51,13 @@ Validate and fingerprint the exact source before retrieval:
 
 ./bin/photo-fieldwork sample \
   --master runs/my-run/manifests/proposed-master.csv \
+  --config path/to/config.json \
   --output runs/my-run/manifests/eval-sample.csv \
-  --per-view 3
+  --round-id round-01
 
 ./bin/photo-fieldwork evaluate \
   --feedback runs/my-run/manifests/eval-sample.csv \
+  --master runs/my-run/manifests/proposed-master.csv \
   --config path/to/config.json \
   --output runs/my-run/reports
 
@@ -71,36 +69,18 @@ Validate and fingerprint the exact source before retrieval:
 
 ./bin/photo-fieldwork plan \
   --master runs/my-run/manifests/proposed-master.csv \
+  --holds runs/my-run/manifests/hold-sensitive.csv \
+  --feedback runs/my-run/manifests/eval-sample.csv \
   --config path/to/config.json \
+  --evaluation-report runs/my-run/reports/evaluation-report.json \
+  --validation-report runs/my-run/reports/validation-report.json \
   --plan-id my-run-v01 \
   --source-title "Wide retrieval - do not edit" \
   --source-identifier SOURCE-ID \
+  --source-count SOURCE-COUNT \
+  --source-sha256 SOURCE-IDENTIFIER-SHA256 \
   --output runs/my-run/manifests/catalog-plan.json
 ```
-
-Production runs can also use:
-
-```bash
-./bin/photo-fieldwork safety --inventory INPUT.csv --policy POLICY.json \
-  --output SAFE.csv --decisions decisions.jsonl
-
-./bin/photo-fieldwork inspection-ledger --batch-manifest BATCHES.json \
-  --output inspections.jsonl --report inspection-report.json
-
-./bin/photo-fieldwork apply-feedback --master MASTER.csv --candidates CANDIDATES.csv \
-  --feedback ROUND.csv --config CONFIG.json --output RUN
-
-./bin/photo-fieldwork duplicate-audit --inventory MASTER.csv \
-  --output duplicate-review.csv --report duplicate-report.json
-
-./bin/photo-fieldwork lint-plan --plan PLAN.json --master MASTER.csv \
-  --holds HOLDS.csv --config CONFIG.json --source-profile SOURCE.json \
-  --inspection-ledger inspections.jsonl --output plan-lint.json
-
-./bin/photo-fieldwork report --run RUN --output RUN/reports/completion-report.md
-```
-
-All CLI commands accept `--format json` before the subcommand for automation. Quality gates return a nonzero status while still writing diagnostic artifacts.
 
 ## The central distinction
 
@@ -115,22 +95,17 @@ Those are different questions. Photo Fieldwork keeps them different.
 ## What is included
 
 - A deterministic, configurable selection engine.
-- Source profiles that bind a run to one immutable source identity and count.
-- View-order-independent candidate reservation before global truncation.
-- Typed retrieval, visible-evidence, provenance, and editor-hypothesis fields.
-- Relational safety rules and append-only decisions.
-- Content-addressed inspection and preview ledgers.
 - Safety holds that cannot enter the master.
 - Duplicate and burst controls.
 - Named-people and visible-apparatus signals.
 - An unclassified editor field for honest uncertainty.
 - Stratified evaluation samples and precision thresholds.
-- Overall and per-view evaluation gates.
-- Explicit feedback application and cascading replacement review.
-- Cross-UUID duplicate audits.
-- Sealed plans, resumable run state, idempotence receipts, and derived reports.
+- Per-view evaluation gates and Wilson interval reporting.
+- Proposal hashes that bind assignments, evaluation, and catalog plans.
+- Private-by-default run artifacts and a resumable checksum ledger.
 - A fully synthetic practice run.
-- Apple Photos integration guidance and adapter contracts.
+- Album and whole-library Apple Photos source profiles.
+- WAL-aware read-only inventory and verification adapters.
 - A case study of how visual inspection changed a real workflow.
 
 ## What is not included
@@ -140,11 +115,8 @@ Those are different questions. Photo Fieldwork keeps them different.
 - Aesthetic ranking across unrelated photographs.
 - Direct writes to Photos SQLite.
 - A claim that the generated corpus is the final edit.
-- Publication clearance inferred from private album membership.
 
 Read [the workflow](docs/workflow.md), [the architecture](docs/architecture.md), [the safety model](docs/safety.md), and [the Apple Photos guide](docs/apple-photos.md) before using a private archive.
-The [production protocol](docs/production-protocol.md) gives the end-to-end artifact and release contract.
-[Revision H](docs/revision-H.md) maps the whole-library findings to implemented guarantees and deliberate boundaries.
 
 ## Use it as a Codex skill
 
@@ -153,6 +125,12 @@ Install the bundled `curate-apple-photos` skill:
 ```bash
 make install-skill
 ```
+
+Before production use, copy
+`skills/curate-apple-photos/references/machine-profile.example.json` to the
+private path described in
+`skills/curate-apple-photos/references/machine-profile.md`. The completed file
+must remain outside git with mode `0600`.
 
 Restart Codex, open a new local chat, and invoke it with a brief such as:
 
@@ -172,3 +150,10 @@ production album creation, and independent verification.
 ```
 
 The skill integrates with the installed `/Applications/Jamie Photo Archive.app`, preserving its stable Photos permission identity. Its reviewed source is retained under `integrations/jamie-photo-archive/`; replacing or rebuilding the installed app is a separate, explicit operation because macOS may request Photos authorization again.
+
+The app path and bundle identifier are now read from the private machine
+profile; the path above is an example of an existing installation, not a public
+configuration default.
+
+Read [the revision M implementation note](docs/revision-M.md) and
+[the recovery guide](docs/recovery.md) before running the Apple Photos adapter.

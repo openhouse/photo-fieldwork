@@ -1,65 +1,63 @@
-import copy
+import importlib.util
 import json
+import tempfile
 import unittest
 from pathlib import Path
 
-from photo_fieldwork.evals import audit_eval_bank
-
 
 ROOT = Path(__file__).resolve().parents[1]
-EVALS = ROOT / "skills" / "curate-apple-photos" / "evals" / "evals.json"
-CONTRACT = ROOT / "skills" / "curate-apple-photos" / "evals" / "eval-contract.json"
+SCRIPT = ROOT / "skills" / "curate-apple-photos" / "scripts" / "check_evals.py"
+SPEC = importlib.util.spec_from_file_location("check_evals", SCRIPT)
+check_evals = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(check_evals)
 
 
 class EvalBankTests(unittest.TestCase):
-    def setUp(self):
-        self.eval_bank = json.loads(EVALS.read_text(encoding="utf-8"))
-        self.contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
+    def test_public_eval_bank_meets_coverage_contract(self):
+        summary = check_evals.validate_eval_bank()
+        self.assertGreaterEqual(summary["evals"], 24)
+        self.assertGreaterEqual(summary["critical"], 21)
+        self.assertGreaterEqual(summary["expectations"], 98)
+        self.assertEqual(summary["fixture_canaries"], 11)
 
-    def test_eval_bank_passes_its_recursive_coverage_contract(self):
-        report = audit_eval_bank(self.eval_bank, self.contract)
-        self.assertEqual(report["status"], "PASS", report["errors"])
-        self.assertEqual(report["eval_count"], 12)
-        self.assertEqual(report["contract_case_count"], 12)
-        self.assertEqual(report["decision_oracles"]["PROCEED"], 1)
+    def test_fixture_oracles_are_recomputable(self):
+        errors = []
+        self.assertEqual(check_evals.validate_fixture_oracles(errors), 11)
+        self.assertEqual(errors, [])
 
-    def test_removing_source_drift_case_breaks_critical_coverage(self):
-        mutated = copy.deepcopy(self.eval_bank)
-        mutated["evals"] = [case for case in mutated["evals"] if case["id"] != 1]
-        report = audit_eval_bank(mutated, self.contract)
-        self.assertEqual(report["status"], "FAIL")
-        self.assertTrue(any("contract cases missing evals: 1" in error for error in report["errors"]))
-        self.assertTrue(any("source-membership-identity" in error for error in report["errors"]))
+    def test_critical_eval_without_refusal_condition_fails(self):
+        source = json.loads(check_evals.EVAL_PATH.read_text(encoding="utf-8"))
+        source["evals"][0]["expectations"] = [
+            "Reports a result with a detailed artifact summary." for _ in range(4)
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "evals.json"
+            path.write_text(json.dumps(source), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "fail-closed expectation"):
+                check_evals.validate_eval_bank(path)
 
-    def test_refusal_only_oracles_fail_the_positive_control(self):
-        mutated = copy.deepcopy(self.contract)
-        for case in mutated["cases"]:
-            case["decision"] = "BLOCK"
-        report = audit_eval_bank(self.eval_bank, mutated)
-        self.assertEqual(report["status"], "FAIL")
-        self.assertTrue(any("refusal-only" in error for error in report["errors"]))
+    def test_eval_without_artifact_or_action_oracle_fails(self):
+        source = json.loads(check_evals.EVAL_PATH.read_text(encoding="utf-8"))
+        source["evals"][0].pop("oracle_contract")
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "evals.json"
+            path.write_text(json.dumps(source), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "lacks an oracle_contract"):
+                check_evals.validate_eval_bank(path)
 
-    def test_removing_local_privacy_case_breaks_required_coverage(self):
-        mutated = copy.deepcopy(self.eval_bank)
-        mutated["evals"] = [case for case in mutated["evals"] if case["id"] != 11]
-        report = audit_eval_bank(mutated, self.contract)
-        self.assertEqual(report["status"], "FAIL")
-        self.assertTrue(any("local-only-data-boundary" in error for error in report["errors"]))
-        self.assertTrue(any("identity-inference-boundary" in error for error in report["errors"]))
-
-    def test_vague_expectation_fails_meta_evaluation(self):
-        mutated = copy.deepcopy(self.eval_bank)
-        mutated["evals"][0]["expectations"][0] = "Handle safely."
-        report = audit_eval_bank(mutated, self.contract)
-        self.assertEqual(report["status"], "FAIL")
-        self.assertTrue(any("vague expectation" in error for error in report["errors"]))
-
-    def test_missing_counterfactual_fails_meta_evaluation(self):
-        mutated = copy.deepcopy(self.contract)
-        mutated["cases"][0]["counterfactual_pass_condition"] = ""
-        report = audit_eval_bank(self.eval_bank, mutated)
-        self.assertEqual(report["status"], "FAIL")
-        self.assertTrue(any("counterfactual pass condition" in error for error in report["errors"]))
+    def test_executable_checks_are_resolvable(self):
+        checks = check_evals.executable_checks()
+        self.assertIn("make demo", checks)
+        self.assertGreaterEqual(len(checks), 30)
+        for check in checks:
+            if check == "make demo":
+                continue
+            suite = unittest.defaultTestLoader.loadTestsFromName(check)
+            self.assertGreater(suite.countTestCases(), 0, check)
+            self.assertFalse(
+                any(isinstance(test, unittest.loader._FailedTest) for test in suite),
+                check,
+            )
 
 
 if __name__ == "__main__":

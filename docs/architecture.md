@@ -3,42 +3,28 @@
 Photo Fieldwork keeps archive-specific access separate from archive-independent judgment.
 
 ```text
-Catalog reader or filesystem scanner
+Frozen source profile + catalog reader
               |
               v
- source-profile.json ---> inventory.csv
+       inventory.csv
               |
               v
- balanced retrieval allocation
+ retrieval hypotheses ---> deterministic constrained assignment
+                                   |
+                                   v
+                         selector ---> hold-sensitive.csv
               |
               v
- local inspection ledger
-              |
-              v
- relational safety policy ---> decision-ledger.jsonl
-              |
-              v
- deterministic selector ---> hold-sensitive.csv
-              |
-              v
-   proposed-master.csv
-        |
-        v
- recursive evaluation ---> feedback application
-        |                         |
-        |                         v
-        |                  replacement review
-        |                         |
-        +-------------------------+
-        |
-        v
- sealed catalog-plan.json ---> plan lint
-        |
-        v
- catalog writer adapter ---> idempotence receipt
-        |
-        v
- independent verifier ---> completion report
+ proposed-master.csv + proposal hash
+        |            |
+        v            v
+ bound evaluation   bound catalog-plan.json
+                         |
+                         v
+                 catalog writer adapter
+                         |
+                         v
+                  independent verifier
 ```
 
 ## Core
@@ -47,15 +33,9 @@ The standard-library Python core reads a normalized CSV, applies immutable safet
 
 The core does not read a Photos database, open images, call a model, or mutate a catalog.
 
-The protocol layer validates source identity, normalizes rows and identifiers, preserves inspection and decision ledgers, enforces per-view quality gates, audits replacements and duplicates, seals plans, and derives completion reports. It remains standard-library Python and does not make editorial judgments.
-
-## Evidence types
-
-- `retrieval_index` explains why an asset entered the candidate field.
-- `visible_evidence` records generalized observations from local pixels.
-- `source_provenance` records traceable project or archival authority.
-- `editor_hypothesis` records provisional interpretation.
-- `publication_clearance` remains `not_assessed` unless a separate consent workflow establishes it.
+The core keeps retrieval hypotheses separate from explicit assignment. Exact
+membership plus assignments produce a stable proposal hash. Evaluation and
+catalog plans must reference the same hash.
 
 ## Reader adapters
 
@@ -80,6 +60,17 @@ A writer consumes `catalog-plan.json`. It may create version folders, create alb
 ## Verifier adapters
 
 A verifier independently compares plan and catalog. It should be read-only and should not share mutation code with the writer.
+
+The Apple Photos verifier creates a consistent backup from a live read-only,
+query-only connection so committed WAL content is included. It then verifies
+only against the frozen immutable snapshot.
+
+## Run state
+
+The skill bridge records ordered phases and a SHA-256 ledger of the artifacts
+that complete each phase. Run directories and sensitive artifacts are private
+by default. The ledger supports interruption and review without making the
+mutable Photos catalog itself the only record of what happened.
 
 ## Extension points
 

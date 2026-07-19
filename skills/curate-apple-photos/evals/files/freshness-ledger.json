@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "prior_round": {"round_id": "round-01", "inspected": ["A", "B", "C"], "inspection_digest": "706204f15ce1834ad298c8e8d270315652bbd6e40cec489f65802db2fdd03167"},
+  "claimed_round": {"round_id": "round-02", "inspected": ["A", "B", "C"], "inspection_digest": "706204f15ce1834ad298c8e8d270315652bbd6e40cec489f65802db2fdd03167"},
+  "required": {"minimum_fresh": 2, "fresh_count": 0, "validated_cache_count": 3},
+  "expected": "FAIL"
+}

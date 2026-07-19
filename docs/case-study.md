@@ -21,18 +21,7 @@ The completed version contained exactly 8,000 unique stills. It preserved the so
 
 The transferable lesson is simple: metadata is excellent for constructing a field of attention. It is not a substitute for looking, provenance, or editorial judgment. A good workflow makes those differences operational.
 
-## Whole-library production benchmark
-
-A later production run began with 603,137 visible still photographs and created an exact 4,000-photo portfolio editor field. It freshly inspected 14,632 unique local assets across initial, delta, and targeted retrieval rounds. Five scored visual-evaluation rounds moved decisive precision from 0.2464 to 0.8831 at complete sample coverage.
-
-That run exposed failures that now have protocol support:
-
-- sequential view allocation lost candidates from later views;
-- excluding prior editor albums removed useful retrieval indexes;
-- individual classifiers missed safety meaning carried by relations;
-- overall precision concealed weaker project views;
-- feedback caused cascading replacements that needed inspection;
-- an exact visible duplicate existed under a different asset UUID;
-- multiple inspection rounds needed one logical preview and receipt index.
-
-The release completed a ten-item write test, production write, idempotence rerun, and independent read-only membership verification. No pixels or metadata were uploaded. The aggregate benchmark is public-safe; private identities, OCR, locations, album titles, and imagery remain outside this case study.
+The later [whole-library fieldwork case study](case-study-v04-M.md) records how
+the workflow changed again after fresh inspection across a 603,137-still source,
+including proposal-bound evaluation, private workspaces, source digests, and
+WAL-aware independent verification.

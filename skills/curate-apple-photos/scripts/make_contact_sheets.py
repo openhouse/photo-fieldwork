@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import json
 import math
 from pathlib import Path
 
@@ -21,28 +20,18 @@ def preview_path(directory: Path, uuid: str) -> Path | None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sample", type=Path, required=True)
-    parser.add_argument("--previews", type=Path)
-    parser.add_argument("--preview-index", type=Path)
+    parser.add_argument("--previews", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--columns", type=int, default=4)
     parser.add_argument("--rows", type=int, default=3)
     parser.add_argument("--cell-width", type=int, default=360)
     parser.add_argument("--cell-height", type=int, default=310)
     args = parser.parse_args()
-    if bool(args.previews) == bool(args.preview_index):
-        raise SystemExit("provide exactly one of --previews or --preview-index")
-
-    indexed = {}
-    if args.preview_index:
-        for line in args.preview_index.read_text(encoding="utf-8").splitlines():
-            if line.strip():
-                row = json.loads(line)
-                if row.get("preview_path") and row.get("preview_valid", True):
-                    indexed[row["uuid"].split("/", 1)[0]] = Path(row["preview_path"])
 
     with args.sample.open(newline="", encoding="utf-8-sig") as handle:
         records = list(csv.DictReader(handle))
-    args.output.mkdir(parents=True, exist_ok=True)
+    args.output.mkdir(mode=0o700, parents=True, exist_ok=True)
+    args.output.chmod(0o700)
     per_page = args.columns * args.rows
     pages = math.ceil(len(records) / per_page)
     font = ImageFont.load_default(size=15)
@@ -55,11 +44,7 @@ def main() -> None:
         for index, record in enumerate(batch):
             x = (index % args.columns) * args.cell_width
             y = (index // args.columns) * args.cell_height
-            path = (
-                indexed.get(record["uuid"].split("/", 1)[0])
-                if args.preview_index
-                else preview_path(args.previews, record["uuid"])
-            )
+            path = preview_path(args.previews, record["uuid"])
             image_box = (x + 8, y + 8, x + args.cell_width - 8, y + args.cell_height - 62)
             if path:
                 try:
@@ -82,6 +67,7 @@ def main() -> None:
             draw.rectangle((x, y, x + args.cell_width - 1, y + args.cell_height - 1), outline="#bbb", width=1)
         output = args.output / f"contact-sheet-{page_index + 1:02d}.jpg"
         canvas.save(output, "JPEG", quality=88)
+        output.chmod(0o600)
         print(output)
 
 

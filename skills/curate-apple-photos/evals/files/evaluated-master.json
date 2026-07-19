@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "master_sha256": "0b5311b25a41553055b1d0eb8f1f4e743df4f0a4f7c4e45ee619088891160cb8",
+  "rows": [
+    {"uuid": "SYNTHETIC-A", "assigned_view": "community"},
+    {"uuid": "SYNTHETIC-B", "assigned_view": "community"},
+    {"uuid": "SYNTHETIC-C", "assigned_view": "project-proof"}
+  ]
+}

@@ -7,6 +7,9 @@
 - Keep exact coordinates out of editor-facing manifests.
 - Store generalized safety flags, not detected private text.
 - Never publish archive manifests containing private local paths or named-person associations without review.
+- Create private run directories with mode `0700` and sensitive files with mode
+  `0600`.
+- Keep the completed machine profile outside git.
 
 ## Prohibited by default
 
@@ -23,19 +26,12 @@ Any item marked `safety_status=hold`, hidden, or missing is excluded before rank
 
 The HOLD set should be private and access-controlled. It is not an editor album and must not be exported casually.
 
-## Relational propagation
+Use separate states for automated safety screening, human editor-field review,
+and publication review. `clear-automated` means only that the configured local
+detectors did not place the item in HOLD. It is never publication permission.
 
-Some safety meaning is not visible in one frame. A declarative policy may conservatively propagate `needs-review` or HOLD through:
-
-- protected album families;
-- pre-existing People associations configured by the archive owner;
-- event and sequence clusters;
-- exact asset decisions;
-- generalized label classes.
-
-Every propagated decision records a rule ID, relation type, generalized reason, and timestamp. Existing human context and source face counts are preserved separately from local detector results; a detector returning zero cannot erase a positive source count. Overrides append a decision rather than rewriting history.
-
-Album membership is not publication permission. Named People metadata remains private archive structure unless separately approved for release.
+Every selected row defaults to `publication-review-required`. Selection into a
+master or Photos album cannot change that state.
 
 ## Catalog adapter contract
 

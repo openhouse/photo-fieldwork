@@ -8,16 +8,8 @@ import csv
 import json
 import math
 import sqlite3
-import sys
 from collections import defaultdict
 from pathlib import Path
-
-
-ROOT = Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(ROOT / "src"))
-
-from photo_fieldwork.contracts import write_json  # noqa: E402
-from photo_fieldwork.retrieval import allocate_candidates  # noqa: E402
 
 
 BASE_COLUMNS = [
@@ -44,10 +36,17 @@ def like_matches(conn: sqlite3.Connection, query: str, values: list[str]) -> set
     return matched
 
 
-def album_matches(conn: sqlite3.Connection, values: list[str], excluded_terms: list[str]) -> set[str]:
+def album_matches(
+    conn: sqlite3.Connection,
+    values: list[str],
+    excluded_terms: list[str],
+) -> set[str]:
     matched: set[str] = set()
     exclusions = "".join(" AND lower(coalesce(album_title,'')) NOT LIKE ?" for _ in excluded_terms)
-    query = "SELECT uuid FROM asset_album WHERE lower(coalesce(album_title,'')) LIKE ?" + exclusions
+    query = (
+        "SELECT uuid FROM asset_album "
+        "WHERE lower(coalesce(album_title,'')) LIKE ?" + exclusions
+    )
     for value in values:
         params = [f"%{value.casefold()}%", *[f"%{term.casefold()}%" for term in excluded_terms]]
         matched.update(row[0] for row in conn.execute(query, params))
@@ -84,14 +83,26 @@ def main() -> None:
     parser.add_argument("--retrieval", type=Path, required=True)
     parser.add_argument("--target", type=int, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--report", type=Path)
     args = parser.parse_args()
 
     spec = json.loads(args.retrieval.read_text(encoding="utf-8"))
     views = spec.get("views") or []
     if not views:
         raise SystemExit("retrieval.json requires at least one view")
-    candidate_target = max(args.target, math.ceil(args.target * float(spec.get("candidate_multiplier", 1.75))))
+    view_ids = [str(view.get("id", "")) for view in views]
+    if any(not view_id for view_id in view_ids) or len(view_ids) != len(set(view_ids)):
+        raise SystemExit("retrieval view IDs must be non-empty and unique")
+    if sum(int(view.get("quota", 0)) for view in views) != args.target:
+        raise SystemExit("retrieval view quotas must sum to --target")
+    multiplier = float(spec.get("candidate_multiplier", 1.75))
+    if multiplier < 1:
+        raise SystemExit("candidate_multiplier must be at least 1")
+    outside_prior_fraction = float(spec.get("minimum_outside_prior_fraction", 0.0))
+    if not 0 <= outside_prior_fraction <= 1:
+        raise SystemExit("minimum_outside_prior_fraction must be between 0 and 1")
+    if outside_prior_fraction and not str(spec.get("prior_corpus_album_title") or "").strip():
+        raise SystemExit("minimum_outside_prior_fraction requires prior_corpus_album_title")
+    candidate_target = max(args.target, math.ceil(args.target * multiplier))
     excluded_album_terms = [
         str(value).casefold()
         for value in spec.get("excluded_album_terms", [])
@@ -101,7 +112,7 @@ def main() -> None:
     asset_count = conn.execute("SELECT count(*) FROM asset WHERE is_photo = 1 AND hidden = 0 AND trashed = 0").fetchone()[0]
 
     view_scores: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
-    year_ranges: dict[str, tuple[int, int]] = {}
+    view_reasons: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
     for view in views:
         view_id = str(view["id"])
         terms = [str(value).casefold() for value in view.get("terms", []) if str(value).strip()]
@@ -118,39 +129,47 @@ def main() -> None:
             ) LIKE ?
         """
         relation_queries = [
-            ("SELECT uuid FROM asset_keyword WHERE lower(keyword) LIKE ?", 6.0),
-            ("SELECT uuid FROM asset_label WHERE lower(label_normalized) LIKE ?", 4.0),
-            ("SELECT uuid FROM asset_place WHERE lower(place) LIKE ?", 4.0),
+            ("keyword", "SELECT uuid FROM asset_keyword WHERE lower(keyword) LIKE ?", 6.0),
+            ("label", "SELECT uuid FROM asset_label WHERE lower(label_normalized) LIKE ?", 4.0),
+            ("place", "SELECT uuid FROM asset_place WHERE lower(place) LIKE ?", 4.0),
         ]
         for term in terms:
             for uuid in like_matches(conn, base_query, [term]):
                 view_scores[view_id][uuid] += 7.0
+                view_reasons[view_id][uuid].add("asset-text")
             for uuid in album_matches(conn, [term], excluded_album_terms):
                 view_scores[view_id][uuid] += 7.0
-            for query, weight in relation_queries:
+                view_reasons[view_id][uuid].add("album-term")
+            for channel, query, weight in relation_queries:
                 for uuid in like_matches(conn, query, [term]):
                     view_scores[view_id][uuid] += weight
+                    view_reasons[view_id][uuid].add(channel)
         for uuid in like_matches(conn, "SELECT uuid FROM asset_person WHERE lower(person) LIKE ?", people):
             view_scores[view_id][uuid] += 8.0
+            view_reasons[view_id][uuid].add("existing-people-association")
         for uuid in album_matches(conn, albums, excluded_album_terms):
             view_scores[view_id][uuid] += 10.0
+            view_reasons[view_id][uuid].add("album")
         for uuid in like_matches(conn, "SELECT uuid FROM asset_place WHERE lower(place) LIKE ?", places):
             view_scores[view_id][uuid] += 5.0
+            view_reasons[view_id][uuid].add("place")
         for uuid in like_matches(conn, "SELECT uuid FROM asset_search WHERE lower(coalesce(normalized_string,'')) LIKE ?", search_terms):
             view_scores[view_id][uuid] += 4.0
+            view_reasons[view_id][uuid].add("search-description")
 
         year_start = view.get("year_start")
         year_end = view.get("year_end")
         if year_start is not None or year_end is not None:
-            year_ranges[view_id] = (int(year_start or 0), int(year_end or 9999))
+            low = int(year_start or 0)
+            high = int(year_end or 9999)
+            for uuid in list(view_scores[view_id]):
+                year = conn.execute("SELECT year FROM asset WHERE uuid = ?", (uuid,)).fetchone()
+                if year and year[0] is not None and low <= int(year[0]) <= high:
+                    view_scores[view_id][uuid] += 2.0
+                    view_reasons[view_id][uuid].add("supporting-date-range")
 
     matched_ids = {uuid for scores in view_scores.values() for uuid in scores}
     base_rows = asset_rows(conn, list(matched_ids)) if matched_ids else {}
-    for view_id, (low, high) in year_ranges.items():
-        for uuid in list(view_scores[view_id]):
-            year = base_rows.get(uuid, {}).get("year")
-            if year is not None and low <= int(year) <= high:
-                view_scores[view_id][uuid] += 2.0
 
     def prior_attention(uuid: str) -> float:
         row = base_rows.get(uuid, {})
@@ -158,9 +177,19 @@ def main() -> None:
         edited = bool(row.get("edited"))
         return 12.0 if favorite and edited else 7.0 if favorite else 5.0 if edited else 0.0
 
-    multiplier = float(spec.get("candidate_multiplier", 1.75))
-    if len(matched_ids) < candidate_target:
-        needed = candidate_target - len(matched_ids)
+    selected: list[str] = []
+    selected_set: set[str] = set()
+    for view in views:
+        view_id = str(view["id"])
+        limit = max(1, math.ceil(int(view.get("quota", 0)) * multiplier))
+        ranked = sorted(view_scores[view_id], key=lambda uuid: (view_scores[view_id][uuid] + prior_attention(uuid), uuid), reverse=True)
+        for uuid in ranked[:limit]:
+            if uuid not in selected_set:
+                selected.append(uuid)
+                selected_set.add(uuid)
+
+    if len(selected) < candidate_target:
+        needed = candidate_target - len(selected)
         fallback = conn.execute(
             """
             SELECT uuid FROM asset
@@ -171,34 +200,67 @@ def main() -> None:
             """,
             (needed * 4,),
         )
-        fallback_view = str(spec.get("fallback_view") or views[0]["id"])
         for (uuid,) in fallback:
-            if uuid not in matched_ids:
-                view_scores[fallback_view][uuid] += 0.01
-                matched_ids.add(uuid)
-                if len(matched_ids) == candidate_target:
+            if uuid not in selected_set:
+                selected.append(uuid)
+                selected_set.add(uuid)
+                if len(selected) == candidate_target:
                     break
-        base_rows.update(asset_rows(conn, list(matched_ids - base_rows.keys())))
+    selected = selected[:candidate_target]
+    selected_set = set(selected)
 
-    attention_scores = {uuid: prior_attention(uuid) for uuid in matched_ids}
     prior_album_title = str(spec.get("prior_corpus_album_title") or "").strip()
-    prior_ids = {
-        row[0]
-        for row in conn.execute("SELECT uuid FROM asset_album WHERE album_title = ?", (prior_album_title,))
-    } if prior_album_title else set()
-    selected, reserved_views, allocation_report = allocate_candidates(
-        view_scores,
-        views,
-        candidate_target,
-        multiplier=multiplier,
-        attention_scores=attention_scores,
-        prior_ids=prior_ids,
-        minimum_outside_prior_fraction=float(spec.get("minimum_outside_prior_fraction", 0.0)),
-    )
+    if prior_album_title and outside_prior_fraction > 0:
+        prior_ids = {
+            row[0]
+            for row in conn.execute(
+                "SELECT uuid FROM asset_album WHERE album_title = ?",
+                (prior_album_title,),
+            )
+        }
+        required_outside = math.ceil(candidate_target * outside_prior_fraction)
+        current_outside = sum(uuid not in prior_ids for uuid in selected)
+
+        def aggregate_score(uuid: str) -> float:
+            return max(
+                (scores.get(uuid, 0.0) for scores in view_scores.values()),
+                default=0.0,
+            ) + prior_attention(uuid)
+
+        if current_outside < required_outside:
+            replacements_needed = required_outside - current_outside
+            outside_pool = sorted(
+                (
+                    uuid for uuid in matched_ids
+                    if uuid not in prior_ids and uuid not in selected_set
+                ),
+                key=lambda uuid: (aggregate_score(uuid), uuid),
+                reverse=True,
+            )
+            removable = sorted(
+                (uuid for uuid in selected if uuid in prior_ids),
+                key=lambda uuid: (aggregate_score(uuid), uuid),
+            )
+            replacements = min(replacements_needed, len(outside_pool), len(removable))
+            remove_set = set(removable[:replacements])
+            selected = [uuid for uuid in selected if uuid not in remove_set]
+            selected.extend(outside_pool[:replacements])
+            selected_set = set(selected)
+            current_outside = sum(uuid not in prior_ids for uuid in selected)
+        print(f"outside_prior_candidates={current_outside}")
+        print(f"required_outside_prior_candidates={required_outside}")
 
     base_rows = asset_rows(conn, selected)
     people = relation_values(conn, "asset_person", "person", selected)
     albums = relation_values(conn, "asset_album", "album_title", selected)
+    if excluded_album_terms:
+        albums = {
+            uuid: [
+                title for title in titles
+                if not any(term in title.casefold() for term in excluded_album_terms)
+            ]
+            for uuid, titles in albums.items()
+        }
     labels = relation_values(conn, "asset_label", "label", selected)
     places = relation_values(conn, "asset_place", "place", selected)
     conn.close()
@@ -212,20 +274,19 @@ def main() -> None:
         )
         metadata_score = scores[0][1] if scores else 0.0
         confidence = "high" if metadata_score >= 12 else "medium" if metadata_score >= 6 else "low" if metadata_score > 0 else "unknown"
-        retrieval_type = "fallback_attention" if metadata_score <= 0.01 else "retrieval_index"
         output_rows.append(
             {
                 "uuid": uuid,
                 "filename": row.get("original_filename") or row.get("filename") or "",
                 "candidate_views": ";".join(view for view, _ in scores),
-                "reserved_view": reserved_views.get(uuid, ""),
+                "retrieval_basis": ";".join(
+                    f"{view_id}:{reason}"
+                    for view_id, _ in scores
+                    for reason in sorted(view_reasons[view_id][uuid])
+                ),
                 "evidence_confidence": confidence,
                 "metadata_score": f"{metadata_score:.2f}",
                 "visible_context": "",
-                "visible_evidence": "",
-                "source_provenance": "",
-                "editor_hypothesis": ";".join(view for view, _ in scores),
-                "retrieval_evidence_types": retrieval_type,
                 "persons": ";".join(sorted(people.get(uuid, []))),
                 "albums": ";".join(sorted(albums.get(uuid, []))),
                 "labels": ";".join(sorted(labels.get(uuid, []))),
@@ -245,28 +306,26 @@ def main() -> None:
                 "width": row.get("width") or "",
                 "height": row.get("height") or "",
                 "face_count": row.get("face_count") or 0,
-                "source_face_count": row.get("face_count") or 0,
-                "inspected_face_count": 0,
                 "camera_make": row.get("camera_make") or "",
                 "camera_model": row.get("camera_model") or "",
                 "local_path": "",
             }
         )
-    args.output.parent.mkdir(parents=True, exist_ok=True)
+    if not output_rows:
+        raise SystemExit("retrieval produced no candidates")
+    args.output.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    args.output.parent.chmod(0o700)
     fields = list(output_rows[0])
     with args.output.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
         writer.writerows(output_rows)
+    args.output.chmod(0o600)
     print(f"source_photos={asset_count}")
     print(f"matched_assets={len(matched_ids)}")
     print(f"candidate_target={candidate_target}")
     print(f"candidate_rows={len(output_rows)}")
     print(f"output={args.output}")
-    allocation_report.update({"source_photos": asset_count, "output": str(args.output)})
-    if args.report:
-        write_json(args.report, allocation_report)
-    print(json.dumps(allocation_report, sort_keys=True))
 
 
 if __name__ == "__main__":

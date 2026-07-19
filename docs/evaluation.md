@@ -4,11 +4,13 @@ The goal is not to prove the selector is intelligent. The goal is to discover wh
 
 ## Minimum loop
 
-1. Sample at least three items per view: low, middle, and high score.
+1. Use low, middle, and high scores for calibration, then collect at least five
+   decisive judgments per material view when the view is large enough.
 2. Inspect the actual pixels, not filenames or metadata alone.
 3. Label each item `fit`, `reject`, or `uncertain`.
 4. Record one visible reason.
-5. Compute overall and per-view precision.
+5. Compute overall and per-view precision, sample size, coverage, uncertainty,
+   and 95% Wilson intervals.
 6. Read every rejection and a sample of uncertainties.
 7. Revise one part of the system and rerun deterministically.
 
@@ -27,38 +29,53 @@ The goal is not to prove the selector is intelligent. The goal is to discover wh
 
 - Evaluation coverage meets the configured threshold.
 - Overall precision meets the configured threshold.
-- Every material view meets minimum coverage, decisive-example, and precision thresholds, unless a waiver is explicit in configuration.
+- Every material view meets its own precision and decisive-sample threshold.
+- Sparse hypotheses are labeled explicitly and still require coverage and
+  uncertainty review.
 - No known safety regression appears in the master.
-- Every view has been sampled.
+- Every configured non-empty view has been sampled.
 - Every selected row has a reason.
 - Uncertainty is represented explicitly.
 - A human editor is told that project views remain hypotheses where provenance is incomplete.
 
 Passing the gate means the corpus is ready for editors. It does not mean every category assignment is factually proven.
 
-## Skill behavior evals
+An evaluation report is bound to the exact source, configuration, master
+membership, view assignments, deterministic review sample, and freshly
+inspected review rows through `config_sha256`, `master_sha256`, `proposal_id`,
+`sample_sha256`, and `feedback_sha256`. A catalog plan recomputes that report
+from feedback and recomputes validation from the master and HOLD manifest. It
+is refused when any source, policy, sample, inspection, assignment, review, or
+safety fact differs.
 
-The skill eval bank lives in `skills/curate-apple-photos/evals/evals.json`. It tests the production failures that can survive a superficially successful run: equal-count source drift, reused evidence presented as fresh, corrupt previews, aggregate metrics masking a weak view, unsafe clearance, cascading replacements, cross-UUID duplicates, candidate drift after evaluation, interrupted writes, publication-boundary leakage, private-data offloading, identity inference, destructive catalog plans, and prior-version overwrite. A positive control requires the skill to proceed when every production-write gate is actually closed.
+The sample itself is part of the candidate. It is regenerated from the frozen
+configuration, not chosen ad hoc after seeing the result. Each completed row
+names an absolute, non-symlink local inspection artifact. Its digest is
+recomputed and bound to the exact round and sample. This proves that the named
+artifact was present; it does not prove the reviewer looked carefully, that the
+judgment is correct, or that publication is approved.
 
-`eval-contract.json` maps every case to a decision oracle, required dimensions, anti-shortcuts, and a counterfactual pass condition. Audit the bank with:
+## Skill regression evals
+
+The public synthetic bank at
+`skills/curate-apple-photos/evals/evals.json` tests the full operating contract
+under adversarial pressure. Run its structural and coverage check with:
+
+```bash
+python3 skills/curate-apple-photos/scripts/check_evals.py
+```
+
+Run the allowlisted executable canaries with:
 
 ```bash
 make evals
 ```
 
-Hill-climb the bank recursively:
+`STRUCTURAL-PASS` covers schema, coverage, fixtures, and recomputable canaries.
+`EXECUTABLE-PASS` covers the referenced unit and synthetic end-to-end checks.
+Neither result grades a model's required artifacts or proves human inspection,
+rights clearance, consent, or publication approval.
 
-1. Run the same prompt against the current skill and the previous revision.
-2. Grade each expectation from artifact or transcript evidence, not from tone or stated confidence.
-3. Remove or weaken one case and confirm the meta-evaluation fails.
-4. Flip every oracle to `BLOCK` and confirm the positive control detects refusal-only behavior.
-5. Add newly observed field failures without deleting protected prior regressions.
-6. Re-run the whole bank after any source, safety, evaluation, planning, writing, verification, or publication-contract change.
-
-The deterministic audit checks eval design. Model runs and human review still establish whether the skill satisfies the cases.
-
-## Closing a round
-
-Evaluation is not complete when a report is written. Apply explicit feedback to the full candidate pool, rebuild deterministically, and review every newly admitted or reassigned asset. A rejected sampled item often causes an unreviewed lower-ranked item to enter the master; the replacement manifest makes that consequence visible.
-
-Diagnostic rounds may be preserved without being represented as scored release rounds. Never lower a threshold merely to finish.
+Use the recursive protocol in the eval README when changing the skill. Grade
+from artifacts and refusal behavior, inspect false passes first, and rerun every
+critical safety canary after each revision.
