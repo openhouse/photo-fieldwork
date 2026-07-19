@@ -50,6 +50,9 @@ python3 scripts/photo_archive_bridge.py doctor --source-manifest RUN/source.json
 - Editor-field membership is not publication permission. Keep rights or license, consent,
   provenance, factual-claim support, contextual risk, and publication approval as separate
   human-reviewed states that default closed when unresolved.
+- Preserve human judgment as append-only decision lineage. Never edit or delete an earlier
+  assignment, evaluation, or safety event to make the record cleaner; append a superseding
+  event and audit the decision ledger before rematerializing candidate state.
 
 Read [safety.md](references/safety.md) whenever a brief concerns private homes, minors, health, legal strategy, financial records, identity documents, or vulnerable collaborators.
 
@@ -80,6 +83,21 @@ python3 scripts/retrieve_candidates.py \
 7. Treat `candidate_views` as immutable retrieval hypotheses. After looking, record an
    explicit `assigned_view`, `assignment_status`, and `assignment_reason` for every row that
    may enter selection. The selector must fail rather than derive an assignment from retrieval.
+8. Append reviewed assignments and safety decisions to a private JSONL decision ledger, then
+   audit and materialize it rather than hand-editing the inventory:
+
+```bash
+photo-fieldwork decisions append --ledger RUN/manifests/decisions.jsonl --events ROUND-events.jsonl
+photo-fieldwork decisions audit --ledger RUN/manifests/decisions.jsonl
+photo-fieldwork decisions materialize \
+  --ledger RUN/manifests/decisions.jsonl \
+  --inventory RUN/manifests/candidate-pool.csv \
+  --output RUN/manifests/ready-candidates.csv
+```
+
+   A superseding event must name the same asset, decision type, and view, plus the identified
+   actor, time, bounded reason, and predecessor. Related perceptual, duplicate, and burst frames
+   inherit unresolved holds; a sibling frame is not a safety bypass.
 
 ## Select, look, evaluate, recurse
 
@@ -114,6 +132,11 @@ Read [evaluation-loop.md](references/evaluation-loop.md) before the first visual
    - uncertainty is explicit;
    - the exact requested target is met with unique still-photo IDs.
 
+The selector enforces every reviewed view quota exactly. It may make a diversity-floor swap
+only inside the same view. When joint constraints are infeasible, report each view's quota,
+eligible capacity, and deficit; do not silently rebalance another view. More reviewed candidates
+or an explicitly approved configuration change starts a new candidate.
+
 Do not claim success from Vision labels or metadata alone. The recursive loop requires actual preview inspection in the chat.
 
 ## Freeze an independent assessment
@@ -141,21 +164,48 @@ Do not claim success from Vision labels or metadata alone. The recursive loop re
    but cannot replace this final audit.
 2. Run `photo-fieldwork validate`. Confirm its `proposal_id` and `master_sha256` match the final evaluation.
 3. Generate test and production plans with `photo_archive_bridge.py snapshot-plans --evaluation-report FINAL-EVALUATION.json`. Generation must fail on hash drift.
-4. Inspect the plans. Confirm source fingerprint and count, target, proposal hash, HOLD
+4. Create and immediately audit one candidate-bound release seal over the frozen source,
+   configuration, master, full evaluation, validation, and production plan:
+
+```bash
+photo-fieldwork release-seal create \
+  --source RUN/source.json \
+  --config RUN/config.json \
+  --master FINAL-MASTER.csv \
+  --evaluation FINAL-EVALUATION.json \
+  --validation RUN/reports/validation-report.json \
+  --plan RUN/manifests/VERSION-production-plan.json \
+  --output RUN/manifests/release-seal.json
+photo-fieldwork release-seal audit --seal RUN/manifests/release-seal.json
+```
+
+   The seal authorizes only the bounded write test. Any byte change to a sealed artifact,
+   same-count source substitution, configuration change, assignment change, or plan change
+   invalidates it and requires a newly evaluated candidate. Preserve failed and superseded seals.
+   When drift is suspected, audit the existing seal first and preserve its failing report before
+   creating the new candidate; do not replace the failed evidence with a newly passing seal.
+5. Inspect the plans. Confirm source fingerprint and count, target, proposal hash, HOLD
    separation, and membership-only operations.
-5. Run the ten-item write test through the app. Independently verify it with `verify_photos_commit.py`.
-6. Run the production plan through the app. Rerun it once to confirm idempotence.
-7. Independently verify every album against the plan using the WAL-aware compact verifier.
+6. Run the ten-item write test through the app. Require the receipt's plan, proposal, master,
+   audited UUID, source, safety-mode, title, and count identity to match the launched plan. Also
+   require the helper to echo the bridge-generated launch nonce and reviewed plan digest, then
+   independently verify with `verify_photos_commit.py`. A copied receipt or changed timestamp
+   without that execution binding is not execution proof.
+7. After the test receipt and independent verification pass, obtain explicit production-write
+   approval. Run the production plan through the app and rerun it once to confirm idempotence.
+8. Independently verify every album against the plan using the WAL-aware compact verifier.
    Do not open a live, changing Photos database as immutable. The verifier must clean its
    temporary snapshot and report missing, unexpected, outside-source, and HOLD overlap counts.
    A helper receipt or a visually complete album is not completion evidence when independent
    verification disagrees. Preserve the failed report, repair from a new bounded plan, and
    verify again.
-8. Mark each phase complete with the hashes of its supporting artifacts and run
+9. Mark each phase complete with the hashes of its supporting artifacts and run
    `photo-fieldwork state audit --workspace RUN`. Write a completion report containing exact
    counts, identifiers, evaluation results, privacy facts, and unresolved uncertainty.
-9. Label completion artifacts by sensitivity. Before any public share, run
-   `lint_public_report.py`; its PASS does not replace human privacy, rights, consent, claim,
+10. Label completion artifacts by sensitivity. Before any public share, scaffold and validate
+   a destination-specific publication review with `photo-fieldwork publication scaffold` and
+   `photo-fieldwork publication validate`, then run `lint_public_report.py`. A PASS does not
+   replace human privacy, rights, consent, claim,
    and contextual review. Publish from an allowlisted public handoff, never the private run
    directory.
 

@@ -33,4 +33,17 @@ source fingerprint. Refusal, uncertainty, and a documented gap can be successful
 
 The eval bank covers source fidelity, fresh evidence, unsupported views, human safety
 authority, interruption recovery, evaluated-candidate drift, helper compatibility,
-independent write verification, public data minimization, and publication authorization.
+independent write verification, public data minimization, publication authorization,
+exact-quota scarcity, joint diversity constraints, release-seal drift, append-only decision
+lineage, copied receipts, and related-frame holds. A positive control must proceed to a bounded
+write test when every prerequisite is present; refusal-only behavior cannot pass the bank.
+
+Run the structural contract and executable canaries with:
+
+```bash
+make evals
+```
+
+The executable layer currently binds fourteen eval risks to deterministic selection, ledger,
+release-seal, publication, receipt, and holdout tests. Agent responses remain a separate paired
+comparison against the frozen pre-composite Revision K skill.

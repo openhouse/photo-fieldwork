@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from collections import Counter
 from copy import deepcopy
 from pathlib import Path
 
@@ -32,12 +33,36 @@ class PipelineTests(unittest.TestCase):
         self.temp.cleanup()
 
     def test_selection_is_deterministic_and_excludes_holds(self):
-        first, holds, _ = select(self.inventory, self.config)
+        first, holds, summary = select(self.inventory, self.config)
         second, _, _ = select(self.inventory, self.config)
         self.assertEqual([row["uuid"] for row in first], [row["uuid"] for row in second])
         self.assertEqual(len(first), 12)
+        self.assertEqual(summary["view_counts"], summary["view_quotas"])
+        self.assertEqual(summary["assignment_method"], "reviewed-exclusive-exact-quota")
         self.assertTrue({"DEMO-009", "DEMO-024"}.issubset({row["uuid"] for row in holds}))
         self.assertFalse({row["uuid"] for row in first} & {row["uuid"] for row in holds})
+
+    def test_unresolved_safety_states_fail_closed(self):
+        inventory = deepcopy(self.inventory)
+        counts = Counter(
+            row.get("assigned_view") for row in inventory
+            if row.get("safety_status", "clear") == "clear"
+        )
+        quotas = {view["id"]: int(view["quota"]) for view in self.config["views"]}
+        target = next(
+            row for row in inventory
+            if row.get("safety_status", "clear") == "clear"
+            and counts[row.get("assigned_view")] > quotas[row.get("assigned_view")]
+        )
+        target["safety_status"] = "review-required"
+        master, holds, _ = select(inventory, self.config)
+        self.assertNotIn(target["uuid"], {row["uuid"] for row in master})
+        self.assertIn(target["uuid"], {row["uuid"] for row in holds})
+
+    def test_selection_reports_exact_view_scarcity_without_rebalancing(self):
+        scarce = [row for row in self.inventory if row.get("assigned_view") != "04"]
+        with self.assertRaisesRegex(ValueError, '"04".*"deficit"'):
+            select(scarce, self.config)
 
     def test_aesthetic_score_only_breaks_cluster_ties(self):
         master, _, _ = select(self.inventory, self.config)
@@ -138,6 +163,17 @@ class PipelineTests(unittest.TestCase):
         errors, metrics = validate(master, holds, self.config)
         self.assertEqual(errors, [])
         self.assertEqual(metrics["status"], "PASS")
+        self.assertEqual(metrics["view_counts"], metrics["view_quotas"])
+
+    def test_validation_rejects_silent_quota_rebalancing(self):
+        master, holds, _ = select(self.inventory, self.config)
+        source_view = master[0]["primary_view"]
+        master[0]["primary_view"] = next(
+            row["primary_view"] for row in master if row["primary_view"] != source_view
+        )
+        errors, metrics = validate(master, holds, self.config)
+        self.assertTrue(any("exact view quota mismatch" in error for error in errors))
+        self.assertTrue(metrics["quota_mismatches"])
 
     def test_header_only_hold_manifest_is_valid(self):
         path = Path(self.temp.name) / "empty-holds.csv"

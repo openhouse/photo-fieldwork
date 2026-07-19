@@ -108,6 +108,45 @@ class SkillBridgeTests(unittest.TestCase):
             self.assertEqual(plan["master_sha256"], digest)
             self.assertTrue(plan["evaluation"]["full_master_audit"])
 
+    def test_bridge_rejects_a_receipt_copied_from_another_plan(self):
+        plan = {
+            "operation": "snapshot-membership",
+            "schema_version": 2,
+            "plan_id": "plan-a",
+            "proposal_id": "proposal-a",
+            "master_sha256": "a" * 64,
+            "audited_uuid_sha256": "b" * 64,
+            "execution_nonce": "1" * 32,
+            "reviewed_plan_sha256": "d" * 64,
+            "source_album_identifier": "SOURCE/L0/040",
+            "source_fingerprint": "c" * 64,
+            "expected_source_count": 1,
+            "safety_mode": "create-folders-albums-and-add-membership-only",
+            "albums": [{"title": "00 MASTER", "asset_identifiers": ["A/L0/001"]}],
+        }
+        receipt = {
+            "plan_schema_version": 2,
+            "plan_id": "plan-b",
+            "proposal_id": "proposal-a",
+            "master_sha256": "a" * 64,
+            "audited_uuid_sha256": "b" * 64,
+            "execution_nonce": "2" * 32,
+            "reviewed_plan_sha256": "d" * 64,
+            "source_album_identifier": "SOURCE/L0/040",
+            "source_fingerprint": "c" * 64,
+            "source_count": 1,
+            "safety_mode": "create-folders-albums-and-add-membership-only",
+            "albums": [{"title": "00 MASTER", "identifier": "ALBUM/L0/040", "count": 1}],
+        }
+        self.assertIn(
+            "receipt plan_id does not match launched plan",
+            bridge.receipt_identity_errors(plan, receipt),
+        )
+        self.assertIn(
+            "receipt execution_nonce does not match launched plan",
+            bridge.receipt_identity_errors(plan, receipt),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

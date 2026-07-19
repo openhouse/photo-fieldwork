@@ -28,6 +28,10 @@ than asserting an age or identity. Validation fails if any such ID appears in th
 
 The HOLD set should be private and access-controlled. It is not an editor album and must not be exported casually.
 
+An unresolved hold propagates across known perceptual, duplicate, and burst relationships. A
+visually similar sibling frame is not a safety bypass. Only an identified human may record a
+clearance, and the originating event remains in the append-only decision history.
+
 ## Catalog adapter contract
 
 A production adapter must:
@@ -41,3 +45,10 @@ A production adapter must:
 7. Support independent read-only verification.
 
 If an adapter cannot meet all seven conditions, it is not production-ready.
+
+## Publication boundary
+
+Editor-field membership, safety clearance, a passing release seal, and verified catalog
+membership are not publication permission. Rights, consent, factual claim support, contextual
+risk, destination, credit, caption, and accessibility review remain separate human gates that
+default closed.

@@ -16,7 +16,7 @@ class SkillEvalBankTests(unittest.TestCase):
     def test_eval_bank_has_stable_unique_contracts(self):
         self.assertEqual(self.bank["skill_name"], "curate-apple-photos")
         evals = self.bank["evals"]
-        self.assertEqual([case["id"] for case in evals], list(range(1, 11)))
+        self.assertEqual([case["id"] for case in evals], list(range(1, 19)))
         self.assertEqual(len({case["prompt"] for case in evals}), len(evals))
         for case in evals:
             self.assertTrue(case["prompt"].strip())
@@ -39,6 +39,11 @@ class SkillEvalBankTests(unittest.TestCase):
             "independent verification",
             "private run directory",
             "publication permission",
+            "exact-quota deficit",
+            "release-seal audit",
+            "append-only event",
+            "copied receipt",
+            "positive control",
         )
         for concept in required_concepts:
             self.assertIn(concept, corpus)
@@ -53,6 +58,9 @@ class SkillEvalBankTests(unittest.TestCase):
             "cannot clear a protected safety state",
             "Editor-field membership is not publication permission",
             "allowlisted public handoff",
+            "release-seal",
+            "decision ledger",
+            "publication review",
         ):
             self.assertIn(phrase, skill)
 

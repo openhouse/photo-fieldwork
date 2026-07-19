@@ -50,6 +50,14 @@ selector fails when that reviewed assignment is absent. Preserve `Unclassified /
 
 People associations are first-class archive structure. Preserve named relationships already curated by the archive owner, but never identify unnamed faces or infer sensitive traits.
 
+Append human assignments and safety decisions to the decision ledger. Correct a mistake with a
+superseding event; never rewrite an earlier row. Audit the chain before materializing candidate
+state. Propagate unresolved holds through perceptual, duplicate, and burst relationships.
+
+Meet every configured view quota exactly. Diversity-floor substitutions may occur only within
+the same view. If reviewed capacity is insufficient, report the quota, eligible count, and deficit
+and require more reviewed candidates or an explicitly approved new configuration.
+
 ## 8. Evaluate and loop
 
 Sample low, middle, and high-scoring images from each view. Measure coverage, decisive
@@ -66,12 +74,22 @@ Freeze the final master after its last change. Fully audit every selected row, t
 passing evaluation to exact membership and assignments with `master_sha256` and `proposal_id`.
 Plan generation fails on a targeted-only audit or any post-evaluation drift.
 
+Bind the frozen source, configuration, master, full evaluation, validation, and membership-only
+plan into a release seal. Audit it immediately and again before execution. The seal authorizes
+the write test only; it does not authorize production or publication.
+When drift is suspected, audit and preserve the existing seal's failure before building a new
+candidate and seal. A replacement PASS must not erase the failed historical evidence.
+
 ## 10. Commit narrowly
 
 Write ten non-sensitive items to a uniquely named test album. Verify exact membership and
 rerun the test to prove idempotence. Only then create production folders and albums in
 moderate, resumable batches. Mark each phase with its supporting artifact hashes so an
 interruption can be audited before work resumes.
+
+The helper receipt must match the launched plan's candidate identity, source, safety mode,
+album titles, and planned counts. A copied receipt or refreshed filesystem timestamp cannot
+stand in for execution evidence.
 
 ## 11. Verify independently
 
@@ -84,3 +102,6 @@ snapshot. Report missing, unexpected, outside-source, and hold-overlap counts.
 Tell editors what the system did and did not do. The result is a contact field for human editing, not the final visual narrative.
 Label artifacts `private-operational`, `review-sensitive`, or `public-safe`. Run the
 public-report linter before human publication review; its PASS is not publication approval.
+Use a separate destination-specific publication review for rights, consent, factual claims,
+context, credit, caption, alt text, reviewer identity, and review time. Unresolved states default
+closed without removing the photograph from the private editor field.

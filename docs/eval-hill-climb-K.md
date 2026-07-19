@@ -36,3 +36,7 @@ outcomes when the required evidence is absent.
 These were single paired runs under one model, not repeated trials or a variance estimate.
 Full local grading artifacts remain outside the repository; only synthetic fixtures and this
 aggregate, public-safe account are committed.
+
+The later selective family composite adds exact quotas, decision lineage, release sealing,
+receipt identity, publication review, and a larger adversarial bank. See
+[Revision K composite eval hill climb](eval-hill-climb-K-composite.md).

@@ -3,6 +3,10 @@
 Revision K converts lessons from the v04-K whole-library curation into repository contracts.
 It is intentionally an operational hardening release, not an attempt to automate taste.
 
+The current branch also includes a selective composite of the refreshed A-N revision family.
+See [Revision K composite](revision-K-composite.md) for the adopted contracts, rejected
+duplication, and architectural rationale.
+
 ## Implemented
 
 - **Source fidelity:** versioned `source.json` profiles distinguish named albums, the visible

@@ -15,7 +15,10 @@ Catalog reader or filesystem scanner
 retrieval hypotheses + local inspection
               |
               v
- reviewed editorial assignments
+append-only human decision ledger
+              |
+              v
+ reviewed assignments + related-frame holds
               |
               v
  deterministic selector ---> hold-sensitive.csv
@@ -24,13 +27,20 @@ retrieval hypotheses + local inspection
  proposed-master.csv + master_sha256
         |            |
         v            v
-per-view evaluation   hash-bound catalog-plan.json
-                         |
-                         v
-                 catalog writer adapter
-                         |
-                         v
-                  independent verifier
+per-view evaluation   validation + catalog-plan.json
+        |                         |
+        +------------+------------+
+                     v
+          candidate-bound release seal
+                     |
+                     v
+             catalog writer adapter
+                     |
+                     v
+              independent verifier
+                     |
+                     v
+          separate publication review
 ```
 
 ## Core
@@ -42,9 +52,18 @@ gates, and emits a catalog plan only for a passing full audit of the same master
 
 The core does not read a Photos database, open images, call a model, or mutate a catalog.
 
+`decisions.jsonl` preserves human assignment, evaluation, and safety decisions as a hash-chained,
+append-only history. Superseding events do not erase their predecessors. Materialization applies
+the latest decision and propagates unresolved holds through perceptual, duplicate, and burst
+relationships.
+
 `run-state.json` records phase status and hashes of completed artifacts. The run-state
 layer does not rerun commands automatically; `status`, `resume`, and `audit` identify the
 next phase and detect changed or missing evidence before an operator proceeds.
+
+`release-seal.json` binds the frozen source, configuration, exact master assignments, full
+evaluation, validation, and catalog plan. It grants authority for a bounded write test only.
+Any sealed artifact drift invalidates the seal.
 
 ## Reader adapters
 

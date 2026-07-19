@@ -96,6 +96,49 @@ def source_fingerprint(plan: dict, source: set[str]) -> str:
     return digest.hexdigest()
 
 
+def file_sha256(path: Path) -> str:
+    hasher = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def receipt_identity_errors(plan: dict, receipt: dict, plan_sha256: str | None = None) -> list[str]:
+    errors = []
+    for field in (
+        "plan_id",
+        "proposal_id",
+        "master_sha256",
+        "audited_uuid_sha256",
+        "source_album_identifier",
+        "source_fingerprint",
+        "safety_mode",
+    ):
+        if plan.get(field) != receipt.get(field):
+            errors.append(f"receipt {field} does not match plan")
+    if int(plan.get("expected_source_count", 0)) != int(receipt.get("source_count", -1)):
+        errors.append("receipt source_count does not match plan")
+    if plan_sha256 is not None and receipt.get("reviewed_plan_sha256") != plan_sha256:
+        errors.append("receipt reviewed_plan_sha256 does not match plan artifact")
+    nonce = str(receipt.get("execution_nonce", ""))
+    if len(nonce) < 32:
+        errors.append("receipt lacks a bridge-generated execution_nonce")
+    expected = expected_by_title(plan)
+    plan_titles = [str(item.get("title", "")) for item in plan.get("albums", [])]
+    if len(plan_titles) != len(set(plan_titles)):
+        errors.append("plan contains duplicate album titles")
+    receipt_albums = receipt.get("albums", [])
+    titles = [str(item.get("title", "")) for item in receipt_albums]
+    if len(titles) != len(set(titles)):
+        errors.append("receipt contains duplicate album titles")
+    for item in receipt_albums:
+        title = str(item.get("title", ""))
+        if title in expected and int(item.get("count", -1)) != len(expected[title]):
+            errors.append(f"receipt count for {title} does not match planned membership")
+    return errors
+
+
 def estimate_snapshot_bytes(plan: dict) -> int:
     source_rows = int(plan["expected_source_count"])
     membership_rows = sum(len(item["asset_identifiers"]) for item in plan["albums"])
@@ -181,9 +224,10 @@ def verify_sets(
     source_title: str,
     album_reader,
     holds: set[str],
+    plan_sha256: str,
 ) -> tuple[list[dict], list[str]]:
     expected = expected_by_title(plan)
-    errors: list[str] = []
+    errors: list[str] = receipt_identity_errors(plan, receipt, plan_sha256)
     receipt_titles = {item["title"] for item in receipt["albums"]}
     if set(expected) != receipt_titles:
         errors.append("plan and receipt album titles differ")
@@ -236,6 +280,8 @@ def write_report(
     mode: str,
     verified: list[dict],
     errors: list[str],
+    plan_sha256: str,
+    receipt_sha256: str,
 ) -> None:
     generated_at = datetime.now().astimezone().isoformat(timespec="seconds")
     result = {
@@ -244,6 +290,8 @@ def write_report(
         "status": "PASS" if not errors else "FAIL",
         "generated_at": generated_at,
         "plan_id": plan["plan_id"],
+        "plan_sha256": plan_sha256,
+        "receipt_sha256": receipt_sha256,
         "proposal_id": plan.get("proposal_id"),
         "master_sha256": plan.get("master_sha256"),
         "audited_uuid_sha256": plan.get("audited_uuid_sha256"),
@@ -322,6 +370,7 @@ def main() -> None:
     plan = json.loads(args.plan.read_text(encoding="utf-8"))
     receipt = json.loads(args.receipt.read_text(encoding="utf-8"))
     holds = load_holds(args.holds)
+    plan_digest = file_sha256(args.plan)
 
     if args.mode == "compact":
         estimate = estimate_snapshot_bytes(plan)
@@ -354,6 +403,7 @@ def main() -> None:
                 source_title,
                 lambda identifier: compact_album(compact, identifier),
                 holds,
+                plan_digest,
             )
             compact.close()
     else:
@@ -372,6 +422,7 @@ def main() -> None:
                 source_title,
                 read_album,
                 holds,
+                plan_digest,
             )
         finally:
             photos.close()
@@ -384,6 +435,8 @@ def main() -> None:
         args.mode,
         verified,
         errors,
+        plan_digest,
+        file_sha256(args.receipt),
     )
     print(f"status={'PASS' if not errors else 'FAIL'}")
     print(f"verified_albums={len(verified)}")

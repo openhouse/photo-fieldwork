@@ -54,6 +54,8 @@ struct SnapshotPlan: Codable {
     let proposal_id: String?
     let master_sha256: String?
     let audited_uuid_sha256: String?
+    let execution_nonce: String?
+    let reviewed_plan_sha256: String?
     let safety_mode: String
     let source_album_identifier: String
     let expected_source_count: Int
@@ -69,6 +71,8 @@ struct InspectionPlan: Codable {
     let operation: String
     let schema_version: Int
     let plan_id: String
+    let execution_nonce: String?
+    let reviewed_plan_sha256: String?
     let safety_mode: String
     let source_album_identifier: String
     let expected_source_count: Int
@@ -109,6 +113,8 @@ struct InspectionReceipt: Codable {
     let helper_version: String
     let plan_schema_version: Int
     let plan_id: String
+    let execution_nonce: String?
+    let reviewed_plan_sha256: String?
     let source_album_identifier: String
     let source_count: Int
     let requested_count: Int
@@ -142,6 +148,8 @@ struct SnapshotReceipt: Codable {
     let proposal_id: String?
     let master_sha256: String?
     let audited_uuid_sha256: String?
+    let execution_nonce: String?
+    let reviewed_plan_sha256: String?
     let source_album_identifier: String
     let source_count: Int
     let source_fingerprint: String?
@@ -318,6 +326,8 @@ final class InspectionRunner {
             helper_version: helperVersion(),
             plan_schema_version: plan.schema_version,
             plan_id: plan.plan_id,
+            execution_nonce: plan.execution_nonce,
+            reviewed_plan_sha256: plan.reviewed_plan_sha256,
             source_album_identifier: plan.source_album_identifier,
             source_count: sourceFetch.count,
             requested_count: plan.asset_identifiers.count,
@@ -620,6 +630,8 @@ final class ArchiveRunner {
             proposal_id: plan.proposal_id,
             master_sha256: plan.master_sha256,
             audited_uuid_sha256: plan.audited_uuid_sha256,
+            execution_nonce: plan.execution_nonce,
+            reviewed_plan_sha256: plan.reviewed_plan_sha256,
             source_album_identifier: plan.source_album_identifier,
             source_count: sourceCount,
             source_fingerprint: plan.source_fingerprint,
@@ -821,6 +833,7 @@ func writeCapabilities() throws {
         "supported_plan_schema_versions": supportedPlanSchemaVersions,
         "supported_source_kinds": ["album", "visible-library-stills"],
         "supported_operations": ["inspect-local-images", "snapshot-membership"],
+        "receipt_execution_binding": true,
         "network_access_allowed": false,
         "direct_photos_database_writes": false,
         "inspection_capabilities": [

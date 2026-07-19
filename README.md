@@ -127,6 +127,10 @@ Those are different questions. Photo Fieldwork keeps them different.
 - Versioned source profiles, whole-library inventory support, and adapter capability checks.
 - Fail-closed preview validation and WAL-aware independent verification.
 - An adversarial skill-eval bank and executable holdout-leakage audit.
+- Exact per-view quota enforcement with actionable scarcity diagnostics.
+- Append-only, hash-chained human decision lineage with related-frame safety propagation.
+- Candidate-bound release seals and receipt identity checks before catalog mutation.
+- A separate, default-closed publication review after editor-field verification.
 - A case study of how visual inspection changed a real workflow.
 
 ## What is not included

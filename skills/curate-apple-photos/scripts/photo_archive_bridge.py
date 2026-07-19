@@ -10,6 +10,7 @@ import json
 import os
 import plistlib
 import re
+import secrets
 import sqlite3
 import subprocess
 import sys
@@ -360,6 +361,7 @@ def snapshot_plan(args: argparse.Namespace, plan_id: str, folders: list[dict], a
         "proposal_id": args.proposal_id,
         "master_sha256": args.master_sha256,
         "audited_uuid_sha256": args.audited_uuid_sha256,
+        "config_sha256": args.config_sha256,
         "evaluation": {
             "proposal_id": args.proposal_id,
             "master_sha256": args.master_sha256,
@@ -412,9 +414,13 @@ def command_snapshot_plans(args: argparse.Namespace) -> int:
 
     by_view: dict[str, list[str]] = {}
     view_labels = {}
+    args.config_sha256 = None
     if args.config:
         config = json.loads(args.config.read_text(encoding="utf-8"))
         view_labels = {str(view["id"]): str(view["label"]) for view in config.get("views", [])}
+        args.config_sha256 = hashlib.sha256(
+            json.dumps(config, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+        ).hexdigest()
     for row in master_rows:
         view = row.get(args.view_column, "").strip() or "00"
         by_view.setdefault(view, []).append(base_identifier(row["uuid"]))
@@ -481,6 +487,39 @@ def command_snapshot_plans(args: argparse.Namespace) -> int:
     return 0
 
 
+def receipt_identity_errors(plan: dict, receipt: dict) -> list[str]:
+    errors = []
+    for field in ("plan_id", "source_album_identifier"):
+        if plan.get(field) != receipt.get(field):
+            errors.append(f"receipt {field} does not match launched plan")
+    if int(plan.get("schema_version", 0)) != int(receipt.get("plan_schema_version", -1)):
+        errors.append("receipt plan_schema_version does not match launched plan")
+    if int(plan.get("expected_source_count", 0)) != int(receipt.get("source_count", -1)):
+        errors.append("receipt source_count does not match launched plan")
+    for field in ("execution_nonce", "reviewed_plan_sha256"):
+        if not plan.get(field) or plan.get(field) != receipt.get(field):
+            errors.append(f"receipt {field} does not match launched plan")
+    if plan.get("operation") == "snapshot-membership":
+        for field in (
+            "proposal_id", "master_sha256", "audited_uuid_sha256",
+            "source_fingerprint", "safety_mode",
+        ):
+            if plan.get(field) != receipt.get(field):
+                errors.append(f"receipt {field} does not match launched plan")
+        expected = {item["title"]: len(item["asset_identifiers"]) for item in plan.get("albums", [])}
+        received = receipt.get("albums", [])
+        received_titles = [str(item.get("title", "")) for item in received]
+        if len(received_titles) != len(set(received_titles)):
+            errors.append("receipt contains duplicate album titles")
+        if set(received_titles) != set(expected):
+            errors.append("receipt album titles do not match launched plan")
+        for item in received:
+            title = str(item.get("title", ""))
+            if title in expected and int(item.get("count", -1)) != expected[title]:
+                errors.append(f"receipt count for {title} does not match launched plan")
+    return errors
+
+
 def command_run_plan(args: argparse.Namespace) -> int:
     plan_path = args.plan.resolve()
     plan = json.loads(plan_path.read_text(encoding="utf-8"))
@@ -493,6 +532,8 @@ def command_run_plan(args: argparse.Namespace) -> int:
     source_kind = plan.get("source_kind", "album")
     if source_kind not in capabilities.get("supported_source_kinds", []):
         raise ValueError(f"permissioned helper does not support source kind {source_kind}")
+    if capabilities.get("receipt_execution_binding") is not True:
+        raise ValueError("permissioned helper does not support receipt execution binding")
     before = receipt_path.stat().st_mtime_ns if receipt_path.exists() else None
     operation = str(plan.get("operation", ""))
     if operation == "inspect-local-images":
@@ -506,9 +547,17 @@ def command_run_plan(args: argparse.Namespace) -> int:
         if operation == "inspect-local-images"
         else plan_path.parent.parent
     )
-    command = ["/usr/bin/open", "-W", "-n", str(APP), "--args", "--plan", str(plan_path)]
+    execution_nonce = secrets.token_hex(16)
+    launch_plan = {
+        **plan,
+        "execution_nonce": execution_nonce,
+        "reviewed_plan_sha256": hashlib.sha256(plan_path.read_bytes()).hexdigest(),
+    }
+    launch_plan_path = workspace / "logs" / f"{plan.get('plan_id', 'plan')}-launch-{execution_nonce}.json"
+    dump_json(launch_plan_path, launch_plan)
+    command = ["/usr/bin/open", "-W", "-n", str(APP), "--args", "--plan", str(launch_plan_path)]
     print("launching permissioned helper; this may run for a long time", flush=True)
-    update_run_phase(workspace, phase, "in-progress", artifacts=[plan_path])
+    update_run_phase(workspace, phase, "in-progress", artifacts=[plan_path, launch_plan_path])
     completed = subprocess.run(command, check=False)
     if completed.returncode:
         update_run_phase(workspace, phase, "blocked", artifacts=[plan_path], exit_code=completed.returncode)
@@ -521,6 +570,16 @@ def command_run_plan(args: argparse.Namespace) -> int:
         update_run_phase(workspace, phase, "blocked", artifacts=[plan_path, receipt_path], reason="stale receipt")
         raise ValueError(f"receipt was not refreshed: {receipt_path}")
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    identity_errors = receipt_identity_errors(launch_plan, receipt)
+    if identity_errors:
+        update_run_phase(
+            workspace,
+            phase,
+            "blocked",
+            artifacts=[plan_path, launch_plan_path, receipt_path],
+            reason="; ".join(identity_errors),
+        )
+        raise ValueError("helper receipt identity mismatch: " + "; ".join(identity_errors))
     if plan.get("operation") == "inspect-local-images" and plan.get("export_previews"):
         root = Path(plan["output_jsonl_path"]).parent.parent
         invalid_output = root / "manifests" / f"{plan['plan_id']}-invalid-previews.csv"
@@ -546,9 +605,12 @@ def command_run_plan(args: argparse.Namespace) -> int:
             raise ValueError(
                 f"preview integrity failed; inspect {invalid_output} and retry those assets"
             )
-        phase_artifacts = [plan_path, receipt_path, Path(plan["output_jsonl_path"]), report_output]
+        phase_artifacts = [
+            plan_path, launch_plan_path, receipt_path,
+            Path(plan["output_jsonl_path"]), report_output,
+        ]
     else:
-        phase_artifacts = [plan_path, receipt_path]
+        phase_artifacts = [plan_path, launch_plan_path, receipt_path]
     update_run_phase(
         workspace,
         phase,

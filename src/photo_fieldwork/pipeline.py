@@ -26,6 +26,10 @@ def read_config(path: Path) -> dict:
         raise ValueError("unclassified_view must name a configured view")
     if sum(int(view["quota"]) for view in config["views"]) != int(config["target_count"]):
         raise ValueError("view quotas must sum to target_count")
+    named_fraction = float(config.get("minimum_named_people_fraction", 0))
+    person_free_fraction = float(config.get("minimum_person_free_fraction", 0))
+    if named_fraction + person_free_fraction > 1:
+        raise ValueError("named-people and person-free minimum fractions cannot sum above 1")
     invalid_modes = {
         str(view.get("evaluation_mode", "material"))
         for view in config["views"]
@@ -103,7 +107,7 @@ def is_hold(row: dict[str, str]) -> bool:
     safety = str(row.get("safety_status", "clear")).strip().lower()
     return (
         safety.startswith("hold")
-        or safety == "unavailable"
+        or safety in {"unavailable", "review-required", "needs-review", "unknown"}
         or truthy(row.get("hidden"))
         or truthy(row.get("missing"))
     )
@@ -222,49 +226,47 @@ def select(inventory: list[dict[str, str]], config: dict) -> tuple[list[dict], l
     for rows in by_view.values():
         rows.sort(key=lambda row: float(row["score_total"]), reverse=True)
 
+    quotas = {str(view["id"]): int(view["quota"]) for view in config["views"]}
+    deficits = {
+        view: {"quota": quota, "eligible": len(by_view.get(view, [])), "deficit": quota - len(by_view.get(view, []))}
+        for view, quota in quotas.items()
+        if len(by_view.get(view, [])) < quota
+    }
+    if deficits:
+        raise ValueError(
+            "unable to satisfy exact reviewed view quotas; "
+            f"deficits={json.dumps(deficits, sort_keys=True)}"
+        )
+
     selected: list[dict] = []
     selected_ids: set[str] = set()
-    for view in config["views"]:
-        for row in by_view[view["id"]][: int(view["quota"])]:
-            if row["uuid"] not in selected_ids:
-                selected.append(row)
-                selected_ids.add(row["uuid"])
-
-    target = int(config["target_count"])
-    if len(selected) < target:
-        remainder = sorted(
-            (row for row in eligible if row["uuid"] not in selected_ids),
-            key=lambda row: float(row["score_total"]),
-            reverse=True,
-        )
-        for row in remainder[: target - len(selected)]:
+    for view_id, quota in quotas.items():
+        for row in by_view[view_id][:quota]:
             selected.append(row)
             selected_ids.add(row["uuid"])
 
-    selected = selected[:target]
+    target = int(config["target_count"])
 
     def enforce_floor(predicate, required: int, reason: str) -> None:
         nonlocal selected, selected_ids
         current = sum(predicate(row) for row in selected)
-        if current >= required:
-            return
-        candidates = sorted(
-            (row for row in eligible if row["uuid"] not in selected_ids and predicate(row)),
-            key=lambda row: float(row["score_total"]),
-            reverse=True,
-        )
-        while current < required and candidates:
-            incoming = candidates.pop(0)
-            donors = sorted(
-                (row for row in selected if not predicate(row)),
-                key=lambda row: (
-                    row["primary_view"] != incoming["primary_view"],
-                    float(row["score_total"]),
-                ),
-            )
-            if not donors:
+        while current < required:
+            options = []
+            for incoming in eligible:
+                if incoming["uuid"] in selected_ids or not predicate(incoming):
+                    continue
+                donors = [
+                    row for row in selected
+                    if row["primary_view"] == incoming["primary_view"] and not predicate(row)
+                ]
+                if not donors:
+                    continue
+                outgoing = min(donors, key=lambda row: (float(row["score_total"]), row["uuid"]))
+                score_loss = float(outgoing["score_total"]) - float(incoming["score_total"])
+                options.append((score_loss, incoming["uuid"], outgoing["uuid"], incoming, outgoing))
+            if not options:
                 break
-            outgoing = donors[0]
+            _, _, _, incoming, outgoing = min(options, key=lambda item: item[:3])
             selected.remove(outgoing)
             selected_ids.remove(outgoing["uuid"])
             incoming["selection_reason"] += f"; diversity floor: {reason}"
@@ -280,6 +282,17 @@ def select(inventory: list[dict[str, str]], config: dict) -> tuple[list[dict], l
         raise ValueError("candidate field cannot satisfy minimum_named_people_fraction")
     if sum(not bool(split_values(row.get("persons"))) for row in selected) < person_free_floor:
         raise ValueError("candidate field cannot satisfy minimum_person_free_fraction")
+    final_view_counts = Counter(row["primary_view"] for row in selected)
+    quota_mismatches = {
+        view: {"expected": quota, "actual": final_view_counts.get(view, 0)}
+        for view, quota in quotas.items()
+        if final_view_counts.get(view, 0) != quota
+    }
+    if quota_mismatches:
+        raise ValueError(
+            "selection changed exact reviewed view quotas; "
+            f"mismatches={json.dumps(quota_mismatches, sort_keys=True)}"
+        )
     selected.sort(key=lambda row: (row["primary_view"], -float(row["score_total"]), row["uuid"]))
     digest = master_sha256(selected)
     proposal_id = f"pfp-{digest[:16]}"
@@ -291,7 +304,10 @@ def select(inventory: list[dict[str, str]], config: dict) -> tuple[list[dict], l
         "eligible_after_cluster_reduction": len(eligible),
         "hold_count": len(holds),
         "selected_count": len(selected),
-        "view_counts": dict(sorted(Counter(row["primary_view"] for row in selected).items())),
+        "assignment_method": "reviewed-exclusive-exact-quota",
+        "view_quotas": quotas,
+        "view_counts": dict(sorted(final_view_counts.items())),
+        "quota_deficits": {},
         "named_people_count": sum(bool(split_values(row.get("persons"))) for row in selected),
         "uncertain_count": sum(row.get("evidence_confidence", "unknown") in {"low", "unknown", ""} for row in selected),
         "master_sha256": digest,
@@ -385,7 +401,10 @@ def evaluate(
     )
     safety_regressions = sum(
         str(row.get("evaluation_safety_state", "")).strip().lower()
-        in {"hold", "hold-automated", "hold-human-sensitive", "unavailable"}
+        in {
+            "hold", "hold-automated", "hold-human-sensitive", "unavailable",
+            "review-required", "needs-review", "unknown",
+        }
         for row in judged
     )
     by_view = {}
@@ -620,11 +639,15 @@ def validate(master: list[dict[str, str]], holds: list[dict[str, str]], config: 
     expected_proposal = f"pfp-{expected_hash[:16]}"
     if {row.get("proposal_id", "") for row in master} != {expected_proposal}:
         errors.append("proposal_id is missing or does not match master_sha256")
-    configured = {view["id"] for view in config["views"] if int(view["quota"]) > 0}
-    represented = {row.get("primary_view") for row in master}
-    missing_views = configured - represented
-    if missing_views:
-        errors.append(f"configured views absent from master: {', '.join(sorted(missing_views))}")
+    quotas = {str(view["id"]): int(view["quota"]) for view in config["views"]}
+    view_counts = Counter(str(row.get("primary_view", "")) for row in master)
+    quota_mismatches = {
+        view: {"expected": quota, "actual": view_counts.get(view, 0)}
+        for view, quota in quotas.items()
+        if view_counts.get(view, 0) != quota
+    }
+    if quota_mismatches:
+        errors.append(f"exact view quota mismatch: {json.dumps(quota_mismatches, sort_keys=True)}")
     metrics = {
         "status": "PASS" if not errors else "FAIL",
         "master_count": len(master),
@@ -632,7 +655,9 @@ def validate(master: list[dict[str, str]], holds: list[dict[str, str]], config: 
         "hold_count": len(holds),
         "hold_overlap": len(overlap),
         "unsafe_master_rows": len(unsafe_master),
-        "represented_views": sorted(represented),
+        "view_quotas": quotas,
+        "view_counts": dict(sorted(view_counts.items())),
+        "quota_mismatches": quota_mismatches,
         "master_sha256": expected_hash,
         "proposal_id": expected_proposal,
     }
@@ -646,6 +671,7 @@ def build_catalog_plan(
     source_title: str,
     source_identifier: str,
     evaluation_report: dict,
+    source_manifest: dict | None = None,
 ) -> dict:
     """Build an adapter-neutral, membership-only catalog plan."""
     digest = master_sha256(master)
@@ -663,6 +689,25 @@ def build_catalog_plan(
         raise ValueError("evaluated proposal_id does not match the proposed catalog plan")
     if evaluation_report.get("audited_uuid_sha256") != uuid_sha256(master):
         raise ValueError("evaluated UUID set does not match the proposed catalog plan")
+    source = {"title": source_title, "identifier": source_identifier}
+    if source_manifest is not None:
+        if source_manifest.get("identifier") != source_identifier:
+            raise ValueError("source manifest identifier does not match requested plan source")
+        if int(source_manifest.get("snapshot_count", 0)) < 1:
+            raise ValueError("source manifest requires a positive snapshot_count")
+        if source_manifest.get("kind") != "synthetic" and not source_manifest.get("source_fingerprint"):
+            raise ValueError("non-synthetic catalog plans require a source membership fingerprint")
+        source.update({
+            key: source_manifest.get(key)
+            for key in (
+                "kind", "predicate_version", "snapshot_count", "source_fingerprint",
+                "artifact_sensitivity", "generated_at",
+            )
+            if source_manifest.get(key) is not None
+        })
+    config_digest = hashlib.sha256(
+        json.dumps(config, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+    ).hexdigest()
     view_labels = {view["id"]: view["label"] for view in config["views"]}
     albums = [
         {
@@ -686,6 +731,7 @@ def build_catalog_plan(
         "proposal_id": proposal_id,
         "master_sha256": digest,
         "audited_uuid_sha256": uuid_sha256(master),
+        "config_sha256": config_digest,
         "evaluation": {
             "proposal_id": proposal_id,
             "master_sha256": digest,
@@ -695,7 +741,9 @@ def build_catalog_plan(
         },
         "created_at": datetime.now(timezone.utc).isoformat(),
         "safety_mode": "create-folders-albums-and-add-membership-only",
-        "source": {"title": source_title, "identifier": source_identifier},
+        "source": source,
+        "release_class": "editor-field",
+        "publication_clearance": False,
         "expected_master_count": len(master),
         "write_test_count": min(10, len(master)),
         "albums": albums,

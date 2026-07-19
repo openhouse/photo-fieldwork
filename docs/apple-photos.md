@@ -65,8 +65,10 @@ Keep the wide source album and every earlier version unchanged.
 
 For repeated local work, a small signed macOS application with a stable bundle identifier can request Photos permission once and execute reviewed album-membership plans. Renaming or changing the bundle identifier creates a new permission identity. The helper must display the plan ID, source count, intended mutations, and final receipt.
 
-The included bridge probes `--capabilities` before running a schema-v2 plan and records the
-helper version and plan schema in receipts.
+The included bridge probes `--capabilities` before running a schema-v2 plan. A compatible helper
+must support execution-bound receipts: the bridge creates a fresh launch nonce and records the
+reviewed plan digest, and the helper echoes both with its version and plan schema. A timestamp
+change without that nonce and digest cannot establish a fresh execution.
 
 ## Verification
 
