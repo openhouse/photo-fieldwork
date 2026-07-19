@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Photo Fieldwork source profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "kind",
+    "identifier",
+    "title",
+    "snapshot_count",
+    "predicate_version"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "kind": {
+      "enum": ["album", "visible-library-stills", "synthetic"]
+    },
+    "identifier": {"type": "string", "minLength": 1},
+    "title": {"type": "string", "minLength": 1},
+    "snapshot_count": {"type": "integer", "minimum": 1},
+    "predicate_version": {"type": "string", "minLength": 1},
+    "source_fingerprint": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "inventory_profile": {"enum": ["minimal", "retrieval", "debug"]},
+    "artifact_sensitivity": {"enum": ["private-operational", "review-sensitive", "public-safe"]},
+    "generated_at": {"type": "string"},
+    "inventory_path": {"type": "string"}
+  }
+}

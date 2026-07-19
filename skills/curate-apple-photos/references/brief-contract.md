@@ -8,6 +8,10 @@ The brief is editorial authority. Preserve it verbatim in `brief.md`, then deriv
 {
   "seed": 20260710,
   "candidate_multiplier": 1.75,
+  "outside_prior_discovery_fraction": 0.10,
+  "prior_corpus_album_identifiers": [],
+  "excluded_album_identifiers": [],
+  "excluded_album_terms": ["editor field", "write test", "safety hold"],
   "people_floor": 0.35,
   "person_free_floor": 0.20,
   "views": [
@@ -19,6 +23,7 @@ The brief is editorial authority. Preserve it verbatim in `brief.md`, then deriv
       "people": ["Jamie Burkart"],
       "albums": [],
       "places": [],
+      "provenance_album_identifiers": [],
       "year_start": null,
       "year_end": null
     }
@@ -27,6 +32,16 @@ The brief is editorial authority. Preserve it verbatim in `brief.md`, then deriv
 ```
 
 Terms should include literal project names, alternate spellings, visible objects, actions, rooms, interfaces, buildings, and public event language. Dates are supporting constraints and should not be used alone to retrieve imported film.
+
+Name generated Photo Fieldwork albums in the exclusions so output from an earlier run does
+not recursively become evidence for the next. Exact provenance albums are a separate channel
+from fuzzy album-title matching. Prior corpora can support continuity, but they do not replace
+the source requested in the brief.
+
+Retrieval output must leave `assigned_view` unresolved. After local pixel inspection, create
+the reviewed assignment as a separate decision with `assignment_status` and
+`assignment_reason`. `candidate_views` may explain why the item was found, but never decides
+where it belongs.
 
 Use People names only when they already exist in Apple Photos or the brief names them as relevant. Do not infer identities.
 
@@ -39,6 +54,8 @@ Follow `/Volumes/16TB_SSD/Sites/photo-fieldwork/schemas/config.schema.json`.
 - Preserve both a named-people field and a meaningful person-free field.
 - Project views should say `Editor Hypothesis` until validated.
 - Default evaluation minimums: 0.80 precision and 0.90 coverage.
+- Configure per-view precision, decisive-sample, and uncertainty thresholds. A global pass
+  cannot override a failed material view.
 - Default selection floors: `minimum_named_people_fraction` 0.35 and `minimum_person_free_fraction` 0.20, adjusted when the brief genuinely calls for a different balance.
 - Keep the random seed fixed for the run.
 

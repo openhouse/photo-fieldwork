@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Photo Fieldwork publication review row",
+  "type": "object",
+  "required": [
+    "uuid",
+    "rights_status",
+    "consent_status",
+    "claim_status",
+    "context_status",
+    "publication_approved"
+  ],
+  "properties": {
+    "uuid": {"type": "string", "minLength": 1},
+    "filename": {"type": "string"},
+    "rights_status": {"enum": ["unresolved", "approved", "denied", "not-applicable"]},
+    "consent_status": {"enum": ["unresolved", "approved", "denied", "not-applicable"]},
+    "claim_status": {"enum": ["unresolved", "approved", "denied", "not-applicable"]},
+    "context_status": {"enum": ["unresolved", "approved", "denied"]},
+    "destination": {"type": "string"},
+    "credit": {"type": "string"},
+    "caption": {"type": "string"},
+    "alt_text": {"type": "string"},
+    "reviewer_actor": {"type": "string"},
+    "reviewed_at": {"type": "string"},
+    "publication_approved": {"type": ["boolean", "string"]}
+  },
+  "additionalProperties": true
+}

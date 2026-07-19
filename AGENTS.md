@@ -12,6 +12,8 @@ Non-negotiable invariants:
 - Treat project labels as retrieval hypotheses until visible evidence or external provenance supports them.
 - Use aesthetic scores only to choose among near-identical burst or duplicate-cluster members.
 - Require a small write test and read-only post-write verification before declaring a catalog commit complete.
+- Treat `source.json` as authoritative; never substitute a prior album for a whole-library brief.
+- Open live Photos SQLite read-only with WAL visibility, then verify a bounded compact snapshot as immutable.
+- Treat missing or corrupt previews as unavailable and exclude them before ranking.
 
 Run `make check` after changes. Keep the standard-library-only practice workflow working on a fresh Python 3.11+ installation.
-

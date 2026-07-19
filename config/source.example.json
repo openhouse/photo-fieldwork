@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "kind": "visible-library-stills",
+  "identifier": "visible-library-stills://v1",
+  "title": "Visible Apple Photos library - still photographs",
+  "snapshot_count": 1,
+  "predicate_version": "apple-photos-visible-stills-v1",
+  "inventory_profile": "retrieval",
+  "artifact_sensitivity": "private-operational"
+}

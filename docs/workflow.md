@@ -6,17 +6,26 @@ Photo Fieldwork treats a large archive reduction as a sequence of inspectable de
 
 Write down what may be read, what may be created, where outputs live, and which mutations are prohibited. Default catalog mutation is limited to creating albums and adding existing assets to them.
 
-## 1. Freeze a source corpus
+## 1. Declare and freeze a source corpus
 
-Give the broad retrieval corpus a stable name and count. Never alter it during a versioned run. Preserve v00, v01, and later runs as separate folders so selection logic can be compared rather than overwritten.
+Give the broad retrieval corpus a versioned source profile, stable identifier, predicate,
+and snapshot count. A named album and the visible whole library are different source
+kinds. If the brief requests the whole library, use the whole-library adapter rather than
+an earlier editor field. Never alter the source during a versioned run.
 
 ## 2. Build a compact inventory
 
-Capture stable IDs, filenames, albums, existing people associations, dates, places, favorite/edit status, duplicate and burst groups, and local availability. Dates are evidence, not truth: film scans and later imports can carry misleading timestamps.
+Use the `minimal` or `retrieval` inventory profile unless private debugging requires more.
+Capture stable IDs, filenames, albums, existing people associations, dates, coarse places,
+favorite/edit status, duplicate and burst groups, and local availability. Exact coordinates
+and source paths belong only in explicitly private debug artifacts.
 
 ## 3. Retrieve broadly with metadata
 
-Use albums, people, keywords, dates, places, labels, and prior attention to create candidate views. Call these retrieval hypotheses. Metadata can find possible relevance; it cannot establish what a photograph visibly proves.
+Use albums, people, keywords, dates, places, labels, and prior attention to create candidate
+views. Record each contributing channel. Treat earlier editor fields as contextual evidence,
+not as the search universe. Reserve a bounded discovery budget outside prior corpora, but
+never evict stronger contextual evidence merely to satisfy an arbitrary novelty floor.
 
 ## 4. Calibrate before scaling
 
@@ -24,7 +33,10 @@ Inspect a small score-stratified sample from every proposed view. Record visible
 
 ## 5. Inspect locally
 
-After metadata has reduced the corpus, inspect local previews for technical availability, broad visible context, duplicate structure, and safety indicators. Keep raw OCR ephemeral. Never upload private pixels or metadata without explicit authorization.
+After metadata has reduced the corpus, inspect local previews for technical availability,
+broad visible context, duplicate structure, and safety indicators. Decode every expected
+preview before selection. Missing or corrupt pixels become `unavailable` and cannot enter
+the master. Cluster local perceptual near-duplicates before quota selection. Keep raw OCR ephemeral.
 
 ## 6. Quarantine, do not erase
 
@@ -32,27 +44,64 @@ Potential identity documents, private correspondence, contact details, financial
 
 ## 7. Select with uncertainty
 
-Balance high-confidence evidence, stratified diversity, and exploratory retrieval. Preserve `Unclassified / Editor Field`. A useful corpus does not need every image to support a named project claim.
+Keep `candidate_views` as immutable retrieval hypotheses. After pixel inspection, record a
+separate `assigned_view`, assignment status, and visible or provenance-based reason. The
+selector fails when that reviewed assignment is absent. Preserve `Unclassified / Editor Field`.
 
 People associations are first-class archive structure. Preserve named relationships already curated by the archive owner, but never identify unnamed faces or infer sensitive traits.
 
+Append human assignments and safety decisions to the decision ledger. Correct a mistake with a
+superseding event; never rewrite an earlier row. Audit the chain before materializing candidate
+state. Propagate unresolved holds through perceptual, duplicate, and burst relationships.
+
+Meet every configured view quota exactly. Diversity-floor substitutions may occur only within
+the same view. If reviewed capacity is insufficient, report the quota, eligible count, and deficit
+and require more reviewed candidates or an explicitly approved new configuration.
+
 ## 8. Evaluate and loop
 
-Sample low, middle, and high-scoring images from each view. Measure coverage and precision. Read the rejected examples. Revise retrieval, scoring, holds, or labels, then rerun with the same seed. A metric without inspected failure cases is not enough.
+Sample low, middle, and high-scoring images from each view. Measure coverage, decisive
+precision, and uncertainty both globally and per view. A strong aggregate cannot hide a
+weak category. Generate a targeted follow-up round for failed views, read the rejected
+examples, revise, and rerun with the same seed.
+
+Validate feedback as a separate artifact before applying it. Targeted rounds diagnose weak
+views; they do not replace the final audit.
 
 ## 9. Plan before writing
 
-Produce proposed-master, hold, membership, and decision manifests before touching the catalog. Every selected stable ID needs a reason. The plan must be idempotent.
+Freeze the final master after its last change. Fully audit every selected row, then bind the
+passing evaluation to exact membership and assignments with `master_sha256` and `proposal_id`.
+Plan generation fails on a targeted-only audit or any post-evaluation drift.
+
+Bind the frozen source, configuration, master, full evaluation, validation, and membership-only
+plan into a release seal. Audit it immediately and again before execution. The seal authorizes
+the write test only; it does not authorize production or publication.
+When drift is suspected, audit and preserve the existing seal's failure before building a new
+candidate and seal. A replacement PASS must not erase the failed historical evidence.
 
 ## 10. Commit narrowly
 
-Write ten non-sensitive items to a uniquely named test album. Verify exact membership and rerun the test to prove idempotence. Only then create production folders and albums in moderate, resumable batches.
+Write ten non-sensitive items to a uniquely named test album. Verify exact membership and
+rerun the test to prove idempotence. Only then create production folders and albums in
+moderate, resumable batches. Mark each phase with its supporting artifact hashes so an
+interruption can be audited before work resumes.
+
+The helper receipt must match the launched plan's candidate identity, source, safety mode,
+album titles, and planned counts. A copied receipt or refreshed filesystem timestamp cannot
+stand in for execution evidence.
 
 ## 11. Verify independently
 
-Use a read-only mechanism distinct from the writer to compare planned and actual membership. Report missing, unexpected, outside-source, and hold-overlap counts. Preserve receipts, configuration, scripts, and evaluation feedback with the version.
+Use a read-only mechanism distinct from the writer to compare planned and actual membership.
+For a live SQLite catalog, do not use immutable mode until after taking a WAL-aware bounded
+snapshot. Report missing, unexpected, outside-source, and hold-overlap counts.
 
 ## 12. Hand off honestly
 
 Tell editors what the system did and did not do. The result is a contact field for human editing, not the final visual narrative.
-
+Label artifacts `private-operational`, `review-sensitive`, or `public-safe`. Run the
+public-report linter before human publication review; its PASS is not publication approval.
+Use a separate destination-specific publication review for rights, consent, factual claims,
+context, credit, caption, alt text, reviewer identity, and review time. Unresolved states default
+closed without removing the photograph from the private editor field.

@@ -6,7 +6,8 @@ from pathlib import Path
 
 
 FIELDS = [
-    "uuid", "filename", "candidate_views", "evidence_confidence", "visible_context",
+    "uuid", "filename", "candidate_views", "assigned_view", "assignment_status",
+    "assignment_reason", "evidence_confidence", "visible_context",
     "persons", "favorite", "edited", "safety_status", "safety_reason", "hidden",
     "missing", "duplicate_group", "burst_group", "aesthetic_score", "event_cluster",
     "date", "place", "local_path",
@@ -28,6 +29,9 @@ def create_demo_inventory(path: Path) -> None:
             "uuid": f"DEMO-{index:03d}",
             "filename": f"practice-{index:03d}.jpg",
             "candidate_views": view,
+            "assigned_view": view or "00",
+            "assignment_status": "assigned" if view else "unclassified",
+            "assignment_reason": "synthetic practice assignment",
             "evidence_confidence": confidence,
             "visible_context": context,
             "persons": people,
@@ -59,7 +63,10 @@ def practice_feedback(sample_path: Path) -> None:
         fields = list(rows[0])
     for index, row in enumerate(rows):
         row["judgment"] = "reject" if index == 3 else "fit"
-        row["evaluation_note"] = "Synthetic practice judgment; inspect real pixels in production."
+        row["visible_reason"] = "Synthetic practice judgment; inspect real pixels in production."
+        row["evaluation_safety_state"] = "clear"
+        row["error_category"] = "context-mismatch" if index == 3 else ""
+        row["reviewer_lens"] = "synthetic-practice"
     with sample_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
@@ -75,4 +82,3 @@ def write_demo_readme(path: Path) -> None:
         "safety and Apple Photos documentation.\n",
         encoding="utf-8",
     )
-

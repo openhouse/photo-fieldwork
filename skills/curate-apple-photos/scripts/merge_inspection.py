@@ -9,6 +9,9 @@ import json
 from pathlib import Path
 
 
+HUMAN_SENSITIVE_LABELS = {"child", "teen"}
+
+
 def base(value: str) -> str:
     return value.split("/", 1)[0]
 
@@ -33,7 +36,15 @@ def main() -> None:
         reader = csv.DictReader(handle)
         fields = list(reader.fieldnames or [])
         rows = list(reader)
-    additions = ["visible_context", "detected_face_count", "safety_status", "safety_reason", "pixel_available", "preview_exported"]
+    additions = [
+        "visible_context",
+        "vision_labels_all",
+        "detected_face_count",
+        "safety_status",
+        "safety_reason",
+        "pixel_available",
+        "preview_exported",
+    ]
     for field in additions:
         if field not in fields:
             fields.append(field)
@@ -44,7 +55,7 @@ def main() -> None:
         result = inspected.get(base(row["uuid"]))
         if not result:
             missing += 1
-            row.update({"visible_context": "", "detected_face_count": "0", "safety_status": "hold", "safety_reason": "local inspection result unavailable", "pixel_available": "false", "preview_exported": "false"})
+            row.update({"visible_context": "", "vision_labels_all": "", "detected_face_count": "0", "safety_status": "unavailable", "safety_reason": "local inspection result unavailable", "pixel_available": "false", "preview_exported": "false"})
             holds += 1
             continue
         labels = result.get("vision_labels") or result.get("visible_labels") or []
@@ -54,14 +65,28 @@ def main() -> None:
             context = f"{faces} visible face(s)" + (f"; {context}" if context else "")
         state = result.get("safety_state", "unavailable")
         flags = result.get("safety_flags") or []
-        held = state in {"hold", "unavailable"} or not result.get("pixel_available", False)
+        normalized_labels = {str(label).casefold() for label in labels}
+        human_sensitive = bool(normalized_labels & HUMAN_SENSITIVE_LABELS)
+        unavailable = not result.get("pixel_available", False) or not result.get("preview_exported", False)
+        if human_sensitive:
+            flags = [*flags, "possible minor or human-sensitive context requires review"]
+        if unavailable:
+            safety_status = "unavailable"
+        elif state == "hold":
+            safety_status = "hold-automated"
+        elif human_sensitive:
+            safety_status = "hold-human-sensitive"
+        else:
+            safety_status = "clear-automated"
+        held = safety_status != "clear-automated"
         if held:
             holds += 1
         row.update(
             {
                 "visible_context": context,
+                "vision_labels_all": ";".join(labels),
                 "detected_face_count": str(faces),
-                "safety_status": "hold" if held else "clear",
+                "safety_status": safety_status,
                 "safety_reason": "; ".join(flags) if flags else ("local pixels unavailable" if held else ""),
                 "pixel_available": str(bool(result.get("pixel_available"))).lower(),
                 "preview_exported": str(bool(result.get("preview_exported"))).lower(),
