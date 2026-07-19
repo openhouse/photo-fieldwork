@@ -18,6 +18,8 @@ Store only generalized flags. Keep raw OCR ephemeral.
 
 Use `needs-review` for minors, intimate domestic scenes, vulnerable people, private homes, grief, health context, protest risk, or images whose publication could change someone's safety or dignity. Do not automatically include these in an editor-facing master.
 
+A false-positive clearance applies to one asset only. Record an identified human reviewer, timestamp, and generalized reason. Do not weaken the detector, clear related assets automatically, or reinterpret that decision as publication permission. HOLD remains protected for the run.
+
 ## Public meaning
 
 Album membership is not publication permission. Project hypotheses are not factual captions. Named People metadata is private archive structure unless separately approved for release.
@@ -38,4 +40,3 @@ Prohibited:
 - direct Photos database writes;
 - cloud analysis or external upload;
 - replacing or renaming prior versions.
-

@@ -76,7 +76,7 @@ photo-fieldwork run report --workspace RUN
 photo-fieldwork run cleanup-report --workspace RUN
 ```
 
-The required phase order is preflight, retrieval, inspection, review, validation, write test, production commit, and independent verification. `complete` is derived from append-only receipts; it is not a manually asserted status.
+The required phase order is preflight, retrieval, inspection, review, validation, write test, production commit, and independent verification. `complete` is derived from append-only receipts; it is not a manually asserted status. Status derivation rechecks the size and SHA-256 of every recorded artifact. A missing or changed artifact blocks the run instead of trusting stale phase text.
 
 ## Select, evaluate, and validate
 
@@ -112,6 +112,28 @@ photo-fieldwork validate \
 ```
 
 Validation enforces exact view quotas, evaluation coverage and precision, material-view precision, replacement review, HOLD and known-reject exclusion, event concentration, evidence lineage, and configured representation floors.
+
+Create a release-bound membership plan only after final evaluation and validation pass:
+
+```bash
+photo-fieldwork plan \
+  --master RUN/manifests/proposed-master.csv \
+  --config RUN/config.json \
+  --plan-id RUN-ID-production \
+  --source-title "Visible library stills" \
+  --source-identifier visible-library-stills://v1 \
+  --source-count LIVE_SOURCE_COUNT \
+  --source-membership-sha256 SOURCE_MEMBERSHIP_SHA256 \
+  --evaluation-report RUN/reports/final-evaluation/evaluation-report.json \
+  --validation-report RUN/reports/final-validation/validation-report.json \
+  --output RUN/plans/catalog-plan.json
+```
+
+The plan carries source, proposal, master, exact evaluation-report, exact validation-report, and plan identities. Replacing an image, changing its assigned view, or changing either release report invalidates the old release evidence.
+
+## Evaluation bank
+
+`make evals` runs the synthetic release-contract bank, including feasible overlap assignment, explicit infeasibility, stale-evaluation rejection, receipt drift, protected states, weak-view detection, replacement audits, plan tampering, and a deterministic 4,000-item assignment. See [`evals/README.md`](evals/README.md) for the prompt bank and recursive hill-climb record.
 
 ## Apple Photos integration
 

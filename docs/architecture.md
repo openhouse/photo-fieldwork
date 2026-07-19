@@ -28,7 +28,7 @@ Every production phase also emits an append-only receipt. `run-state.json` and t
 
 ## Core
 
-The standard-library Python core reads a normalized CSV, applies immutable safety exclusions, reduces duplicate and burst clusters, assigns editor views, creates selection reasons, samples evaluations, measures results, validates invariants, and emits an adapter-neutral catalog plan.
+The standard-library Python core reads a normalized CSV, applies immutable safety exclusions, reduces duplicate and burst clusters, jointly assigns multi-view candidates through deterministic capacity max-flow, creates selection reasons, samples evaluations, measures results, validates invariants, and emits an adapter-neutral catalog plan.
 
 The core does not read a Photos database, open images, call a model, or mutate a catalog.
 
@@ -52,6 +52,8 @@ An inspector may add local visible-context, technical-quality, and generalized s
 
 A writer consumes `catalog-plan.json`. It may create version folders, create albums, and add existing stable IDs. It must not invent selection logic. It must emit a receipt and be safe to rerun.
 
+Plan schema 2 binds the exact source membership, proposed-master membership and assignments, exact passing final-evaluation and validation reports, and plan content. A writer must reject a missing or mismatched identity rather than reconstructing authorization from filenames.
+
 ## Verifier adapters
 
 A verifier independently compares plan and catalog. It should be read-only and should not share mutation code with the writer.
@@ -64,7 +66,7 @@ User-specific paths, source counts, stable app identities, and protected Photos 
 
 ## Run state
 
-Semantic versions are reserved before work. Phase receipts contain checksums for declared input and output files. Later phases cannot pass while prerequisites are incomplete. Repeated evaluation receipts are allowed; the latest passing receipt determines phase state.
+Semantic versions are reserved before work. Phase receipts contain checksums for declared input and output files. State derivation rechecks those artifacts; missing or changed evidence blocks the workspace. Later phases cannot pass while prerequisites are incomplete. Repeated evaluation receipts are allowed; the latest passing receipt determines phase state only while receipt integrity holds.
 
 ## Extension points
 

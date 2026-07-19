@@ -66,6 +66,80 @@ def receipts(workspace: Path) -> list[dict]:
     return [_read_json(path) for path in sorted(directory.glob("*.json"))]
 
 
+def verify_receipt_integrity(workspace: Path) -> dict:
+    """Recheck the evidence that earlier phase receipts claim to preserve."""
+    workspace = workspace.expanduser().resolve()
+    records = receipts(workspace)
+    run_id = _read_json(workspace / "run.json")["run_id"]
+    issues = []
+    checked_artifacts = 0
+    for expected_sequence, record in enumerate(records, start=1):
+        phase = record.get("phase", "unknown")
+        if record.get("sequence") != expected_sequence:
+            issues.append(
+                {
+                    "phase": phase,
+                    "kind": "receipt-sequence",
+                    "expected": expected_sequence,
+                    "actual": record.get("sequence"),
+                }
+            )
+        if record.get("run_id") != run_id:
+            issues.append(
+                {
+                    "phase": phase,
+                    "kind": "run-identity",
+                    "expected": run_id,
+                    "actual": record.get("run_id"),
+                }
+            )
+        for direction in ("inputs", "outputs"):
+            for artifact in record.get(direction, []):
+                checked_artifacts += 1
+                path = Path(artifact.get("path", "")).expanduser()
+                if not path.is_file():
+                    issues.append(
+                        {
+                            "phase": phase,
+                            "kind": "artifact-missing",
+                            "direction": direction,
+                            "path": str(path),
+                        }
+                    )
+                    continue
+                actual_size = path.stat().st_size
+                if actual_size != artifact.get("size"):
+                    issues.append(
+                        {
+                            "phase": phase,
+                            "kind": "artifact-size",
+                            "direction": direction,
+                            "path": str(path),
+                            "expected": artifact.get("size"),
+                            "actual": actual_size,
+                        }
+                    )
+                    continue
+                actual_digest = file_sha256(path)
+                if actual_digest != artifact.get("sha256"):
+                    issues.append(
+                        {
+                            "phase": phase,
+                            "kind": "artifact-sha256",
+                            "direction": direction,
+                            "path": str(path),
+                            "expected": artifact.get("sha256"),
+                            "actual": actual_digest,
+                        }
+                    )
+    return {
+        "status": "PASS" if not issues else "FAIL",
+        "receipt_count": len(records),
+        "checked_artifact_count": checked_artifacts,
+        "issues": issues,
+    }
+
+
 def derive_state(workspace: Path) -> dict:
     metadata = _read_json(workspace / "run.json")
     records = receipts(workspace)
@@ -76,13 +150,20 @@ def derive_state(workspace: Path) -> dict:
         phase: latest.get(phase, {}).get("status", "pending")
         for phase in PHASES
     }
-    complete = all(phases[phase] in PASSING for phase in PHASES)
+    integrity = verify_receipt_integrity(workspace)
+    complete = integrity["status"] == "PASS" and all(phases[phase] in PASSING for phase in PHASES)
     next_phase = next((phase for phase in PHASES if phases[phase] not in PASSING), None)
+    if integrity["status"] == "FAIL":
+        next_phase = next(
+            (issue.get("phase") for issue in integrity["issues"] if issue.get("phase") in PHASES),
+            next_phase,
+        )
     return {
         **metadata,
-        "status": "complete" if complete else "in_progress",
+        "status": "complete" if complete else "blocked" if integrity["status"] == "FAIL" else "in_progress",
         "next_phase": next_phase,
         "phases": phases,
+        "integrity": integrity,
         "receipt_count": len(records),
         "updated_at": records[-1]["recorded_at"] if records else metadata["created_at"],
     }
@@ -178,6 +259,11 @@ def record_phase(
     if status not in {"pass", "fail", "complete"}:
         raise ValueError("phase status must be pass, fail, or complete")
     existing = receipts(workspace)
+    integrity = verify_receipt_integrity(workspace)
+    if existing and status in PASSING and integrity["status"] != "PASS":
+        raise ValueError(
+            "run integrity failed; preserve this workspace and begin an explicit recovery run"
+        )
     latest = {}
     for item in existing:
         latest[item["phase"]] = item
@@ -221,6 +307,7 @@ def render_report(workspace: Path) -> str:
         f"- Code commit: `{state.get('code_commit') or 'not recorded'}`",
         f"- External uploads permitted: {str(state['external_uploads_permitted']).lower()}",
         f"- Final publication edit performed: {str(state['publication_edit_complete']).lower()}",
+        f"- Receipt integrity: **{state['integrity']['status']}**",
         "",
         "## Phases",
         "",

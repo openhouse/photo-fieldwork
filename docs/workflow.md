@@ -8,7 +8,7 @@ Write down what may be read, what may be created, where outputs live, and which 
 
 ## 1. Freeze a source corpus
 
-Give the broad retrieval corpus a stable name and count. Never alter it during a versioned run. Preserve v00, v01, and later runs as separate folders so selection logic can be compared rather than overwritten.
+Give the broad retrieval corpus a stable identifier, exact count, and sorted-membership SHA-256. Never alter it during a versioned run. Preserve v00, v01, and later runs as separate folders so selection logic can be compared rather than overwritten.
 
 Reserve the semantic version before work. Keep experiments as rounds inside one run; do not create competing authoritative folders with the same version.
 
@@ -19,6 +19,8 @@ Capture stable IDs, filenames, albums, existing people associations, dates, plac
 ## 3. Retrieve broadly with metadata
 
 Use albums, people, keywords, dates, places, labels, and prior attention to create candidate views. Call these retrieval hypotheses. Metadata can find possible relevance; it cannot establish what a photograph visibly proves.
+
+Failure to recover qualifying photographs is an evidence gap, not proof that they do not exist. Report `not recovered`, preserve the search boundary, and keep editor hypotheses distinct from provenance.
 
 ## 4. Calibrate before scaling
 
@@ -46,7 +48,7 @@ Persist known visual rejects and historical holds so they cannot return through 
 
 ## 9. Plan before writing
 
-Produce proposed-master, hold, membership, and decision manifests before touching the catalog. Every selected stable ID needs a reason. The plan must be idempotent.
+Produce proposed-master, hold, membership, and decision manifests before touching the catalog. Every selected stable ID needs a reason. Bind the release plan to the exact source membership, proposal, master assignments, passing final evaluation, passing validation, and the plan's own content digest. The plan must be idempotent.
 
 ## 10. Commit narrowly
 
@@ -62,4 +64,4 @@ For WAL-backed catalogs, extract compact evidence through a WAL-aware read-only 
 
 Tell editors what the system did and did not do. The result is a contact field for human editing, not the final visual narrative.
 
-Generate the status and completion report from append-only phase receipts. Do not mark a run complete by editing status text manually.
+Generate the status and completion report from append-only phase receipts. Before trusting a recorded phase, recheck every artifact's recorded byte size and SHA-256. Do not mark a run complete by editing status text manually.

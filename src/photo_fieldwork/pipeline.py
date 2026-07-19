@@ -5,7 +5,7 @@ import hashlib
 import json
 import math
 from datetime import datetime, timezone
-from collections import Counter, defaultdict
+from collections import Counter, defaultdict, deque
 from pathlib import Path
 from typing import Iterable
 
@@ -85,6 +85,42 @@ def stable_noise(seed: int, uuid: str) -> float:
     return int.from_bytes(digest[:8], "big") / 2**64
 
 
+def membership_sha256(identifiers: Iterable[str]) -> str:
+    """Hash exact source membership independently of catalog ordering."""
+    normalized = [str(identifier).strip() for identifier in identifiers]
+    if any(not identifier for identifier in normalized):
+        raise ValueError("membership identifiers cannot be empty")
+    if len(normalized) != len(set(normalized)):
+        raise ValueError("membership identifiers must be unique")
+    payload = "\n".join(sorted(normalized)) + "\n"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def master_sha256(rows: Iterable[dict[str, str]]) -> str:
+    """Hash exact master membership and editorial assignment."""
+    payload = [
+        {
+            "uuid": str(row["uuid"]).strip(),
+            "primary_view": str(row.get("primary_view", "")).strip(),
+        }
+        for row in rows
+    ]
+    if any(not item["uuid"] or not item["primary_view"] for item in payload):
+        raise ValueError("master identity requires non-empty UUIDs and primary views")
+    if len({item["uuid"] for item in payload}) != len(payload):
+        raise ValueError("master identity requires unique UUIDs")
+    payload.sort(key=lambda item: (item["primary_view"], item["uuid"]))
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def content_sha256(value: dict, digest_field: str = "plan_sha256") -> str:
+    payload = dict(value)
+    payload.pop(digest_field, None)
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def is_hold(row: dict[str, str]) -> bool:
     return (
         str(row.get("safety_status", "clear")).lower() in {"hold", "needs-review"}
@@ -160,13 +196,163 @@ def cluster_representatives(rows: list[dict[str, str]], config: dict) -> list[di
 
 
 def choose_primary_view(row: dict[str, str], config: dict) -> str:
+    return candidate_view_ids(row, config)[0]
+
+
+def candidate_view_ids(row: dict[str, str], config: dict) -> list[str]:
     configured = {view["id"] for view in config["views"]}
     candidates = [view for view in split_values(row.get("candidate_views")) if view in configured]
-    return candidates[0] if candidates else config["unclassified_view"]
+    return list(dict.fromkeys(candidates)) or [config["unclassified_view"]]
 
 
 def rank_row(row: dict[str, str], config: dict) -> float:
     return attention_score(row) + evidence_score(row) + stable_noise(int(config["seed"]), row["uuid"])
+
+
+def assign_exact_quotas(rows: list[dict[str, str]], config: dict) -> tuple[dict[str, str], dict]:
+    """Assign exact view quotas with deterministic capacity max-flow.
+
+    A row may support more than one view, but can be selected only once. Event
+    clusters share a bounded sink so assignment cannot evade the diversity cap.
+    Evidence-ranked edge order makes the feasible result stable and useful.
+    """
+    positive_views = [view for view in config["views"] if int(view["quota"]) > 0]
+    quotas = {view["id"]: int(view["quota"]) for view in positive_views}
+    target = int(config["target_count"])
+    row_map = {row["uuid"]: row for row in rows}
+    candidates = {
+        uuid: [view for view in candidate_view_ids(row, config) if view in quotas]
+        for uuid, row in row_map.items()
+    }
+    candidates = {uuid: views for uuid, views in candidates.items() if views}
+
+    eligible_by_view = {
+        view_id: sum(view_id in views for views in candidates.values())
+        for view_id in quotas
+    }
+    overlaps = Counter(";".join(sorted(views)) for views in candidates.values())
+
+    source = 0
+    view_nodes = {view_id: index + 1 for index, view_id in enumerate(quotas)}
+    asset_start = 1 + len(view_nodes)
+    asset_nodes = {
+        uuid: asset_start + index
+        for index, uuid in enumerate(sorted(candidates))
+    }
+    cluster_keys = {
+        uuid: row_map[uuid].get("event_cluster", "").strip() or f"asset:{uuid}"
+        for uuid in candidates
+    }
+    cluster_start = asset_start + len(asset_nodes)
+    cluster_nodes = {
+        key: cluster_start + index
+        for index, key in enumerate(sorted(set(cluster_keys.values())))
+    }
+    sink = cluster_start + len(cluster_nodes)
+    graph: list[list[dict]] = [[] for _ in range(sink + 1)]
+
+    def add_edge(start: int, stop: int, capacity: int) -> dict:
+        forward = {"to": stop, "rev": len(graph[stop]), "cap": capacity}
+        backward = {"to": start, "rev": len(graph[start]), "cap": 0}
+        graph[start].append(forward)
+        graph[stop].append(backward)
+        return forward
+
+    source_edges = {
+        view_id: add_edge(source, view_nodes[view_id], quota)
+        for view_id, quota in quotas.items()
+    }
+    benefits = {}
+    for uuid, views in candidates.items():
+        for preference, view_id in enumerate(views):
+            benefits[(uuid, view_id)] = (
+                int(rank_row(row_map[uuid], config) * 1_000_000)
+                + (len(views) - preference) * 1_000
+                + int(stable_noise(int(config["seed"]), f"{uuid}:{view_id}") * 999)
+            )
+    assignment_edges: list[tuple[str, str, dict]] = []
+    for (uuid, view_id), _ in sorted(
+        benefits.items(),
+        key=lambda item: (item[0][1], -item[1], item[0][0]),
+    ):
+        edge = add_edge(view_nodes[view_id], asset_nodes[uuid], 1)
+        assignment_edges.append((uuid, view_id, edge))
+    for uuid, asset_node in asset_nodes.items():
+        add_edge(asset_node, cluster_nodes[cluster_keys[uuid]], 1)
+    event_limit = int(config.get("event_cluster_limit", 0))
+    cluster_counts = Counter(cluster_keys.values())
+    for key, cluster_node in cluster_nodes.items():
+        is_real_cluster = not key.startswith("asset:")
+        capacity = min(cluster_counts[key], event_limit) if is_real_cluster and event_limit else cluster_counts[key]
+        add_edge(cluster_node, sink, capacity)
+
+    flow = 0
+
+    def levels() -> list[int]:
+        level = [-1] * len(graph)
+        level[source] = 0
+        queue = deque([source])
+        while queue:
+            node = queue.popleft()
+            for edge in graph[node]:
+                if edge["cap"] > 0 and level[edge["to"]] < 0:
+                    level[edge["to"]] = level[node] + 1
+                    queue.append(edge["to"])
+        return level
+
+    while flow < target:
+        level = levels()
+        if level[sink] < 0:
+            break
+        cursors = [0] * len(graph)
+
+        def send(node: int, amount: int) -> int:
+            if node == sink:
+                return amount
+            while cursors[node] < len(graph[node]):
+                edge = graph[node][cursors[node]]
+                if edge["cap"] > 0 and level[edge["to"]] == level[node] + 1:
+                    pushed = send(edge["to"], min(amount, edge["cap"]))
+                    if pushed:
+                        edge["cap"] -= pushed
+                        graph[edge["to"]][edge["rev"]]["cap"] += pushed
+                        return pushed
+                cursors[node] += 1
+            return 0
+
+        while flow < target:
+            pushed = send(source, target - flow)
+            if not pushed:
+                break
+            flow += pushed
+
+    assigned_by_view = {
+        view_id: quotas[view_id] - source_edges[view_id]["cap"]
+        for view_id in quotas
+    }
+    deficits = {
+        view_id: quotas[view_id] - assigned_by_view[view_id]
+        for view_id in quotas
+        if assigned_by_view[view_id] != quotas[view_id]
+    }
+    report = {
+        "status": "PASS" if flow == target and not deficits else "INFEASIBLE",
+        "target_count": target,
+        "eligible_asset_count": len(candidates),
+        "eligible_by_view": eligible_by_view,
+        "assigned_by_view": assigned_by_view,
+        "deficits": deficits,
+        "overlap_groups": dict(sorted(overlaps.items())),
+        "quotas_changed": False,
+    }
+    if report["status"] != "PASS":
+        raise ValueError(f"exact view quota deficit: {json.dumps(report, sort_keys=True)}")
+    assignments = {
+        uuid: view_id
+        for uuid, view_id, edge in assignment_edges
+        if edge["cap"] == 0
+    }
+    return assignments, report
 
 
 def select(inventory: list[dict[str, str]], config: dict) -> tuple[list[dict], list[dict], dict]:
@@ -176,6 +362,21 @@ def select(inventory: list[dict[str, str]], config: dict) -> tuple[list[dict], l
         [dict(row) for row in inventory if not is_hold(row) and not is_known_reject(row)],
         config,
     )
+
+    def explain(row: dict) -> str:
+        confidence = str(row.get("evidence_confidence", "unknown")).lower()
+        return "; ".join(
+            reason
+            for reason in [
+                f"retrieval hypothesis {row['primary_view']}",
+                f"visible context: {row.get('visible_context')}" if row.get("visible_context") else "",
+                f"evidence confidence: {confidence}",
+                "pre-existing named people" if split_values(row.get("persons")) else "",
+                "prior favorite/edit attention" if attention_score(row) else "",
+            ]
+            if reason
+        )
+
     for row in eligible:
         row["primary_view"] = choose_primary_view(row, config)
         row["score_total"] = f"{rank_row(row, config):.6f}"
@@ -189,23 +390,9 @@ def select(inventory: list[dict[str, str]], config: dict) -> tuple[list[dict], l
         row["claim_boundary"] = row.get("claim_boundary") or (
             "Visible context and archive metadata do not establish authorship, consent, role, or publication permission."
         )
-        row["selection_reason"] = "; ".join(
-            reason
-            for reason in [
-                f"retrieval hypothesis {row['primary_view']}",
-                f"visible context: {row.get('visible_context')}" if row.get("visible_context") else "",
-                f"evidence confidence: {confidence}",
-                "pre-existing named people" if split_values(row.get("persons")) else "",
-                "prior favorite/edit attention" if attention_score(row) else "",
-            ]
-            if reason
-        )
+        row["selection_reason"] = explain(row)
 
-    by_view: dict[str, list[dict]] = defaultdict(list)
-    for row in eligible:
-        by_view[row["primary_view"]].append(row)
-    for rows in by_view.values():
-        rows.sort(key=lambda row: float(row["score_total"]), reverse=True)
+    assignments, capacity = assign_exact_quotas(eligible, config)
 
     selected: list[dict] = []
     selected_ids: set[str] = set()
@@ -235,19 +422,12 @@ def select(inventory: list[dict[str, str]], config: dict) -> tuple[list[dict], l
         if cluster:
             event_counts[cluster] -= 1
 
-    for view in config["views"]:
-        quota = int(view["quota"])
-        added = 0
-        for row in by_view[view["id"]]:
-            if added == quota:
-                break
-            if row["uuid"] not in selected_ids and can_add(row):
-                add(row)
-                added += 1
-        if added != quota:
-            raise ValueError(
-                f"view {view['id']} supplies {added} eligible rows after safety and diversity controls; quota is {quota}"
-            )
+    for row in eligible:
+        assigned_view = assignments.get(row["uuid"])
+        if assigned_view:
+            row["primary_view"] = assigned_view
+            row["selection_reason"] = explain(row)
+            add(row)
 
     target = int(config["target_count"])
     floor_specs: list[tuple] = []
@@ -264,10 +444,11 @@ def select(inventory: list[dict[str, str]], config: dict) -> tuple[list[dict], l
         )
         while current < required and candidates:
             incoming = candidates.pop(0)
+            supported_views = set(candidate_view_ids(incoming, config))
             donors = sorted(
                 (
                     row for row in selected
-                    if row["primary_view"] == incoming["primary_view"]
+                    if row["primary_view"] in supported_views
                     and not predicate(row)
                     and can_add(incoming, removing=row)
                     and all(
@@ -281,7 +462,8 @@ def select(inventory: list[dict[str, str]], config: dict) -> tuple[list[dict], l
                 continue
             outgoing = donors[0]
             remove(outgoing)
-            incoming["selection_reason"] += f"; diversity floor: {reason}"
+            incoming["primary_view"] = outgoing["primary_view"]
+            incoming["selection_reason"] = f"{explain(incoming)}; diversity floor: {reason}"
             add(incoming)
             current += 1
         floor_specs.append((predicate, required, reason))
@@ -301,6 +483,11 @@ def select(inventory: list[dict[str, str]], config: dict) -> tuple[list[dict], l
     if sum(row.get("selection_tier") == "exploratory" for row in selected) < exploratory_floor:
         raise ValueError("candidate field cannot satisfy exploratory_fraction")
     selected.sort(key=lambda row: (row["primary_view"], -float(row["score_total"]), row["uuid"]))
+    digest = master_sha256(selected)
+    proposal_id = f"pfp-{digest[:16]}"
+    for row in selected:
+        row["master_sha256"] = digest
+        row["proposal_id"] = proposal_id
     summary = {
         "inventory_count": len(inventory),
         "eligible_after_cluster_reduction": len(eligible),
@@ -313,6 +500,9 @@ def select(inventory: list[dict[str, str]], config: dict) -> tuple[list[dict], l
         "exploratory_count": sum(row.get("selection_tier") == "exploratory" for row in selected),
         "largest_event_cluster": max(event_counts.values(), default=0),
         "uncertain_count": sum(row.get("evidence_confidence", "unknown") in {"low", "unknown", ""} for row in selected),
+        "capacity": capacity,
+        "master_sha256": digest,
+        "proposal_id": proposal_id,
     }
     return selected, holds, summary
 
@@ -347,6 +537,19 @@ def make_sample(master: list[dict[str, str]], per_view: int, seed: int) -> list[
 
 def evaluate(feedback: list[dict[str, str]], config: dict, final_field: bool = False) -> tuple[dict, bool]:
     allowed = {"fit", "reject", "uncertain"}
+    identity_present = any(
+        row.get("master_sha256", "").strip() or row.get("proposal_id", "").strip()
+        for row in feedback
+    )
+    if identity_present and any(
+        not row.get("master_sha256", "").strip() or not row.get("proposal_id", "").strip()
+        for row in feedback
+    ):
+        raise ValueError("evaluation identity must be present on every feedback row")
+    master_hashes = {row.get("master_sha256", "").strip() for row in feedback if row.get("master_sha256", "").strip()}
+    proposal_ids = {row.get("proposal_id", "").strip() for row in feedback if row.get("proposal_id", "").strip()}
+    if len(master_hashes) > 1 or len(proposal_ids) > 1:
+        raise ValueError("evaluation feedback mixes more than one proposed master")
     judged = [row for row in feedback if row.get("judgment", "").strip().lower() in allowed]
     fit = sum(row["judgment"].strip().lower() == "fit" for row in judged)
     reject = sum(row["judgment"].strip().lower() == "reject" for row in judged)
@@ -386,6 +589,8 @@ def evaluate(feedback: list[dict[str, str]], config: dict, final_field: bool = F
         and (not final_field or replacement_coverage == 1.0)
     )
     report = {
+        "proposal_id": next(iter(proposal_ids), None),
+        "master_sha256": next(iter(master_hashes), None),
         "sample_count": len(feedback),
         "judged_count": len(judged),
         "fit": fit,
@@ -415,6 +620,18 @@ def validate(
 ) -> tuple[list[str], dict]:
     errors: list[str] = []
     ids = [row["uuid"] for row in master]
+    try:
+        digest = master_sha256(master)
+    except ValueError as error:
+        digest = None
+        errors.append(str(error))
+    proposal_id = f"pfp-{digest[:16]}" if digest else None
+    embedded_hashes = {row.get("master_sha256", "") for row in master}
+    embedded_proposals = {row.get("proposal_id", "") for row in master}
+    if digest and embedded_hashes != {digest}:
+        errors.append("master_sha256 is missing or does not match exact membership and assignments")
+    if proposal_id and embedded_proposals != {proposal_id}:
+        errors.append("proposal_id is missing or does not match master_sha256")
     hold_ids = {row["uuid"] for row in holds}
     if len(master) != int(config["target_count"]):
         errors.append(f"expected {config['target_count']} selected rows, found {len(master)}")
@@ -473,6 +690,10 @@ def validate(
             errors.append("final-field evaluation report is required")
         elif not evaluation_report.get("passed") or not evaluation_report.get("final_field_audit"):
             errors.append("final-field evaluation did not pass")
+        if evaluation_report and digest and evaluation_report.get("master_sha256") != digest:
+            errors.append("evaluation master identity does not match the frozen field")
+        if evaluation_report and proposal_id and evaluation_report.get("proposal_id") != proposal_id:
+            errors.append("evaluation proposal identity does not match the frozen field")
         replacements = {row["uuid"] for row in master if truthy(row.get("replacement"))}
         if replacements:
             judged = {
@@ -493,6 +714,8 @@ def validate(
         "largest_event_cluster": max(event_counts.values(), default=0),
         "floor_counts": {label: actual for label, (actual, _) in floor_checks.items()},
         "final_field_audit": bool(evaluation_report and evaluation_report.get("final_field_audit")),
+        "master_sha256": digest,
+        "proposal_id": proposal_id,
     }
     return errors, metrics
 
@@ -503,8 +726,33 @@ def build_catalog_plan(
     plan_id: str,
     source_title: str,
     source_identifier: str,
+    *,
+    evaluation_report: dict,
+    validation_report: dict,
+    source_count: int,
+    source_membership_sha256: str,
 ) -> dict:
-    """Build an adapter-neutral, membership-only catalog plan."""
+    """Build a release-bound, adapter-neutral membership plan."""
+    digest = master_sha256(master)
+    proposal_id = f"pfp-{digest[:16]}"
+    if not evaluation_report.get("passed") or not evaluation_report.get("final_field_audit"):
+        raise ValueError("catalog plan requires a passing final-field evaluation")
+    if evaluation_report.get("master_sha256") != digest:
+        raise ValueError("evaluated master identity does not match the catalog plan")
+    if evaluation_report.get("proposal_id") != proposal_id:
+        raise ValueError("evaluated proposal identity does not match the catalog plan")
+    if validation_report.get("status") != "PASS":
+        raise ValueError("catalog plan requires a passing validation report")
+    if validation_report.get("master_sha256") != digest:
+        raise ValueError("validated master identity does not match the catalog plan")
+    if validation_report.get("proposal_id") != proposal_id:
+        raise ValueError("validated proposal identity does not match the catalog plan")
+    if source_count < len(master):
+        raise ValueError("source count cannot be smaller than the proposed master")
+    if len(source_membership_sha256) != 64 or any(
+        character not in "0123456789abcdef" for character in source_membership_sha256.casefold()
+    ):
+        raise ValueError("source membership SHA-256 must be a 64-character hexadecimal digest")
     view_labels = {view["id"]: view["label"] for view in config["views"]}
     albums = [
         {
@@ -522,12 +770,32 @@ def build_catalog_plan(
                 "asset_ids": asset_ids,
             }
         )
-    return {
-        "schema_version": 1,
+    plan = {
+        "schema_version": 2,
         "plan_id": plan_id,
+        "proposal_id": proposal_id,
+        "master_sha256": digest,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "safety_mode": "create-folders-albums-and-add-membership-only",
-        "source": {"title": source_title, "identifier": source_identifier},
+        "source": {
+            "title": source_title,
+            "identifier": source_identifier,
+            "count": source_count,
+            "membership_sha256": source_membership_sha256.casefold(),
+        },
+        "evaluation": {
+            "passed": True,
+            "final_field_audit": True,
+            "proposal_id": proposal_id,
+            "master_sha256": digest,
+            "report_sha256": content_sha256(evaluation_report, digest_field="report_sha256"),
+        },
+        "validation": {
+            "status": "PASS",
+            "proposal_id": proposal_id,
+            "master_sha256": digest,
+            "report_sha256": content_sha256(validation_report, digest_field="report_sha256"),
+        },
         "expected_master_count": len(master),
         "write_test_count": min(10, len(master)),
         "albums": albums,
@@ -540,3 +808,5 @@ def build_catalog_plan(
             "source membership unchanged",
         ],
     }
+    plan["plan_sha256"] = content_sha256(plan)
+    return plan

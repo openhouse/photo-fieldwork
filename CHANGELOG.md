@@ -2,6 +2,14 @@
 
 ## 0.2.0 - unreleased
 
+### Evaluation-driven hardening
+
+- Add realistic skill prompts and executable release-contract evals, including a deterministic 4,000-item overlapping assignment.
+- Replace first-match assignment with exact capacity-aware assignment and actionable deficit reports.
+- Bind catalog plans to frozen source membership, exact master assignments, exact final-evaluation and validation reports, and plan content.
+- Recheck receipt artifacts while deriving run state and block later passing phases after evidence drift.
+- Preserve the measured deterministic and paired-agent Revision A hill climbs in `evals/iterations/`.
+
 ### Added
 
 - Receipt-backed run orchestration with semantic-version reservation and resumable phase state.

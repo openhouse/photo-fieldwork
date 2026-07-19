@@ -1,6 +1,10 @@
 import importlib.util
+import json
+import tempfile
 import unittest
 from pathlib import Path
+
+from photo_fieldwork.pipeline import content_sha256, master_sha256
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "skills" / "curate-apple-photos" / "scripts" / "photo_archive_bridge.py"
@@ -29,6 +33,56 @@ class SkillBridgeTests(unittest.TestCase):
         self.assertEqual(by_key["private"]["existing_identifier"], "PRIVATE/L0/020")
         self.assertEqual(by_key["audit"]["existing_identifier"], "AUDIT/L0/020")
         self.assertEqual(by_key["version"]["title"], "v03 example")
+
+    def test_release_binding_rejects_a_tampered_or_stale_plan(self):
+        rows = [
+            {"uuid": "ONE", "primary_view": "a"},
+            {"uuid": "TWO", "primary_view": "b"},
+        ]
+        digest = master_sha256(rows)
+        plan = {
+            "schema_version": 2,
+            "plan_id": "release",
+            "proposal_id": f"pfp-{digest[:16]}",
+            "master_sha256": digest,
+            "expected_master_count": 2,
+            "source": {
+                "identifier": "SOURCE",
+                "count": 3,
+                "membership_sha256": "a" * 64,
+            },
+            "evaluation": {
+                "passed": True,
+                "final_field_audit": True,
+                "proposal_id": f"pfp-{digest[:16]}",
+                "master_sha256": digest,
+                "report_sha256": "b" * 64,
+            },
+            "validation": {
+                "status": "PASS",
+                "proposal_id": f"pfp-{digest[:16]}",
+                "master_sha256": digest,
+                "report_sha256": "c" * 64,
+            },
+            "albums": [{"key": "master", "asset_ids": ["ONE", "TWO"]}],
+        }
+        plan["plan_sha256"] = content_sha256(plan)
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "release-plan.json"
+            path.write_text(json.dumps(plan), encoding="utf-8")
+            binding = bridge.release_binding(path, rows, "SOURCE", 3)
+            self.assertEqual(binding["master_sha256"], digest)
+            plan["albums"][0]["asset_ids"][0] = "CHANGED"
+            path.write_text(json.dumps(plan), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "plan_sha256"):
+                bridge.release_binding(path, rows, "SOURCE", 3)
+
+            plan["albums"][0]["asset_ids"][0] = "ONE"
+            plan["evaluation"]["final_field_audit"] = False
+            plan["plan_sha256"] = content_sha256(plan)
+            path.write_text(json.dumps(plan), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "evaluation binding"):
+                bridge.release_binding(path, rows, "SOURCE", 3)
 
 
 if __name__ == "__main__":

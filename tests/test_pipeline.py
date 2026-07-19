@@ -5,7 +5,17 @@ from copy import deepcopy
 from pathlib import Path
 
 from photo_fieldwork import __version__
-from photo_fieldwork.pipeline import build_catalog_plan, evaluate, make_sample, read_config, read_csv, select, validate
+from photo_fieldwork.pipeline import (
+    build_catalog_plan,
+    content_sha256,
+    evaluate,
+    make_sample,
+    membership_sha256,
+    read_config,
+    read_csv,
+    select,
+    validate,
+)
 from photo_fieldwork.practice import STARTER_CONFIG, create_demo_inventory
 
 
@@ -103,9 +113,38 @@ class PipelineTests(unittest.TestCase):
         self.assertTrue(any("replacement" in error for error in errors))
 
     def test_catalog_plan_allows_only_membership_writes(self):
-        master, _, _ = select(self.inventory, self.config)
-        plan = build_catalog_plan(master, self.config, "practice", "Source", "SOURCE-1")
+        master, holds, _ = select(self.inventory, self.config)
+        sample = make_sample(master, 3, 20260710)
+        for row in sample:
+            row["judgment"] = "fit"
+        evaluation, passed = evaluate(sample, self.config, final_field=True)
+        self.assertTrue(passed)
+        errors, validation = validate(master, holds, self.config, evaluation, sample)
+        self.assertEqual(errors, [])
+        source_ids = [row["uuid"] for row in self.inventory]
+        plan = build_catalog_plan(
+            master,
+            self.config,
+            "practice",
+            "Source",
+            "SOURCE-1",
+            evaluation_report=evaluation,
+            validation_report=validation,
+            source_count=len(source_ids),
+            source_membership_sha256=membership_sha256(source_ids),
+        )
         self.assertEqual(plan["safety_mode"], "create-folders-albums-and-add-membership-only")
+        self.assertEqual(plan["schema_version"], 2)
+        self.assertEqual(plan["evaluation"]["master_sha256"], plan["master_sha256"])
+        self.assertEqual(
+            plan["evaluation"]["report_sha256"],
+            content_sha256(evaluation, digest_field="report_sha256"),
+        )
+        self.assertEqual(plan["validation"]["master_sha256"], plan["master_sha256"])
+        self.assertEqual(
+            plan["validation"]["report_sha256"],
+            content_sha256(validation, digest_field="report_sha256"),
+        )
         self.assertEqual(plan["expected_master_count"], 12)
         self.assertEqual(plan["write_test_count"], 10)
         self.assertEqual(len(plan["albums"][0]["asset_ids"]), 12)

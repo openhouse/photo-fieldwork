@@ -15,7 +15,7 @@ Use `photo-fieldwork run init`. One semantic version may have one authoritative 
 
 ## 3. Preflight
 
-Run profile check, bridge doctor, and the operational Photos probe. Confirm live source count, inventory freshness, helper capability version, free storage, and network-disabled plans. Record the reports as the `preflight` receipt.
+Run profile check, bridge doctor, and the operational Photos probe. Confirm live source count and membership SHA-256, inventory freshness, helper capability version, free storage, and network-disabled plans. Record the reports as the `preflight` receipt.
 
 ## 4. Retrieve and inspect
 
@@ -27,7 +27,7 @@ Inspect every view at low, middle, and high scores. Read all rejections. Persist
 
 ## 6. Freeze and validate
 
-Mark post-pass replacements. Audit the actual frozen field and every replacement. Run validation with the final evaluation report and feedback. Freeze the validated master, HOLD, config, feedback, and plans by checksum.
+Mark post-pass replacements. Audit the actual frozen field and every replacement. Run validation with the final evaluation report and feedback. Confirm that source, proposal, master, evaluation, validation, and plan identities agree. Freeze the validated master, HOLD, config, feedback, and plans by checksum.
 
 ## 7. Write and verify
 

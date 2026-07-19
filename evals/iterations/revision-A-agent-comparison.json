@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "branch": "feature/revision-A",
+  "method": "Run identical consequential operator prompts against the pre-revision and revised skill in clean read-only clones, grade only the response artifacts against literal assertions, repair instruction gaps, and rerun unchanged prompts with an independent grader.",
+  "model": "gpt-5.6-sol",
+  "reasoning_effort": "low",
+  "cases": [
+    "interrupted-run-with-drift",
+    "stale-evaluation-plan",
+    "unsupported-project-view"
+  ],
+  "iterations": [
+    {
+      "iteration": 1,
+      "variant": "pre-revision skill",
+      "passed": 9,
+      "total": 12,
+      "failures": [
+        "Did not explicitly recheck recorded artifact size as well as SHA-256.",
+        "Did not bind every required source, master, evaluation, validation, and plan identity literally.",
+        "Did not state that failure to recover evidence is not proof of nonexistence."
+      ]
+    },
+    {
+      "iteration": 2,
+      "variant": "first revised skill",
+      "passed": 9,
+      "total": 12,
+      "failures": [
+        "The same three requirements remained implied rather than explicit in agent responses."
+      ]
+    },
+    {
+      "iteration": 3,
+      "variant": "hill-climbed revised skill",
+      "passed": 12,
+      "total": 12,
+      "changes": [
+        "Require byte-size and SHA-256 receipt verification in the resume instruction.",
+        "Name the complete schema-2 release identity chain.",
+        "Make not-recovered versus nonexistent an explicit evidence rule."
+      ],
+      "stop_reason": "All unchanged prompt assertions passed under strict independent grading, while the executable bank remained available to detect contract regressions."
+    }
+  ],
+  "limitations": [
+    "This comparison measures instruction-following on synthetic scenarios, not live Apple Photos behavior.",
+    "The same model family generated responses for both skill variants; the grader was a separate ephemeral run.",
+    "Raw response artifacts remain local and are not required for normal repository checks."
+  ]
+}

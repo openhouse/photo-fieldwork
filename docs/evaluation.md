@@ -13,6 +13,7 @@ The goal is not to prove the selector is intelligent. The goal is to discover wh
 7. Revise one part of the system and rerun deterministically.
 8. Persist known rejects and historical holds as regression controls.
 9. Audit the actual frozen field, including every replacement introduced after an earlier pass.
+10. Bind the report to the exact proposal and master identity. A changed membership or view assignment requires a new final-field audit.
 
 ## Error taxonomy
 
@@ -38,3 +39,9 @@ The goal is not to prove the selector is intelligent. The goal is to discover wh
 - Every replacement appears in the final-field feedback.
 
 Passing the gate means the corpus is ready for editors. It does not mean every category assignment is factually proven.
+
+## Recursive eval bank
+
+Run `make evals` while changing selection, release, safety, or run-state behavior. The executable bank begins with known field failures and adds adversarial variants after each repair. It includes a production-shaped 4,000-item overlap assignment so exactness and determinism remain ordinary regression checks rather than occasional demonstrations.
+
+The companion `evals/evals.json` tests agent and operator reasoning under interruption, source drift, sensitive material, unsupported views, stale evaluation, false freshness, and publication pressure. Do not convert semantic assertions into shallow keyword checks; grade whether the proposed actions preserve the relevant boundary.

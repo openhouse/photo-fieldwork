@@ -6,7 +6,17 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from .pipeline import build_catalog_plan, evaluate, make_sample, read_config, read_csv, select, validate, write_csv
+from .pipeline import (
+    build_catalog_plan,
+    evaluate,
+    make_sample,
+    membership_sha256,
+    read_config,
+    read_csv,
+    select,
+    validate,
+    write_csv,
+)
 from .practice import create_demo_inventory, practice_feedback, write_demo_readme, write_starter_config
 from .profile import check_profile, load_profile
 from .review import render_workbench
@@ -81,7 +91,19 @@ def command_validate(args: argparse.Namespace) -> int:
 def command_plan(args: argparse.Namespace) -> int:
     config = read_config(args.config)
     master = read_csv(args.master)
-    plan = build_catalog_plan(master, config, args.plan_id, args.source_title, args.source_identifier)
+    evaluation_report = json.loads(args.evaluation_report.read_text(encoding="utf-8"))
+    validation_report = json.loads(args.validation_report.read_text(encoding="utf-8"))
+    plan = build_catalog_plan(
+        master,
+        config,
+        args.plan_id,
+        args.source_title,
+        args.source_identifier,
+        evaluation_report=evaluation_report,
+        validation_report=validation_report,
+        source_count=args.source_count,
+        source_membership_sha256=args.source_membership_sha256,
+    )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
     print(f"wrote membership-only catalog plan to {args.output}")
@@ -190,6 +212,7 @@ def command_demo(args: argparse.Namespace) -> int:
             final_feedback=sample_path,
         )
     )
+    source_ids = [row["uuid"] for row in read_csv(inventory)]
     command_plan(
         argparse.Namespace(
             config=config,
@@ -197,6 +220,10 @@ def command_demo(args: argparse.Namespace) -> int:
             plan_id="synthetic-practice-plan",
             source_title="Synthetic practice corpus",
             source_identifier="SYNTHETIC-ONLY",
+            source_count=len(source_ids),
+            source_membership_sha256=membership_sha256(source_ids),
+            evaluation_report=workspace / "reports" / "evaluation-report.json",
+            validation_report=workspace / "reports" / "validation-report.json",
             output=workspace / "manifests" / "catalog-plan.json",
         )
     )
@@ -249,6 +276,10 @@ def parser() -> argparse.ArgumentParser:
     plan.add_argument("--plan-id", required=True)
     plan.add_argument("--source-title", required=True)
     plan.add_argument("--source-identifier", required=True)
+    plan.add_argument("--source-count", type=int, required=True)
+    plan.add_argument("--source-membership-sha256", required=True)
+    plan.add_argument("--evaluation-report", type=Path, required=True)
+    plan.add_argument("--validation-report", type=Path, required=True)
     plan.add_argument("--output", type=Path, required=True)
     plan.set_defaults(func=command_plan)
 

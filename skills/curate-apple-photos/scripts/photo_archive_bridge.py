@@ -14,6 +14,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from photo_fieldwork.pipeline import content_sha256, master_sha256
+
 
 DEFAULT_PROFILE = Path(
     os.environ.get("PHOTO_FIELDWORK_PROFILE", "~/.config/photo-fieldwork/profile.json")
@@ -281,7 +283,83 @@ def album(title: str, parent: str, uuids: list[str]) -> dict:
     }
 
 
-def snapshot_plan(args: argparse.Namespace, plan_id: str, folders: list[dict], albums: list[dict], receipt: str, source_id: str, source_count: int) -> dict:
+def release_binding(
+    release_plan_path: Path,
+    master_rows: list[dict[str, str]],
+    source_id: str,
+    source_count: int,
+) -> dict:
+    plan = json.loads(release_plan_path.read_text(encoding="utf-8"))
+    if plan.get("schema_version") != 2:
+        raise ValueError("release plan requires schema_version 2")
+    if plan.get("plan_sha256") != content_sha256(plan):
+        raise ValueError("release plan content does not match plan_sha256")
+    digest = master_sha256(master_rows)
+    if plan.get("master_sha256") != digest:
+        raise ValueError("release plan master identity does not match the bridge master")
+    proposal_id = f"pfp-{digest[:16]}"
+    if plan.get("proposal_id") != proposal_id:
+        raise ValueError("release plan proposal identity does not match the bridge master")
+    evaluation = plan.get("evaluation", {})
+    if (
+        evaluation.get("passed") is not True
+        or evaluation.get("final_field_audit") is not True
+        or evaluation.get("proposal_id") != proposal_id
+        or evaluation.get("master_sha256") != digest
+    ):
+        raise ValueError("release plan evaluation binding is invalid")
+    validation = plan.get("validation", {})
+    if (
+        validation.get("status") != "PASS"
+        or validation.get("proposal_id") != proposal_id
+        or validation.get("master_sha256") != digest
+    ):
+        raise ValueError("release plan validation binding is invalid")
+    for label, value in (
+        ("source membership", plan.get("source", {}).get("membership_sha256", "")),
+        ("evaluation report", evaluation.get("report_sha256", "")),
+        ("validation report", validation.get("report_sha256", "")),
+    ):
+        if len(value) != 64 or any(character not in "0123456789abcdef" for character in value.casefold()):
+            raise ValueError(f"release plan {label} SHA-256 is invalid")
+    if plan.get("source", {}).get("identifier") != source_id:
+        raise ValueError("release plan source identifier does not match the bridge source")
+    if plan.get("source", {}).get("count") != source_count:
+        raise ValueError("release plan source count does not match the bridge source")
+    if plan.get("expected_master_count") != len(master_rows):
+        raise ValueError("release plan master count does not match the bridge master")
+    master_album = next(
+        (album for album in plan.get("albums", []) if album.get("key") == "master"),
+        None,
+    )
+    expected_ids = sorted(base_identifier(row["uuid"]) for row in master_rows)
+    planned_ids = sorted(
+        base_identifier(value)
+        for value in (master_album or {}).get("asset_ids", [])
+    )
+    if planned_ids != expected_ids:
+        raise ValueError("release plan master album does not match the bridge master")
+    return {
+        "release_plan_id": plan["plan_id"],
+        "release_plan_sha256": plan["plan_sha256"],
+        "proposal_id": proposal_id,
+        "master_sha256": plan["master_sha256"],
+        "source_membership_sha256": plan["source"]["membership_sha256"],
+        "evaluation_report_sha256": evaluation["report_sha256"],
+        "validation_report_sha256": validation["report_sha256"],
+    }
+
+
+def snapshot_plan(
+    args: argparse.Namespace,
+    plan_id: str,
+    folders: list[dict],
+    albums: list[dict],
+    receipt: str,
+    source_id: str,
+    source_count: int,
+    binding: dict,
+) -> dict:
     return {
         "operation": "snapshot-membership",
         "schema_version": 1,
@@ -289,6 +367,7 @@ def snapshot_plan(args: argparse.Namespace, plan_id: str, folders: list[dict], a
         "safety_mode": "create-folders-albums-and-add-membership-only",
         "source_album_identifier": source_id,
         "expected_source_count": source_count,
+        "release_binding": binding,
         "batch_size": args.batch_size,
         "log_path": str(args.workspace / "logs" / "photo-fieldwork-helper.log"),
         "receipt_path": str(args.workspace / "manifests" / receipt),
@@ -311,6 +390,7 @@ def command_snapshot_plans(args: argparse.Namespace) -> int:
         raise ValueError(f"master overlaps HOLD by {len(overlap)} IDs")
     if not all(row.get("selection_reason") or row.get("selection_reasons") or row.get("editorial_reasons") for row in master_rows):
         raise ValueError("every master row must have a selection reason")
+    binding = release_binding(args.release_plan, master_rows, source_id, source_count)
 
     by_view: dict[str, list[str]] = {}
     view_labels = {}
@@ -347,6 +427,7 @@ def command_snapshot_plans(args: argparse.Namespace) -> int:
         f"{args.version}-write-test-receipt.json",
         source_id,
         source_count,
+        binding,
     )
     production_albums = [album(f"00 MASTER — {args.target:,}", "version", master_ids)]
     for view, values in sorted(by_view.items()):
@@ -367,6 +448,7 @@ def command_snapshot_plans(args: argparse.Namespace) -> int:
         f"{args.version}-photo-archive-receipt.json",
         source_id,
         source_count,
+        binding,
     )
     test_path = args.workspace / "manifests" / f"{args.version}-write-test-plan.json"
     production_path = args.workspace / "manifests" / f"{args.version}-production-plan.json"
@@ -476,6 +558,7 @@ def parser() -> argparse.ArgumentParser:
     plans.add_argument("--source-key")
     plans.add_argument("--source-id")
     plans.add_argument("--source-count", type=int)
+    plans.add_argument("--release-plan", type=Path, required=True)
     plans.add_argument("--batch-size", type=int, default=500)
     plans.set_defaults(func=command_snapshot_plans)
 

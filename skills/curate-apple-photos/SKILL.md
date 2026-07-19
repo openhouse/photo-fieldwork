@@ -20,6 +20,9 @@ python3 scripts/photo_archive_bridge.py probe
 
 3. Read [brief-contract.md](references/brief-contract.md). Preserve the user's words in `brief.md`; derive `retrieval.json` and `config.json`.
 4. Reserve one semantic version with `photo-fieldwork run init`. Never reuse a version. Put evaluation rounds and experiments inside that run.
+5. Freeze the selected source as an exact count plus sorted-membership SHA-256. A source title or historical count is not a source identity.
+
+When resuming, run `photo-fieldwork run status` before doing work. It rechecks both the recorded byte size and SHA-256 of every receipt artifact. If integrity is blocked, do not infer progress from filenames or advance to Photos mutation; preserve the workspace as evidence and begin an explicit recovery run with a new semantic version.
 
 ## Governing invariants
 
@@ -32,8 +35,10 @@ python3 scripts/photo_archive_bridge.py probe
 - A potential sensitive item enters HOLD before ranking and cannot enter the master.
 - Preserve `Unclassified / Editor Field`.
 - Label project-specific views `EDITOR HYPOTHESIS` unless visible evidence plus provenance supports stronger wording.
+- Treat `not recovered` as an evidence result, never as proof that relevant photographs do not exist. Keep hypotheses distinct from provenance.
 - Use Apple aesthetic scores only inside genuine duplicate or burst clusters.
 - Treat cached previews as verified cache hits, never as newly decoded pixels.
+- Treat editor-field membership, consent, rights, claim support, and publication clearance as separate decisions.
 
 Read [safety.md](references/safety.md) whenever a brief concerns private homes, minors, health, legal strategy, financial records, identity documents, or vulnerable collaborators.
 
@@ -47,6 +52,8 @@ Read [safety.md](references/safety.md) whenever a brief concerns private homes, 
 6. Use `cache_previews.py` to record newly decoded pixels, verified cache hits, and missing or corrupt previews separately.
 7. Merge local inspection results with `merge_inspection.py`.
 
+Measure fresh inspection by asset and review history, not by whether a preview was copied into the current workspace. Keep declared regression controls separate from the novel evaluation sample.
+
 Record checksummed phase receipts with `photo-fieldwork run record` as work advances.
 
 ## Select, look, evaluate, recurse
@@ -54,25 +61,28 @@ Record checksummed phase receipts with `photo-fieldwork run record` as work adva
 Read [evaluation-loop.md](references/evaluation-loop.md).
 
 1. Run `photo-fieldwork select`.
-2. Sample low, middle, and high scores from every populated view.
-3. Generate contact sheets and the local review workbench. Inspect actual previews, opening individual images when context or safety is unclear.
-4. Record `fit`, `reject`, or `uncertain`, a visible reason, a safety state, and an error category.
-5. Run `photo-fieldwork evaluate`. Read every rejection and representative uncertainty.
-6. Revise retrieval, assignments, penalties, quotas, event limits, or hold rules in response to observed errors. Keep the seed fixed.
-7. Persist known rejects and historical holds so they cannot return under another label.
-8. Repeat until overall and material-view gates pass.
-9. Audit the actual frozen field with `--final-field`, including every replacement introduced after an earlier pass.
+2. Read the capacity report. Multi-view candidates must be assigned jointly to exact quotas. If a view has a deficit, report the gap; never pad it, silently change its quota, or coerce unrelated material.
+3. Sample low, middle, and high scores from every populated view.
+4. Generate contact sheets and the local review workbench. Inspect actual previews, opening individual images when context or safety is unclear.
+5. Record `fit`, `reject`, or `uncertain`, a visible reason, a safety state, and an error category.
+6. Run `photo-fieldwork evaluate`. Read every rejection and representative uncertainty.
+7. Revise retrieval, assignments, penalties, quotas, event limits, or hold rules in response to observed errors. Keep the seed fixed.
+8. Persist known rejects and historical holds so they cannot return under another label.
+9. Repeat until overall and material-view gates pass.
+10. Audit the actual frozen field with `--final-field`, including every replacement introduced after an earlier pass.
 
 Do not claim success from Vision labels or metadata alone. The recursive loop requires actual preview inspection.
 
 ## Validate and commit
 
 1. Run `photo-fieldwork validate` with the final evaluation report and feedback.
-2. Generate test and production plans with `photo_archive_bridge.py snapshot-plans`.
-3. Inspect the frozen plans, source count, target, folder title, HOLD separation, and membership-only mode.
-4. Run the ten-item write test and independently verify it.
-5. Run production, rerun it once for idempotence, and independently verify it through compact WAL-aware evidence.
-6. Record every phase receipt and generate the completion report from receipts.
+2. Confirm that the master, final evaluation, and validation report share one `proposal_id` and `master_sha256`.
+3. Generate the schema-2 release plan with `photo-fieldwork plan`. Confirm that it binds the frozen source count and membership SHA-256, `proposal_id`, `master_sha256`, final evaluation identity, validation identity, and its own `plan_sha256`. A prerequisite report is not bound merely because it passed or shares a filename.
+4. Generate helper test and production plans with `photo_archive_bridge.py snapshot-plans --release-plan RELEASE_PLAN`. The bridge must reject a stale or altered release plan.
+5. Inspect the frozen plans, source identity, target, folder title, HOLD separation, membership-only mode, and `plan_sha256`.
+6. Run the ten-item write test and independently verify it.
+7. Run production, rerun it once for idempotence, and independently verify it through compact WAL-aware evidence.
+8. Record every phase receipt and generate the completion report from receipts.
 
 ## Final response
 
@@ -81,6 +91,7 @@ Return:
 - a short editorial discussion;
 - folder and master-album names;
 - exact master, HOLD, people, uncertainty, and evaluation counts;
+- source membership, proposal, master, and plan identities;
 - source and prior-version preservation;
 - confirmation that no external upload occurred;
 - links to the run report, master manifest, evaluation report, app receipt, compact evidence, and independent verification.
