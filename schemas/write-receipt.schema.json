@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://photo-fieldwork.local/schemas/write-receipt.schema.json",
+  "title": "Photo Fieldwork helper write receipt",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "plan_id",
+    "plan_sha256",
+    "candidate_id",
+    "source_membership_sha256",
+    "execution_nonce",
+    "helper_contract_version",
+    "helper",
+    "safety_mode",
+    "albums"
+  ],
+  "properties": {
+    "schema_version": {"const": 2},
+    "plan_id": {"type": "string", "minLength": 1},
+    "plan_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "candidate_id": {"type": "string", "pattern": "^pfc-[a-f0-9]{20}$"},
+    "source_membership_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "execution_nonce": {"type": "string", "minLength": 1},
+    "helper_contract_version": {"const": 2},
+    "helper": {
+      "type": "object",
+      "required": ["bundle_id", "version", "binary_sha256"],
+      "properties": {
+        "bundle_id": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 1},
+        "binary_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      },
+      "additionalProperties": false
+    },
+    "safety_mode": {"const": "create-folders-albums-and-add-membership-only"},
+    "albums": {"type": "array"}
+  },
+  "additionalProperties": true
+}

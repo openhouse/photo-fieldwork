@@ -1,0 +1,26 @@
+{
+  "scenario": "The release candidate is valid, but the installed Photos helper predates the reviewed plan and receipt contract.",
+  "evidence": [
+    {
+      "id": "doctor-report",
+      "kind": "helper-preflight",
+      "bundle_id": "art.jamieburkart.jamiephotoarchive",
+      "app_version": "2.0",
+      "helper_contract_version": 1,
+      "status": "FAIL"
+    },
+    {
+      "id": "production-plan",
+      "kind": "catalog-plan",
+      "schema_version": 2,
+      "required_helper_contract_version": 2,
+      "candidate_id": "pfc-1234567890abcdef1234"
+    },
+    {
+      "id": "installation-record",
+      "kind": "local-installation",
+      "reviewed_helper_build_installed": false,
+      "photos_permission_granted_to_old_bundle": true
+    }
+  ]
+}

@@ -17,7 +17,7 @@ Use a documented tool such as `osxphotos` or a read-only library API to inventor
 
 Read installed local help before assuming command syntax. Do not upgrade tools during a production run.
 
-The bundled `build_visible_library_inventory.py` adapter can snapshot all visible, non-hidden, non-trashed stills through an immutable, query-only SQLite connection. Its default `retrieval` profile omits exact coordinates and source paths. Use the narrower stable album inventory when the brief calls for it; use `visible-library-stills://v1` when the user explicitly asks for the whole visible library. Record and verify the live count either way.
+The bundled `build_visible_library_inventory.py` adapter can snapshot all visible, non-hidden, non-trashed stills through one read-only, query-only transaction that includes committed WAL-visible state. Its default `retrieval` profile omits exact coordinates and source paths. Use the narrower stable album inventory when the brief calls for it; use `visible-library-stills://v1` when the user explicitly asks for the whole visible library. Record and verify both exact membership SHA-256 and count either way; matching counts alone do not establish source identity.
 
 ## Aesthetic scores
 

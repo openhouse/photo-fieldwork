@@ -1,0 +1,27 @@
+{
+  "scenario": "The source count stayed constant, but one source member changed after final evaluation. A plan was then assembled using the old source fingerprint and the new inventory.",
+  "evidence": [
+    {
+      "id": "frozen-source",
+      "kind": "source-manifest",
+      "observed_count": 603137,
+      "membership_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "source_fingerprint": "frozen-source-a"
+    },
+    {
+      "id": "current-source",
+      "kind": "recomputed-inventory",
+      "observed_count": 603137,
+      "membership_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "difference": {"removed": ["ASSET-OLD"], "added": ["ASSET-NEW"]}
+    },
+    {
+      "id": "release-candidate",
+      "kind": "candidate",
+      "candidate_id": "pfc-old-source",
+      "source_membership_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "evaluation_status": "PASS",
+      "validation_status": "PASS"
+    }
+  ]
+}

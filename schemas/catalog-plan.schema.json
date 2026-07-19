@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://photo-fieldwork.local/schemas/catalog-plan.schema.json",
+  "title": "Photo Fieldwork candidate-bound catalog plan",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "plan_id",
+    "plan_sha256",
+    "candidate_id",
+    "source_membership_sha256",
+    "release_candidate",
+    "safety_mode",
+    "source",
+    "albums"
+  ],
+  "properties": {
+    "schema_version": {"const": 2},
+    "plan_id": {"type": "string", "minLength": 1},
+    "plan_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "candidate_id": {"type": "string", "pattern": "^pfc-[a-f0-9]{20}$"},
+    "source_membership_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "release_candidate": {"$ref": "release-candidate.schema.json"},
+    "safety_mode": {"const": "create-folders-albums-and-add-membership-only"},
+    "source": {"$ref": "source-manifest.schema.json"},
+    "albums": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["key", "title", "asset_identifiers"],
+        "properties": {
+          "key": {"type": "string", "minLength": 1},
+          "title": {"type": "string", "minLength": 1},
+          "asset_identifiers": {"type": "array", "items": {"type": "string", "minLength": 1}}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": true
+}

@@ -1,7 +1,7 @@
 {
   "started_at": "2026-07-19T00:00:00Z",
   "skill_name": "curate-apple-photos",
-  "current_best": "v4",
+  "current_best": "v9-final-composite",
   "iterations": [
     {
       "version": "v0",
@@ -44,10 +44,60 @@
       "parent": "v3",
       "expectation_pass_rate": 1.0,
       "grading_result": "won",
-      "is_current_best": true,
+      "is_current_best": false,
       "full_suite_runs_per_eval": 1,
       "focused_regression_runs_per_eval": 2,
-      "benchmark_scope": "controlled-final-suite"
+      "benchmark_scope": "controlled-original-suite"
+    },
+    {
+      "version": "v5-composite",
+      "parent": "v4",
+      "expectation_pass_rate": 0.8769,
+      "grading_result": "won",
+      "is_current_best": false,
+      "full_suite_runs_per_eval": 1,
+      "benchmark_scope": "five-new-hostile-cases"
+    },
+    {
+      "version": "v6-composite",
+      "parent": "v5-composite",
+      "expectation_pass_rate": 0.9692,
+      "grading_result": "won",
+      "is_current_best": false,
+      "full_suite_runs_per_eval": 1,
+      "benchmark_scope": "five-new-hostile-cases"
+    },
+    {
+      "version": "v7-composite",
+      "parent": "v6-composite",
+      "expectation_pass_rate": 1.0,
+      "grading_result": "won",
+      "is_current_best": false,
+      "full_suite_runs_per_eval": 1,
+      "benchmark_scope": "five-new-hostile-cases"
+    },
+    {
+      "version": "v8-composite",
+      "parent": "v7-composite",
+      "expectation_pass_rate": 1.0,
+      "grading_result": "won-after-robustness-repair",
+      "is_current_best": false,
+      "full_suite_runs_per_eval": 1,
+      "focused_regression_runs_per_eval": 3,
+      "benchmark_scope": "fourteen-case-controlled-suite"
+    },
+    {
+      "version": "v9-final-composite",
+      "parent": "v8-composite",
+      "expectation_pass_rate": 1.0,
+      "grading_result": "won-on-exact-pr-skill",
+      "is_current_best": true,
+      "full_suite_runs_per_eval": 1,
+      "passed_expectations": 181,
+      "total_expectations": 181,
+      "skill_tree_sha256": "64b1a0b2ea918baa569026e7557bf462771e7c745416acb45fcab1a2fc517de3",
+      "suite_sha256": "729df3055b9df9b3607e7b9198d71f8af525b0717ecc82e5e846c67bc68ae823",
+      "benchmark_scope": "exact-pr-skill-fourteen-case-suite"
     }
   ]
 }

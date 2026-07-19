@@ -17,6 +17,11 @@ The suite intentionally includes one green completion case. A skill that blocks 
 | 07 | Unsupported hypotheses, unclassified material, anti-claims, and role-play provenance |
 | 08 | Exact assignment feasibility without quota fiction |
 | 09 | Evidence-backed editor-field completion without publication overclaim |
+| 10 | Same-count source substitution and release-candidate invalidation |
+| 11 | Event-ledger recovery and distinct execution attempts |
+| 12 | Relationship-level holdout leakage and canary metric contamination |
+| 13 | Incomplete helper receipts and hand-authored verification PASS files |
+| 14 | Helper capability and plan-schema negotiation |
 
 Every response must cite evidence IDs from its fixture. `rubric.json` checks scoped disposition, active gate, fixture-specific facts, evidence closure, required failure concepts, role-play provenance where applicable, and whether a Photos mutation was proposed.
 

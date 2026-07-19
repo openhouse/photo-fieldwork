@@ -12,8 +12,12 @@ check: test evals-check
 	python3 -m compileall -q skills/curate-apple-photos/evals
 	python3 -m json.tool config/starter.json >/dev/null
 	python3 -m json.tool schemas/config.schema.json >/dev/null
+	python3 -m json.tool schemas/catalog-plan.schema.json >/dev/null
 	python3 -m json.tool schemas/decision.schema.json >/dev/null
 	python3 -m json.tool schemas/publication-clearance.schema.json >/dev/null
+	python3 -m json.tool schemas/release-candidate.schema.json >/dev/null
+	python3 -m json.tool schemas/source-manifest.schema.json >/dev/null
+	python3 -m json.tool schemas/write-receipt.schema.json >/dev/null
 
 evals-check:
 	python3 skills/curate-apple-photos/evals/validate_response.py --check-suite

@@ -156,7 +156,7 @@ class RevisionETests(unittest.TestCase):
         self.assertEqual(load(state_path)["phase"], "inventoried")
         self.assertEqual(verify(load(state_path)), [])
         receipt.write_text("changed", encoding="utf-8")
-        self.assertRegex(verify(load(state_path))[0], "hash changed")
+        self.assertRegex(verify(load(state_path))[0], "(size|hash) changed")
 
     def test_artifact_operations_preserve_uuid_integrity(self):
         first = self.write_rows("first.csv", [row("a"), row("b")])

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://photo-fieldwork.local/schemas/source-manifest.schema.json",
+  "title": "Photo Fieldwork frozen source manifest",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "source_adapter",
+    "source_identifier",
+    "predicate_version",
+    "observed_count",
+    "membership_sha256",
+    "source_fingerprint"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "source_adapter": {"type": "string", "minLength": 1},
+    "source_identifier": {"type": "string", "minLength": 1},
+    "predicate_version": {"type": "string", "minLength": 1},
+    "observed_count": {"type": "integer", "minimum": 1},
+    "membership_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "source_fingerprint": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "library_fingerprint": {"type": "string"},
+    "artifact_sensitivity": {"const": "private-operational"}
+  },
+  "additionalProperties": true
+}

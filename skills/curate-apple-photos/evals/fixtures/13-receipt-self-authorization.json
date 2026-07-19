@@ -1,0 +1,32 @@
+{
+  "scenario": "A production helper returned plausible album counts. The receipt omits candidate and plan identity, and an operator manually wrote a separate verification report marked PASS.",
+  "evidence": [
+    {
+      "id": "authorized-plan",
+      "kind": "catalog-plan",
+      "candidate_id": "pfc-1234567890abcdef1234",
+      "plan_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "source_membership_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "master_count": 4000
+    },
+    {
+      "id": "helper-receipt",
+      "kind": "write-receipt",
+      "status": "complete",
+      "album_count": 4000,
+      "candidate_id": null,
+      "plan_sha256": null,
+      "source_membership_sha256": null,
+      "execution_nonce": null,
+      "helper_identity": null
+    },
+    {
+      "id": "verification-report",
+      "kind": "independent-verification",
+      "status": "PASS",
+      "authored_by": "operator",
+      "governed_command_receipt": null,
+      "fresh_snapshot_sha256": null
+    }
+  ]
+}

@@ -40,10 +40,22 @@ struct AlbumSpec: Codable {
     let asset_identifiers: [String]
 }
 
+struct HelperIdentity: Codable, Equatable {
+    let bundle_id: String
+    let version: String
+    let binary_sha256: String
+}
+
 struct SnapshotPlan: Codable {
     let operation: String?
     let schema_version: Int
     let plan_id: String
+    let candidate_id: String
+    let plan_sha256: String
+    let source_membership_sha256: String
+    let execution_nonce: String
+    let helper_contract_version: Int
+    let helper: HelperIdentity
     let safety_mode: String
     let source_album_identifier: String
     let expected_source_count: Int
@@ -122,8 +134,15 @@ struct AlbumReceipt: Codable {
 }
 
 struct SnapshotReceipt: Codable {
+    let schema_version: Int
     let completed_at: String
     let plan_id: String
+    let candidate_id: String
+    let plan_sha256: String
+    let source_membership_sha256: String
+    let execution_nonce: String
+    let helper_contract_version: Int
+    let helper: HelperIdentity
     let source_album_identifier: String
     let source_count: Int
     let safety_mode: String
@@ -530,8 +549,17 @@ final class ArchiveRunner {
     }
 
     func run() throws -> SnapshotReceipt {
-        guard plan.schema_version == 1 else {
+        guard plan.schema_version == 2, plan.helper_contract_version == 2 else {
             throw ArchiveError.invalidPlan("unsupported schema_version")
+        }
+        guard !plan.candidate_id.isEmpty,
+              plan.plan_sha256.count == 64,
+              plan.source_membership_sha256.count == 64,
+              !plan.execution_nonce.isEmpty,
+              !plan.helper.bundle_id.isEmpty,
+              !plan.helper.version.isEmpty,
+              plan.helper.binary_sha256.count == 64 else {
+            throw ArchiveError.invalidPlan("missing release or helper execution identity")
         }
         guard plan.safety_mode == "create-folders-albums-and-add-membership-only" else {
             throw ArchiveError.invalidPlan("unrecognized safety_mode")
@@ -585,8 +613,15 @@ final class ArchiveRunner {
         }
 
         return SnapshotReceipt(
+            schema_version: 2,
             completed_at: ISO8601DateFormatter().string(from: Date()),
             plan_id: plan.plan_id,
+            candidate_id: plan.candidate_id,
+            plan_sha256: plan.plan_sha256,
+            source_membership_sha256: plan.source_membership_sha256,
+            execution_nonce: plan.execution_nonce,
+            helper_contract_version: plan.helper_contract_version,
+            helper: plan.helper,
             source_album_identifier: plan.source_album_identifier,
             source_count: sourceCount,
             safety_mode: plan.safety_mode,

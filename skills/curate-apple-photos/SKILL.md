@@ -23,7 +23,7 @@ Pass the intended source identifier and exact observed count to `doctor`. Treat 
    - `retrieval.json`, defining views, terms, people, albums, places, and supporting date ranges;
    - `config.json`, defining target, quotas, seed, uncertainty view, and evaluation thresholds.
 4. Initialize a uniquely named run under `/Users/jburkart/Documents/Jamie-Photo-Archive-2026/` with `photo_archive_bridge.py init-run`. Never reuse or overwrite v00, v01, v02, or another run.
-5. Preserve `run-state.json`. Advance it one phase at a time with `photo-fieldwork run-advance`, attaching the files that prove each phase. Use `run-verify` before resuming an interrupted run.
+5. Preserve `run-state.json` and its hash-chained `.events.jsonl` ledger. Advance one phase at a time with `photo-fieldwork run-advance --expected-revision`; write-test and production execution phases require unique attempt IDs. Use `run-verify` before resuming and `run-recover` only to rebuild materialized state from a valid ledger.
 6. Read [release-gates.md](references/release-gates.md). Before any resume, plan, write, completion, or publication claim, classify the requested transition as `BLOCKED`, `READY_FOR_NEXT_PHASE`, or `EDITOR_FIELD_VERIFIED` and cite the evidence that closes or blocks it.
 
 ## Governing invariants
@@ -40,20 +40,34 @@ Pass the intended source identifier and exact observed count to `doctor`. Treat 
 - Apple aesthetic scores may break ties only inside true duplicate or burst clusters.
 - Dates support retrieval but are not narrative authority; imported film and scans may be misdated.
 - Do not reconstruct state from filenames, remembered counts, or prose claims. Verify receipts and bind downstream artifacts to one unchanged source, config, master, HOLD set, and plan.
+- A count is not source identity. Freeze sorted source membership and its predicate version; same-count substitution invalidates every downstream candidate.
+- A PASS field inside a report cannot authorize itself. Recompute the report from attached artifacts and require the exact candidate binding before advancing.
+- Keep tuning, final-holdout, and regression-canary rows disjoint by UUID, duplicate group, perceptual cluster, and burst group. Canaries may block regression but never increase final quality metrics.
 - Treat an editor-field decision and a publication decision as separate, destination-specific states.
 
 Read [safety.md](references/safety.md) whenever a brief concerns private homes, minors, health, legal strategy, financial records, identity documents, or vulnerable collaborators.
 
 ## Decision contract
 
-Use the active gate's exact identifier in structured output: `run_integrity`, `source_freshness`, `helper_capability`, `preview_integrity`, `assignment_feasibility`, `hypothesis_resolution`, `final_evaluation`, `replacement_audit`, `validation_binding`, `test_write`, `production_verification`, `completion`, or `publication_clearance`.
+Use the active gate's exact identifier in structured output: `run_integrity`, `source_freshness`, `helper_capability`, `preview_integrity`, `assignment_feasibility`, `hypothesis_resolution`, `final_evaluation`, `replacement_audit`, `validation_binding`, `write_authorization`, `test_write`, `production_verification`, `completion`, or `publication_clearance`.
 
 - Scope `BLOCKED` to the requested transition. Keep `editor_field_status` independent: a repairable field may remain `in-progress`, and a verified field remains `verified` when publication is blocked.
+- Use `READY_FOR_NEXT_PHASE` only when the transition the user requested can itself advance. A safe repair action does not turn a blocked production, completion, or publication request into READY; report the requested transition as `BLOCKED` and list the repair under `next_actions`.
+- When several blockers are present, report the earliest unmet dependency as the active gate. A divergent or unverifiable materialized state is always `run_integrity` until it is reconciled with the event ledger; do not skip ahead to `write_authorization` or `production_verification` merely because the user's requested transition is a write or completion claim.
 - For an unsupported optional view, use `hypothesis_resolution`, `UNSUPPORTED_PROJECT_VIEW`, and `NOT_RECOVERED_ANTI_CLAIM`; omit or unclassify the view and return `READY_FOR_NEXT_PHASE` when the remaining field is feasible.
 - For a requested public set containing any uncleared item, use `publication_clearance`, `EDITOR_FIELD_NOT_PUBLICATION_PERMISSION`, `PUBLICATION_CLEARANCE_INCOMPLETE`, and `PRIVATE_FIELD_REDACTION_REQUIRED`; block the set without silently narrowing it.
 - For verified completion, cite source, final evaluation, validation, sealed plan, test verification, production receipt, independent verification, and version registry. Use `EDITOR_FIELD_VERIFICATION_SUPPORTED` and `PUBLICATION_SEPARATE`; publication is `not-assessed` when no destination clearance was evaluated.
 
-For the remaining gates, the canonical blocker pairs are `RECEIPT_HASH_MISMATCH` / `RUN_STATE_UNVERIFIED`, `SOURCE_COUNT_MISMATCH` / `FRESH_INVENTORY_REQUIRED`, `PREVIEW_MISSING` / `PREVIEW_CORRUPT` / `NOT_VISUALLY_REVIEWED`, `VIEW_QUOTA_SCARCITY` / `DIVERSITY_FLOOR_SCARCITY`, `VIEW_GATE_FAILED` / `HOLDOUT_CONTAMINATED`, and `UNEVALUATED_FINAL_ENTRANT` / `REJECTED_VIEW_REENTRY` / `HELD_CLUSTER_IN_MASTER`.
+For the remaining gates, the canonical blocker pairs are `RECEIPT_HASH_MISMATCH` / `RUN_STATE_UNVERIFIED`, `SOURCE_COUNT_MISMATCH` or `SOURCE_MEMBERSHIP_MISMATCH` / `FRESH_INVENTORY_REQUIRED`, `PREVIEW_MISSING` / `PREVIEW_CORRUPT` / `NOT_VISUALLY_REVIEWED`, `VIEW_QUOTA_SCARCITY` / `DIVERSITY_FLOOR_SCARCITY`, `VIEW_GATE_FAILED` / `HOLDOUT_CONTAMINATED`, `UNEVALUATED_FINAL_ENTRANT` / `REJECTED_VIEW_REENTRY` / `HELD_CLUSTER_IN_MASTER`, `RELEASE_CANDIDATE_MISMATCH` / `WRITE_PLAN_UNAUTHORIZED`, and `RECEIPT_IDENTITY_INCOMPLETE` / `IDEMPOTENCE_NOT_ESTABLISHED`.
+
+When these composite contradictions appear, name them precisely:
+
+- Once a release candidate exists, same-count source substitution blocks `write_authorization`, not merely source discovery. Use `SOURCE_MEMBERSHIP_MISMATCH` and `RELEASE_CANDIDATE_MISMATCH`; cite both membership digests and any attached added/removed IDs.
+- When the frozen and observed source counts differ, use `SOURCE_COUNT_MISMATCH` with `FRESH_INVENTORY_REQUIRED`. Use `SOURCE_MEMBERSHIP_MISMATCH` for a digest or set mismatch, especially when counts happen to agree; report both codes when both failures are evidenced.
+- When materialized state diverges from a valid event ledger, use `EVENT_LEDGER_DIVERGENCE`. Recover only to the ledger's last valid phase. If execution evidence reuses an ID, add `ATTEMPT_ID_REUSED` and name that ID.
+- When canaries inflated final quality metrics, add `CANARY_METRIC_CONTAMINATION` alongside `HOLDOUT_CONTAMINATED`; report both the headline and fresh-only metrics.
+- A plausible receipt missing candidate, plan, source, `execution_nonce`, or helper identity requires `RECEIPT_IDENTITY_INCOMPLETE`. A manually authored PASS without a governed command and fresh snapshot requires `INDEPENDENT_VERIFICATION_UNTRUSTED`; identify who authored it when evidence says.
+- If an installed helper cannot decode and receipt the plan contract, use `HELPER_CONTRACT_MISMATCH` and `PLAN_SCHEMA_UNSUPPORTED`; cite the installed app version, observed helper-contract version, required contract version, and plan schema.
 
 Use canonical codes exactly, without asset-specific suffixes. Put item details in evidence references and required actions. Every supported or inferential claim must cite the artifacts that justify it. When `not-assessed` follows only from the absence of an evaluated scope, report it as status rather than inventing an uncited factual claim.
 
@@ -70,6 +84,19 @@ python3 scripts/retrieve_candidates.py \
 ```
 
 For a whole-library run, first create a new immutable inventory with `build_visible_library_inventory.py`. Never overwrite an earlier inventory. Use its `retrieval` profile unless exact coordinates or source paths are explicitly required; those values are omitted by default.
+
+Freeze the exact source before selection:
+
+```bash
+photo-fieldwork source-freeze \
+  --inventory RUN/inventory/source.csv \
+  --source-adapter apple-photos \
+  --source-identifier SOURCE \
+  --predicate-version visible-stills-v1 \
+  --output RUN/manifests/source-manifest.json
+```
+
+Recompute the membership digest from the immutable inventory whenever resuming. Do not accept a matching count with a different digest.
 
 2. Aim for 1.5-2.0 times the requested master size after metadata retrieval. Include named relationships, prior favorites/edits, person-free material context, and exploratory results.
 3. Generate a local inspection plan with `photo_archive_bridge.py inspection-plan`.
@@ -108,7 +135,7 @@ Read [evaluation-loop.md](references/evaluation-loop.md) before the first visual
    - uncertainty is explicit;
    - the exact requested target is met with unique still-photo IDs.
 
-Before validation, run `photo-fieldwork replacement-audit` against all evaluation rounds. Review every final entrant absent from earlier evaluation records. Freeze the resulting master, then inspect an untouched final holdout that excludes every tuning-feedback row. A targeted edge audit may supplement but cannot replace the final holdout and separate risk-stratified safety audit.
+Before validation, run `photo-fieldwork replacement-audit` against all evaluation rounds. Review every final entrant absent from earlier evaluation records. Freeze the resulting master, then inspect an untouched final holdout that excludes every tuning-feedback row. Run `photo-fieldwork audit-evaluation-splits` over tuning, final-holdout, and canary manifests; any UUID, duplicate-group, perceptual-cluster, or burst-group overlap blocks final evaluation. A targeted edge audit may supplement but cannot replace the final holdout and separate risk-stratified safety audit.
 
 An unsupported optional project view need not block the rest of a defensible field. Omit it or return uncertain material to `Unclassified / Editor Field`, emit a gap report, and say `not recovered in this run` rather than claiming the evidence does not exist.
 
@@ -116,16 +143,16 @@ Do not claim success from Vision labels or metadata alone. The recursive loop re
 
 ## Validate and commit
 
-1. Run `photo-fieldwork validate`. Save a PASS report and confirm it names the same frozen master, source, config, HOLD set, and evaluation candidate.
-2. Generate test and production plans with `photo_archive_bridge.py snapshot-plans`.
-3. Inspect the plans. Confirm the source count and hash, target, folder title, master and HOLD hashes, evaluation identity, and membership-only operations.
-4. Run the ten-item write test through the app. Independently verify it with `verify_photos_commit.py`, then rerun the test to prove idempotence.
-5. Run the production plan through the app. Rerun it once to confirm idempotence.
-6. Independently verify every album against the same sealed plan using read-only, immutable SQLite access. Require zero missing, unexpected, outside-source, and HOLD-overlap items.
-7. Register the completed version manifest and verification receipt with `photo-fieldwork version-register`; run `version-verify` before declaring completion. Cite the complete evidence chain when using `EDITOR_FIELD_VERIFIED`.
-8. Generate an uncleared `publication-clearance.csv` with `publication-scaffold`. Editor-field membership is not publication permission. Only rows with rights, consent, caption provenance, credit, accessibility, sensitive-context review, destination, and review date may pass `publication-validate`.
-9. Build any public handoff as an allowlisted projection. Exclude archive UUIDs, People associations, albums, local paths, raw OCR, exact locations, HOLD membership, and private safety reasons.
-10. Update `run-state.json` after each phase and write a completion report containing exact counts, identifiers, review-state counts, evaluation results, privacy facts, unresolved uncertainty, active gate, and disposition.
+1. Run `photo-fieldwork evaluate --scope final-holdout --master ... --source-manifest ...`. Every judgment needs a visible reason, identified reviewer, and round. Save its candidate-bound report.
+2. Run `photo-fieldwork validate`. Save a PASS report and confirm its proposal, master, config, and HOLD identities match the evaluation candidate.
+3. Run `photo-fieldwork plan` with the frozen source inventory and manifest, final sample, split audit, evaluation report, validation report, master, and HOLD manifest. This emits one content-addressed release candidate and a sealed schema-2 plan. Any changed input requires a new candidate and new evaluation.
+4. Generate helper plans with `photo_archive_bridge.py snapshot-plans --catalog-plan ...`. `doctor` must report helper contract version 2.
+5. Inspect the plans. Confirm the source count and membership hash, candidate ID, plan hash, target, folder title, master and HOLD hashes, and membership-only operations.
+6. Run the ten-item write test through the app. Verify its receipt with `photo-fieldwork receipt-verify`; the receipt must name the exact plan, candidate, source membership, helper binary, and a bridge-generated execution nonce. Independently verify it with `verify_photos_commit.py`.
+7. Execute a second write test with a distinct nonce and compare preserved receipts using `photo-fieldwork receipt-compare`. Same nonce, changed plan identity, partial topology, or overwritten evidence does not establish idempotence.
+8. Run production twice under the same rules, preserving every attempt plan and receipt.
+9. Independently verify every album against the same sealed plan using a fresh read-only snapshot that includes WAL-visible state. Require exact folder parentage and album kinds plus zero missing, unexpected, outside-source, and HOLD-overlap items.
+10. Register the completed version manifest and verification receipt with `photo-fieldwork version-register`; run `version-verify` before declaring completion. Generate publication clearance separately, build any public handoff as an allowlisted projection, and require `photo-fieldwork public-audit` to pass without rewriting the private source artifact.
 
 The helper invocation may require a Codex permission approval for `open -W`; request a reusable approval scoped to `/Applications/Jamie Photo Archive.app`. The app's Photos permission itself should persist under its stable bundle identity.
 

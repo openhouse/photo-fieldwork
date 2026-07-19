@@ -4,6 +4,8 @@ from pathlib import Path
 
 from photo_fieldwork.pipeline import build_catalog_plan, evaluate, make_sample, read_config, read_csv, select, validate
 from photo_fieldwork.practice import create_demo_inventory
+from photo_fieldwork.evaluation_split import audit_evaluation_splits
+from photo_fieldwork.release import build_source_manifest, validate_plan
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -60,12 +62,42 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(metrics["status"], "PASS")
 
     def test_catalog_plan_allows_only_membership_writes(self):
-        master, _, _ = select(self.inventory, self.config)
-        plan = build_catalog_plan(master, self.config, "practice", "Source", "SOURCE-1")
+        master, holds, _ = select(self.inventory, self.config)
+        sample = make_sample(master, 3, 20260710)
+        for row in sample:
+            row["judgment"] = "fit"
+            row["visible_reason"] = "Visible synthetic practice evidence"
+            row["reviewer_actor"] = "test-editor"
+        source = build_source_manifest(
+            self.inventory,
+            source_adapter="synthetic",
+            source_identifier="SOURCE-1",
+            predicate_version="test-v1",
+        )
+        evaluation, passed = evaluate(sample, self.config, master, source, "final-holdout")
+        self.assertTrue(passed)
+        errors, validation = validate(master, holds, self.config)
+        self.assertEqual(errors, [])
+        split_audit = audit_evaluation_splits([], sample, [])
+        plan = build_catalog_plan(
+            master,
+            self.config,
+            "practice",
+            source,
+            self.inventory,
+            sample,
+            [],
+            evaluation,
+            validation,
+            split_audit,
+            holds,
+        )
+        validate_plan(plan)
         self.assertEqual(plan["safety_mode"], "create-folders-albums-and-add-membership-only")
         self.assertEqual(plan["expected_master_count"], 12)
         self.assertEqual(plan["write_test_count"], 10)
-        self.assertEqual(len(plan["albums"][0]["asset_ids"]), 12)
+        self.assertEqual(len(plan["albums"][0]["asset_identifiers"]), 12)
+        self.assertFalse(plan["release_candidate"]["publication_clearance"])
 
 
 if __name__ == "__main__":

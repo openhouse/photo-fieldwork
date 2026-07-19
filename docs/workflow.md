@@ -8,7 +8,7 @@ Write down what may be read, what may be created, where outputs live, and which 
 
 ## 1. Freeze a source corpus
 
-Give the broad retrieval corpus a stable identifier, live count, inventory hash, and timestamp. Never alter it during a versioned run. Preserve v00, v01, and later runs as separate folders so selection logic can be compared rather than overwritten. Register completed versions with `version-register`; use `version-verify` before reusing one as evidence.
+Give the broad retrieval corpus a stable identifier, predicate version, exact sorted-membership SHA-256, count, and source fingerprint. Matching counts do not establish identity. Never alter it during a versioned run. Preserve v00, v01, and later runs as separate folders so selection logic can be compared rather than overwritten. Register completed versions with `version-register`; use `version-verify` before reusing one as evidence.
 
 ## 2. Build a compact inventory
 
@@ -38,19 +38,19 @@ People associations are first-class archive structure. Preserve named relationsh
 
 ## 8. Evaluate and loop
 
-Sample low, middle, and high-scoring images from each view. Measure coverage and decisive precision overall and per view. Read the rejected examples. Append decisions to the ledger, apply rejected-view exclusions and cluster safety holds, then rerun with the same seed. Audit final replacement entrants. A metric without inspected failure cases is not enough.
+Sample low, middle, and high-scoring images from each view. Measure coverage and decisive precision overall and per view. Read the rejected examples. Append decisions to the ledger, apply rejected-view exclusions and cluster safety holds, then rerun with the same seed. Audit final replacement entrants. Keep tuning, final-holdout, and canary rows disjoint by UUID and related-image groups. Canaries may block regressions but cannot improve final quality metrics. A metric without inspected failure cases is not enough.
 
 ## 9. Plan before writing
 
-Produce proposed-master, hold, membership, decision, evaluation, replacement-audit, and publication-clearance manifests before touching the catalog. Every selected stable ID needs a reason. The plan must be idempotent. Publication clearance defaults closed and is distinct from editor-field inclusion.
+Produce proposed-master, HOLD, decision, split-audit, final-evaluation, validation, and publication-clearance manifests before touching the catalog. Recompute one release candidate from those exact artifacts and the frozen source/configuration. Only a passing, sealed candidate may produce a write plan. Every selected stable ID needs a reason. Publication clearance defaults closed and is distinct from editor-field inclusion.
 
 ## 10. Commit narrowly
 
-Write ten non-sensitive items to a uniquely named test album. Verify exact membership and rerun the test to prove idempotence. Only then create production folders and albums in moderate, resumable batches.
+Write ten non-sensitive items to a uniquely named test album. Preserve a helper-, plan-, candidate-, source-, and nonce-bound receipt. Verify exact membership and execute a second distinct attempt over the same plan to prove idempotence. Only then create production folders and albums in moderate, resumable batches.
 
 ## 11. Verify independently
 
-Use a read-only mechanism distinct from the writer to compare planned and actual membership. Report missing, unexpected, outside-source, and hold-overlap counts. Preserve receipts, configuration, scripts, and evaluation feedback with the version.
+Use a read-only mechanism distinct from the writer to compare planned and actual membership. For Apple Photos, freeze committed WAL-visible state through SQLite backup and inspect only the immutable snapshot. Report missing, unexpected, outside-source, and hold-overlap counts. Preserve receipts, configuration, scripts, and evaluation feedback with the version.
 
 ## 12. Hand off honestly
 
@@ -58,4 +58,4 @@ Tell editors what the system did and did not do. Use the review-state vocabulary
 
 ## Run state
 
-Initialize each run with `run-init`. Advance only one declared phase at a time with `run-advance`, attaching the files that prove the phase. The state machine stores SHA-256 receipts and rejects skipped phases or changed evidence. Use `run-verify` before resuming after interruption.
+Initialize each run with `run-init`. The hash-chained append-only event ledger is authoritative; `run-state.json` is its atomic materialized projection. Advance only one declared phase at a time with `run-advance --expected-revision`, attaching the files that prove the phase. Write attempts require unique IDs. Use `run-verify` before resuming and `run-recover` only to reconstruct a damaged projection from a valid ledger.

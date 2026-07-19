@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Build a compact, read-only snapshot of every visible still in Apple Photos.
 
-The Photos database is opened immutable and query-only. The output is a separate
-SQLite database used for retrieval; this script never writes to Photos.sqlite.
+The Photos database is opened read-only and query-only under one transaction so
+committed WAL state is visible and the source stays consistent. The output is a
+separate SQLite database used for retrieval; this script never writes to Photos.sqlite.
 """
 
 from __future__ import annotations
@@ -76,8 +77,9 @@ AND a.ZVISIBILITYSTATE = 0 AND a.ZBUNDLESCOPE = 0
 
 
 def readonly(path: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(f"file:{path}?mode=ro&immutable=1", uri=True, timeout=120)
+    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=120)
     conn.execute("PRAGMA query_only=ON")
+    conn.execute("BEGIN")
     return conn
 
 
@@ -249,8 +251,13 @@ def main() -> None:
         output.commit()
         people_count = album_count = keyword_count = search_count = 0
 
+    membership_digest = hashlib.sha256()
+    for (identifier,) in output.execute("SELECT uuid FROM asset ORDER BY uuid"):
+        membership_digest.update(identifier.encode("utf-8"))
+        membership_digest.update(b"\n")
+    membership_sha256 = membership_digest.hexdigest()
     source_fingerprint = hashlib.sha256(
-        f"{SOURCE_IDENTIFIER}:{asset_count}:{VISIBLE_PREDICATE.strip()}".encode("utf-8")
+        f"{SOURCE_IDENTIFIER}\n{VISIBLE_PREDICATE.strip()}\n{membership_sha256}\n".encode("utf-8")
     ).hexdigest()
     elapsed_seconds = time.monotonic() - started
     meta = {
@@ -258,6 +265,7 @@ def main() -> None:
         "source_identifier": SOURCE_IDENTIFIER,
         "source_count": str(asset_count),
         "source_fingerprint": source_fingerprint,
+        "source_membership_sha256": membership_sha256,
         "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "photos_database": str(args.photos_db) if args.inventory_profile == "debug" else "[redacted]",
         "inventory_profile": args.inventory_profile,
@@ -265,6 +273,7 @@ def main() -> None:
         "source_scope": "visible, non-hidden, non-trashed, primary-scope still photographs",
         "direct_photos_writes": "false",
         "external_uploads": "false",
+        "wal_visible_read_transaction": "true",
         "build_elapsed_seconds": f"{elapsed_seconds:.3f}",
         "assets_per_second": f"{asset_count / elapsed_seconds:.3f}" if elapsed_seconds else "0",
         "people_links": str(people_count),
@@ -299,6 +308,7 @@ def main() -> None:
     print(f"source_identifier={SOURCE_IDENTIFIER}")
     print(f"visible_stills={final_count}")
     print(f"source_fingerprint={source_fingerprint}")
+    print(f"source_membership_sha256={membership_sha256}")
     print(f"inventory_profile={args.inventory_profile}")
     print(f"people_links={people_count}")
     print(f"album_links={album_count}")

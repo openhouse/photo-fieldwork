@@ -6,24 +6,24 @@ Photo Fieldwork keeps archive-specific access separate from archive-independent 
 Catalog reader or filesystem scanner
               |
               v
-       inventory.csv
+ frozen source inventory + source manifest
         |          |
         |          +------> hold-sensitive.csv
         v
  decision-aware selector <------ editorial-decisions.csv
         |
         v
- proposed-master.csv
-    |          |                 |
-    v          v                 v
- evaluation   catalog-plan.json  publication-clearance.csv
-    |          |
-    +----------+-----> catalog writer adapter
+ proposed-master.csv + HOLD
+    |                 |                 |
+    v                 v                 v
+ final holdout   release candidate   publication-clearance.csv
+    |                 |
+    +------> sealed catalog plan ----> catalog writer adapter
                        |
                        v
                 independent verifier
 
- run-state.json + hashed receipts wrap every phase
+ hash-chained events.jsonl + recoverable run-state.json wrap every phase
 ```
 
 ## Core
@@ -50,11 +50,11 @@ An inspector may add local visible-context, technical-quality, and generalized s
 
 ## Writer adapters
 
-A writer consumes `catalog-plan.json`. It may create version folders, create albums, and add existing stable IDs. It must not invent selection logic. It must emit a receipt and be safe to rerun.
+A writer consumes a schema-2 `catalog-plan.json` bound to one release candidate. It may create version folders, create albums, and add existing stable IDs. It must not invent selection logic. It emits a helper-, plan-, candidate-, source-, and execution-bound receipt and must be safe to rerun under a distinct nonce.
 
 ## Verifier adapters
 
-A verifier independently compares plan and catalog. It should be read-only and should not share mutation code with the writer.
+A verifier independently compares plan and catalog. It is read-only and does not share mutation code with the writer. The Apple Photos adapter freezes a WAL-visible SQLite backup, then verifies that private snapshot through an immutable query-only connection.
 
 ## Extension points
 
