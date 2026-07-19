@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "eval_id",
+    "disposition",
+    "gate",
+    "editor_field_status",
+    "publication_status",
+    "findings",
+    "next_actions",
+    "claims",
+    "roleplay"
+  ],
+  "properties": {
+    "eval_id": {"type": "integer", "minimum": 1},
+    "disposition": {
+      "enum": ["BLOCKED", "READY_FOR_NEXT_PHASE", "EDITOR_FIELD_VERIFIED"]
+    },
+    "gate": {"type": "string", "minLength": 1},
+    "editor_field_status": {"enum": ["blocked", "in-progress", "verified"]},
+    "publication_status": {
+      "enum": ["not-assessed", "blocked", "cleared-for-stated-destination"]
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "severity", "evidence_refs", "required_action"],
+        "properties": {
+          "code": {"type": "string", "minLength": 1},
+          "severity": {"enum": ["blocker", "warning", "note"]},
+          "evidence_refs": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "string", "minLength": 1}
+          },
+          "required_action": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "next_actions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["action", "mutates_photos"],
+        "properties": {
+          "action": {"type": "string", "minLength": 1},
+          "mutates_photos": {"type": "boolean"}
+        }
+      }
+    },
+    "claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["claim", "status", "evidence_refs"],
+        "properties": {
+          "claim": {"type": "string", "minLength": 1},
+          "status": {"enum": ["supported", "inference", "unsupported"]},
+          "evidence_refs": {
+            "type": "array",
+            "items": {"type": "string", "minLength": 1}
+          }
+        }
+      }
+    },
+    "roleplay": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["speaker", "thought", "basis"],
+        "properties": {
+          "speaker": {"type": "string", "minLength": 1},
+          "thought": {"type": "string", "minLength": 1},
+          "basis": {
+            "enum": ["artifact-evidence", "delegated-editorial-inference", "user-voice"]
+          }
+        }
+      }
+    }
+  }
+}

@@ -21,6 +21,7 @@ Revision E turns lessons from a large Apple Photos curation run into reusable pr
 | Editor-field inclusion could be mistaken for publication approval. | Publication manifests default closed and require rights, consent, provenance, credit, accessibility, context, destination, and date before clearance passes. |
 | Core, local integration, and machine facts were easy to conflate. | Architecture and skill documentation now name the adapter boundary and keep machine-specific facts in the Jamie profile. |
 | Regressions needed durable tests. | Synthetic tests cover weak-view masking, insufficient evidence, quota scarcity, joint diversity floors, decision reentry, hold propagation, altered receipts, missing previews, clearance failure, and version tampering. |
+| Unit tests did not establish agent release judgment. | Nine adversarial synthetic skill evals now grade scoped disposition, factual and referential evidence closure, safe continuation, publication boundaries, and positive completion; a recursive hill climb improved the controlled final-suite score from 86.21% to 100%. |
 | Scale and interruption costs were invisible. | Whole-library inventory, retrieval, helper launch, and run phases now emit elapsed-time and throughput observations alongside count and hash receipts. |
 
 ## Operational boundaries
@@ -41,5 +42,7 @@ make check
 make demo
 make check-apple
 ```
+
+See [the skill-eval hill climb](eval-results-revision-e.md) for the agent-level method and its limits.
 
 The synthetic demo does not access Apple Photos. Production PhotoKit behavior still requires the stable, permissioned local app plus a test write and independent verification against the user's live library.

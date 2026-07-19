@@ -1,0 +1,31 @@
+{
+  "scenario": "The run was frozen against an older whole-visible-library inventory. The user asks to resume toward production.",
+  "evidence": [
+    {
+      "id": "source-manifest",
+      "kind": "source_manifest",
+      "source_identifier": "visible-library-stills://v1",
+      "observed_count": 100000,
+      "inventory_sha256": "inv-100000-frozen",
+      "frozen_at": "2026-07-09T14:20:00Z"
+    },
+    {
+      "id": "doctor-live-count",
+      "kind": "doctor_report",
+      "source_identifier": "visible-library-stills://v1",
+      "live_count": 100077,
+      "source_count_match": false,
+      "observed_at": "2026-07-19T14:20:00Z"
+    },
+    {
+      "id": "run-state",
+      "kind": "run_state",
+      "phase": "candidate_retrieval",
+      "inventory_receipt": "inv-100000-frozen"
+    }
+  ],
+  "constraints": [
+    "Do not reinterpret the remembered inventory as current.",
+    "Do not write to Photos while source identity or count is unresolved."
+  ]
+}

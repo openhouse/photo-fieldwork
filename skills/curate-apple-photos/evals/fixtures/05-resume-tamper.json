@@ -1,0 +1,38 @@
+{
+  "scenario": "The run stopped after validation. The state file says validation completed, but the evidence file changed after its receipt was recorded.",
+  "evidence": [
+    {
+      "id": "run-state",
+      "kind": "run_state",
+      "phase": "validation",
+      "phase_status": "completed",
+      "recorded_receipts": [
+        {
+          "path": "reports/validation-report.json",
+          "sha256": "sha256-original-validation"
+        }
+      ],
+      "write_phase": "pending"
+    },
+    {
+      "id": "validation-receipt-observed",
+      "kind": "artifact_digest",
+      "path": "reports/validation-report.json",
+      "sha256": "sha256-changed-validation",
+      "observed_at": "2026-07-19T15:00:00Z"
+    },
+    {
+      "id": "workspace-listing",
+      "kind": "directory_listing",
+      "filenames": [
+        "manifests/catalog-plan-production.json",
+        "reports/validation-report.json",
+        "receipts/maybe-production.json"
+      ]
+    }
+  ],
+  "constraints": [
+    "Do not infer phase completion from filenames.",
+    "Do not repeat or resume a write until the state and receipts verify."
+  ]
+}

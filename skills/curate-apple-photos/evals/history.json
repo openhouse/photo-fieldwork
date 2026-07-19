@@ -1,0 +1,53 @@
+{
+  "started_at": "2026-07-19T00:00:00Z",
+  "skill_name": "curate-apple-photos",
+  "current_best": "v4",
+  "iterations": [
+    {
+      "version": "v0",
+      "parent": null,
+      "expectation_pass_rate": 0.8621,
+      "grading_result": "baseline",
+      "is_current_best": false,
+      "full_suite_runs_per_eval": 1,
+      "benchmark_scope": "controlled-final-suite"
+    },
+    {
+      "version": "v1",
+      "parent": "v0",
+      "expectation_pass_rate": 0.9907,
+      "grading_result": "won",
+      "is_current_best": false,
+      "full_suite_runs_per_eval": 1,
+      "benchmark_scope": "developmental"
+    },
+    {
+      "version": "v2",
+      "parent": "v1",
+      "expectation_pass_rate": 0.9907,
+      "grading_result": "tie",
+      "is_current_best": false,
+      "full_suite_runs_per_eval": 1,
+      "benchmark_scope": "developmental"
+    },
+    {
+      "version": "v3",
+      "parent": "v2",
+      "expectation_pass_rate": 0.9953,
+      "grading_result": "won",
+      "is_current_best": false,
+      "full_suite_runs_per_eval": 2,
+      "benchmark_scope": "developmental"
+    },
+    {
+      "version": "v4",
+      "parent": "v3",
+      "expectation_pass_rate": 1.0,
+      "grading_result": "won",
+      "is_current_best": true,
+      "full_suite_runs_per_eval": 1,
+      "focused_regression_runs_per_eval": 2,
+      "benchmark_scope": "controlled-final-suite"
+    }
+  ]
+}

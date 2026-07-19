@@ -1,0 +1,32 @@
+{
+  "scenario": "The requested project-proof view has no defensible candidate after visual and provenance review. Other editor-field views remain feasible.",
+  "evidence": [
+    {
+      "id": "project-view-review",
+      "kind": "view_gap_report",
+      "view": "project-proof",
+      "inspected_candidates": 42,
+      "visible_fit_and_provenance_pass": 0,
+      "visible_fit_only": 7,
+      "provenance_only": 3,
+      "status": "unsupported-in-this-run"
+    },
+    {
+      "id": "unclassified-policy",
+      "kind": "editorial_policy",
+      "view": "Unclassified / Editor Field",
+      "accepts_uncertain_material": true,
+      "project_claim_implied": false
+    },
+    {
+      "id": "roleplay-boundary",
+      "kind": "provenance_policy",
+      "rule": "Role-play may interpret supplied evidence but cannot create first-hand memory, testimony, or endorsement."
+    }
+  ],
+  "constraints": [
+    "Do not force visible-fit-only material to become project proof.",
+    "Say not recovered in this run, not that qualifying photographs do not exist.",
+    "Role-play is delegated editorial inference."
+  ]
+}

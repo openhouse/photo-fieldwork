@@ -2,6 +2,18 @@
 
 The goal is not to prove the selector is intelligent. The goal is to discover where it is wrong before its outputs become editorial assumptions or public claims.
 
+## Skill behavior suite
+
+The bundled skill includes adversarial synthetic behavior evals under `skills/curate-apple-photos/evals/`. They test source drift, local versus aggregate evaluation failure, preview integrity, replacement and safety closure, interrupted state, publication boundaries, unsupported hypotheses, assignment scarcity, and a genuinely green completion case.
+
+Run the deterministic suite check with:
+
+```bash
+make evals-check
+```
+
+Agent benchmarks are optional and require a local `codex` executable. See [the Revision E hill climb](eval-results-revision-e.md) for method, results, and limitations. Generated transcripts belong in a private temporary workspace, not this repository.
+
 ## Minimum loop
 
 1. Sample at least three items per view: low, middle, and high score.

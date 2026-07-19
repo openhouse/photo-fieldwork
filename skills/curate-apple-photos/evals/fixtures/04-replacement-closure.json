@@ -1,0 +1,41 @@
+{
+  "scenario": "A selection round reached the exact target after replacements, but closure audits have not passed.",
+  "evidence": [
+    {
+      "id": "final-master",
+      "kind": "manifest",
+      "target": 4,
+      "rows": [
+        {"uuid": "KEEP-1", "view": "community", "cluster": "c1"},
+        {"uuid": "REJECT-1", "view": "civic-work", "cluster": "c2"},
+        {"uuid": "NEW-3", "view": "nightlife", "cluster": "c3"},
+        {"uuid": "HELD-SIBLING", "view": "unclassified", "cluster": "c17"}
+      ]
+    },
+    {
+      "id": "evaluation-ledger",
+      "kind": "editorial_evaluation",
+      "evaluated_asset_ids": ["KEEP-1", "REJECT-1", "HELD-ORIGINAL"]
+    },
+    {
+      "id": "decision-ledger",
+      "kind": "append_only_decisions",
+      "active_decisions": [
+        {"uuid": "REJECT-1", "view": "civic-work", "decision": "reject"},
+        {"uuid": "HELD-ORIGINAL", "cluster": "c17", "decision": "hold"}
+      ]
+    },
+    {
+      "id": "cluster-map",
+      "kind": "duplicate_clusters",
+      "clusters": {
+        "c17": ["HELD-ORIGINAL", "HELD-SIBLING"]
+      }
+    }
+  ],
+  "constraints": [
+    "Every final entrant absent from evaluation requires review.",
+    "Rejected item/view pairs cannot silently reenter.",
+    "Safety holds propagate through duplicate and burst clusters."
+  ]
+}

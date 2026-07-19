@@ -1,0 +1,90 @@
+{
+  "scenario": "All editor-field gates have receipts for one unchanged candidate. Determine whether the editor field is complete without extending the claim to publication.",
+  "evidence": [
+    {
+      "id": "source-verification",
+      "kind": "source_verification",
+      "source_identifier": "visible-library-stills://v1",
+      "frozen_count": 100077,
+      "live_count_at_write": 100077,
+      "inventory_sha256": "inv-green",
+      "status": "pass"
+    },
+    {
+      "id": "final-evaluation",
+      "kind": "final_holdout_report",
+      "master_sha256": "master-green",
+      "sample_role": "final-holdout",
+      "overlap_with_tuning_feedback": 0,
+      "all_material_views_pass": true,
+      "safety_audit_pass": true,
+      "status": "pass"
+    },
+    {
+      "id": "validation-report",
+      "kind": "validation",
+      "master_sha256": "master-green",
+      "unique_stills": 4000,
+      "target": 4000,
+      "hold_overlap": 0,
+      "status": "pass"
+    },
+    {
+      "id": "sealed-plan",
+      "kind": "catalog_plan",
+      "plan_sha256": "plan-green",
+      "master_sha256": "master-green",
+      "inventory_sha256": "inv-green",
+      "operations": ["create_folder", "create_album", "add_existing_membership"],
+      "network_allowed": false,
+      "status": "sealed"
+    },
+    {
+      "id": "test-write-verification",
+      "kind": "independent_verification",
+      "plan_sha256": "plan-test-green",
+      "expected": 10,
+      "actual": 10,
+      "missing": 0,
+      "unexpected": 0,
+      "idempotent_rerun": true,
+      "status": "pass"
+    },
+    {
+      "id": "production-receipt",
+      "kind": "writer_receipt",
+      "plan_sha256": "plan-green",
+      "master_sha256": "master-green",
+      "added": 4000,
+      "failed": 0,
+      "idempotent_rerun": true,
+      "status": "complete"
+    },
+    {
+      "id": "independent-verification",
+      "kind": "read_only_verification",
+      "plan_sha256": "plan-green",
+      "master_sha256": "master-green",
+      "expected": 4000,
+      "actual": 4000,
+      "missing": 0,
+      "unexpected": 0,
+      "outside_source": 0,
+      "hold_overlap": 0,
+      "status": "pass"
+    },
+    {
+      "id": "version-registry",
+      "kind": "version_verification",
+      "manifest_sha256": "master-green",
+      "verification_receipt_sha256": "verification-green",
+      "prior_versions_unchanged": true,
+      "status": "pass"
+    }
+  ],
+  "constraints": [
+    "The evidence supports an editor-ready field, not a final publication edit.",
+    "No publication-clearance manifest is attached.",
+    "Do not invent a blocker that is contradicted by the attached receipts."
+  ]
+}

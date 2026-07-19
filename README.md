@@ -105,6 +105,7 @@ Those are different questions. Photo Fieldwork keeps them different.
 - Prior-version integrity registration and publication-clearance manifests.
 - A whole-visible-library Apple Photos inventory adapter.
 - A fully synthetic practice run.
+- Nine adversarial skill-behavior evals with a deterministic evidence-closure grader and repeatable agent runner.
 - Apple Photos integration guidance and adapter contracts.
 - A case study of how visual inspection changed a real workflow.
 

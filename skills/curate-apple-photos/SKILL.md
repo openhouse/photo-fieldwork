@@ -24,6 +24,7 @@ Pass the intended source identifier and exact observed count to `doctor`. Treat 
    - `config.json`, defining target, quotas, seed, uncertainty view, and evaluation thresholds.
 4. Initialize a uniquely named run under `/Users/jburkart/Documents/Jamie-Photo-Archive-2026/` with `photo_archive_bridge.py init-run`. Never reuse or overwrite v00, v01, v02, or another run.
 5. Preserve `run-state.json`. Advance it one phase at a time with `photo-fieldwork run-advance`, attaching the files that prove each phase. Use `run-verify` before resuming an interrupted run.
+6. Read [release-gates.md](references/release-gates.md). Before any resume, plan, write, completion, or publication claim, classify the requested transition as `BLOCKED`, `READY_FOR_NEXT_PHASE`, or `EDITOR_FIELD_VERIFIED` and cite the evidence that closes or blocks it.
 
 ## Governing invariants
 
@@ -38,8 +39,23 @@ Pass the intended source identifier and exact observed count to `doctor`. Treat 
 - Label project-specific views `EDITOR HYPOTHESIS` unless visible evidence plus provenance supports stronger wording.
 - Apple aesthetic scores may break ties only inside true duplicate or burst clusters.
 - Dates support retrieval but are not narrative authority; imported film and scans may be misdated.
+- Do not reconstruct state from filenames, remembered counts, or prose claims. Verify receipts and bind downstream artifacts to one unchanged source, config, master, HOLD set, and plan.
+- Treat an editor-field decision and a publication decision as separate, destination-specific states.
 
 Read [safety.md](references/safety.md) whenever a brief concerns private homes, minors, health, legal strategy, financial records, identity documents, or vulnerable collaborators.
+
+## Decision contract
+
+Use the active gate's exact identifier in structured output: `run_integrity`, `source_freshness`, `helper_capability`, `preview_integrity`, `assignment_feasibility`, `hypothesis_resolution`, `final_evaluation`, `replacement_audit`, `validation_binding`, `test_write`, `production_verification`, `completion`, or `publication_clearance`.
+
+- Scope `BLOCKED` to the requested transition. Keep `editor_field_status` independent: a repairable field may remain `in-progress`, and a verified field remains `verified` when publication is blocked.
+- For an unsupported optional view, use `hypothesis_resolution`, `UNSUPPORTED_PROJECT_VIEW`, and `NOT_RECOVERED_ANTI_CLAIM`; omit or unclassify the view and return `READY_FOR_NEXT_PHASE` when the remaining field is feasible.
+- For a requested public set containing any uncleared item, use `publication_clearance`, `EDITOR_FIELD_NOT_PUBLICATION_PERMISSION`, `PUBLICATION_CLEARANCE_INCOMPLETE`, and `PRIVATE_FIELD_REDACTION_REQUIRED`; block the set without silently narrowing it.
+- For verified completion, cite source, final evaluation, validation, sealed plan, test verification, production receipt, independent verification, and version registry. Use `EDITOR_FIELD_VERIFICATION_SUPPORTED` and `PUBLICATION_SEPARATE`; publication is `not-assessed` when no destination clearance was evaluated.
+
+For the remaining gates, the canonical blocker pairs are `RECEIPT_HASH_MISMATCH` / `RUN_STATE_UNVERIFIED`, `SOURCE_COUNT_MISMATCH` / `FRESH_INVENTORY_REQUIRED`, `PREVIEW_MISSING` / `PREVIEW_CORRUPT` / `NOT_VISUALLY_REVIEWED`, `VIEW_QUOTA_SCARCITY` / `DIVERSITY_FLOOR_SCARCITY`, `VIEW_GATE_FAILED` / `HOLDOUT_CONTAMINATED`, and `UNEVALUATED_FINAL_ENTRANT` / `REJECTED_VIEW_REENTRY` / `HELD_CLUSTER_IN_MASTER`.
+
+Use canonical codes exactly, without asset-specific suffixes. Put item details in evidence references and required actions. Every supported or inferential claim must cite the artifacts that justify it. When `not-assessed` follows only from the absence of an evaluated scope, report it as status rather than inventing an uncited factual claim.
 
 ## Build the candidate field
 
@@ -92,21 +108,24 @@ Read [evaluation-loop.md](references/evaluation-loop.md) before the first visual
    - uncertainty is explicit;
    - the exact requested target is met with unique still-photo IDs.
 
-Before validation, run `photo-fieldwork replacement-audit` against all evaluation rounds. Review every final entrant absent from earlier evaluation records.
+Before validation, run `photo-fieldwork replacement-audit` against all evaluation rounds. Review every final entrant absent from earlier evaluation records. Freeze the resulting master, then inspect an untouched final holdout that excludes every tuning-feedback row. A targeted edge audit may supplement but cannot replace the final holdout and separate risk-stratified safety audit.
+
+An unsupported optional project view need not block the rest of a defensible field. Omit it or return uncertain material to `Unclassified / Editor Field`, emit a gap report, and say `not recovered in this run` rather than claiming the evidence does not exist.
 
 Do not claim success from Vision labels or metadata alone. The recursive loop requires actual preview inspection in the chat.
 
 ## Validate and commit
 
-1. Run `photo-fieldwork validate`. Save a PASS report.
+1. Run `photo-fieldwork validate`. Save a PASS report and confirm it names the same frozen master, source, config, HOLD set, and evaluation candidate.
 2. Generate test and production plans with `photo_archive_bridge.py snapshot-plans`.
-3. Inspect the plans. Confirm the source count, target count, folder title, HOLD separation, and that operations are membership-only.
-4. Run the ten-item write test through the app. Independently verify it with `verify_photos_commit.py`.
+3. Inspect the plans. Confirm the source count and hash, target, folder title, master and HOLD hashes, evaluation identity, and membership-only operations.
+4. Run the ten-item write test through the app. Independently verify it with `verify_photos_commit.py`, then rerun the test to prove idempotence.
 5. Run the production plan through the app. Rerun it once to confirm idempotence.
-6. Independently verify every album against the plan using read-only, immutable SQLite access.
-7. Register the completed version manifest and verification receipt with `photo-fieldwork version-register`; run `version-verify` before declaring completion.
+6. Independently verify every album against the same sealed plan using read-only, immutable SQLite access. Require zero missing, unexpected, outside-source, and HOLD-overlap items.
+7. Register the completed version manifest and verification receipt with `photo-fieldwork version-register`; run `version-verify` before declaring completion. Cite the complete evidence chain when using `EDITOR_FIELD_VERIFIED`.
 8. Generate an uncleared `publication-clearance.csv` with `publication-scaffold`. Editor-field membership is not publication permission. Only rows with rights, consent, caption provenance, credit, accessibility, sensitive-context review, destination, and review date may pass `publication-validate`.
-9. Update `run-state.json` after each phase and write a completion report containing exact counts, identifiers, review-state counts, evaluation results, privacy facts, and unresolved uncertainty.
+9. Build any public handoff as an allowlisted projection. Exclude archive UUIDs, People associations, albums, local paths, raw OCR, exact locations, HOLD membership, and private safety reasons.
+10. Update `run-state.json` after each phase and write a completion report containing exact counts, identifiers, review-state counts, evaluation results, privacy facts, unresolved uncertainty, active gate, and disposition.
 
 The helper invocation may require a Codex permission approval for `open -W`; request a reusable approval scoped to `/Applications/Jamie Photo Archive.app`. The app's Photos permission itself should persist under its stable bundle identity.
 
@@ -121,4 +140,4 @@ Return:
 - confirmation that no external upload occurred;
 - links to the run README, master manifest, evaluation report, app receipt, and independent verification.
 
-State clearly that this is an editor-ready field, not the final publication edit.
+State the active disposition, gate, editor-field status, and publication status separately. State clearly that this is an editor-ready field, not the final publication edit. Do not turn missing publication evidence into a completion blocker when publication was not part of the evaluated request.
