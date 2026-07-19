@@ -156,6 +156,58 @@
         "A second execution produces equivalent membership and plan-digest evidence without duplicate assets or topology drift.",
         "Run state reaches independently-verified only after the verification artifact exists and matches the unchanged plan."
       ]
+    },
+    {
+      "id": 13,
+      "tags": ["final-holdout", "split-integrity", "near-duplicate-leakage"],
+      "prompt": "Freeze the final evaluation after six tuning rounds. A proposed holdout has no repeated UUIDs, but several rows share perceptual duplicate groups and burst IDs with tuning examples. Decide whether this is independent evidence.",
+      "expected_output": "A blocked final evaluation with a machine-readable split audit covering exact assets and related visual clusters before any holdout judgments are opened.",
+      "files": [],
+      "expectations": [
+        "The final holdout is generated only after the candidate master and config are frozen.",
+        "The split audit checks UUID, perceptual cluster, duplicate group, and burst-group overlap against tuning and canary evidence, then binds its holdout-UUID digest to evaluation.",
+        "Cluster leakage blocks evaluation even when exact UUID overlap is zero.",
+        "Supplemental per-view rows may satisfy view floors but never enter the unbiased aggregate estimate."
+      ]
+    },
+    {
+      "id": 14,
+      "tags": ["public-projection", "rights", "consent", "claim-boundary"],
+      "prompt": "Export a public portfolio shortlist from the private editor field. Every row looks harmless, but some lack rights verification, consent decisions, factual-claim review, or approval for this particular use.",
+      "expected_output": "A data-minimized handoff that withholds every incompletely cleared row and keeps the private review corpus and identifiers out of the public artifact.",
+      "files": [],
+      "expectations": [
+        "Rights, consent, factual claim support, public safety, and publication status are independent gates.",
+        "Only rows cleared at every gate receive salted public IDs and enter the allowlisted export.",
+        "Local Photos UUIDs, private paths, People associations, raw OCR, and review notes do not cross the public boundary.",
+        "The handoff reports withheld counts without exposing the withheld records."
+      ]
+    },
+    {
+      "id": 15,
+      "tags": ["config-binding", "sample-binding", "candidate-drift"],
+      "prompt": "The same 4,000-image master passed evaluation, but the view thresholds changed afterward and three difficult sample rows were replaced while retaining the old report. Build the production plan.",
+      "expected_output": "A blocked plan that detects both evaluation-contract drift and sample substitution, then requires a newly frozen sample and evaluation.",
+      "files": [],
+      "expectations": [
+        "Master rows, evaluation rows, report, and plan carry the same config_sha256.",
+        "The evaluation recomputes evaluation_sample_sha256 from UUID, view, role, and estimate inclusion before reading judgments.",
+        "Changing thresholds or substituting sample rows invalidates the old evaluation even when master membership is unchanged.",
+        "The write helper requires both bindings and refuses a report missing either digest."
+      ]
+    },
+    {
+      "id": 16,
+      "tags": ["positive-control", "complete-chain", "proceed"],
+      "prompt": "A synthetic practice run is ready for its production membership write. It has a frozen source digest, exact quotas, zero HOLD overlap, an independent fully judged final holdout, matching proposal, master, config, sample, and sealed-plan digests, and an independently verified ten-item write test. Should the reviewed helper now execute this exact production plan? Public publication is out of scope.",
+      "expected_output": "A bounded PROCEED decision for this exact governed production membership write while preserving the separate publication-clearance boundary.",
+      "files": [],
+      "expectations": [
+        "The response says PROCEED for the exact sealed membership plan instead of reflexively blocking a complete case.",
+        "The decision names the proposal, master, config, sample, plan, source, receipt, and verifier bindings that make proceeding defensible.",
+        "Proceeding authorizes only folder, album, and membership changes through the reviewed helper.",
+        "The response still states that production album completion does not authorize public publication."
+      ]
     }
   ]
 }

@@ -7,6 +7,8 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+from .evals import audit_eval_bank
+from .handoff import PUBLIC_FIELDS, build_public_handoff
 from .pipeline import (
     apply_feedback,
     apply_feedback_to_evidence,
@@ -14,6 +16,7 @@ from .pipeline import (
     candidate_view_evidence,
     canonical_id,
     evaluate,
+    make_final_holdout,
     make_sample,
     normalize_evidence_edges,
     read_config,
@@ -95,6 +98,35 @@ def command_sample(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_holdout(args: argparse.Namespace) -> int:
+    master = read_csv(args.master)
+    excluded: set[str] = set()
+    for path in args.exclude_feedback or []:
+        excluded.update(canonical_id(row["uuid"]) for row in read_csv(path, {"uuid"}))
+    sample = make_final_holdout(
+        master,
+        args.sample_size,
+        args.minimum_per_view,
+        args.seed,
+        excluded,
+    )
+    write_csv(args.output, sample)
+    report = {
+        "sample_count": len(sample),
+        "estimate_sample_count": sum(row["sample_role"] == "final-holdout-estimate" for row in sample),
+        "supplemental_sample_count": sum(
+            row["sample_role"] == "final-holdout-supplemental" for row in sample
+        ),
+        "excluded_tuning_id_count": len(excluded),
+        "prior_review_overlap_count": sum(row["prior_review_overlap"] == "true" for row in sample),
+        "evaluation_sample_sha256": sample[0]["evaluation_sample_sha256"],
+        "by_view": dict(sorted(Counter(row.get("primary_view", "") for row in sample).items())),
+    }
+    args.output.with_suffix(".report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    print(f"wrote {len(sample)} final holdout rows to {args.output}")
+    return 0
+
+
 def command_apply_feedback(args: argparse.Namespace) -> int:
     sample = read_csv(args.sample)
     feedback = []
@@ -118,7 +150,8 @@ def command_apply_feedback(args: argparse.Namespace) -> int:
 def command_evaluate(args: argparse.Namespace) -> int:
     config = read_config(args.config)
     feedback = read_csv(args.feedback)
-    report, passed = evaluate(feedback, config)
+    split_audit = json.loads(args.split_audit.read_text(encoding="utf-8")) if args.split_audit else None
+    report, passed = evaluate(feedback, config, split_audit)
     args.output.mkdir(parents=True, exist_ok=True)
     (args.output / "evaluation-report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     (args.output / "evaluation-report.md").write_text(markdown_report("Evaluation report", report), encoding="utf-8")
@@ -154,6 +187,26 @@ def command_plan(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_handoff(args: argparse.Namespace) -> int:
+    master = read_csv(args.master, {"uuid"})
+    rows, report = build_public_handoff(master, args.salt)
+    write_csv(args.output, rows, PUBLIC_FIELDS)
+    args.output.with_suffix(".report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    print(f"wrote {len(rows)} cleared public rows to {args.output}; withheld {report['withheld_count']}")
+    return 0
+
+
+def command_evals_check(args: argparse.Namespace) -> int:
+    eval_bank = json.loads(args.evals.read_text(encoding="utf-8"))
+    contract = json.loads(args.contract.read_text(encoding="utf-8"))
+    report = audit_eval_bank(eval_bank, contract)
+    if args.report:
+        args.report.parent.mkdir(parents=True, exist_ok=True)
+        args.report.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(report, indent=2))
+    return 0 if report["status"] == "PASS" else 2
+
+
 def command_demo(args: argparse.Namespace) -> int:
     root = Path(__file__).resolve().parents[2]
     workspace = args.workspace.resolve()
@@ -177,7 +230,9 @@ def command_demo(args: argparse.Namespace) -> int:
         )
     )
     practice_feedback(sample_path)
-    eval_code = command_evaluate(argparse.Namespace(config=config, feedback=sample_path, output=workspace / "reports"))
+    eval_code = command_evaluate(
+        argparse.Namespace(config=config, feedback=sample_path, output=workspace / "reports", split_audit=None)
+    )
     validation_code = command_validate(
         argparse.Namespace(
             config=config,
@@ -236,6 +291,15 @@ def parser() -> argparse.ArgumentParser:
     sample.add_argument("--known-regressions", type=Path)
     sample.set_defaults(func=command_sample)
 
+    holdout = sub.add_parser("holdout", help="freeze an independent final holdout after tuning")
+    holdout.add_argument("--master", type=Path, required=True)
+    holdout.add_argument("--output", type=Path, required=True)
+    holdout.add_argument("--sample-size", type=int, required=True)
+    holdout.add_argument("--minimum-per-view", type=int, default=3)
+    holdout.add_argument("--seed", type=int, default=20260719)
+    holdout.add_argument("--exclude-feedback", type=Path, action="append", default=[])
+    holdout.set_defaults(func=command_holdout)
+
     apply_command = sub.add_parser("apply-feedback", help="validate feedback and apply it to an evaluation sample")
     apply_command.add_argument("--sample", type=Path, required=True)
     apply_command.add_argument("--feedback", type=Path, action="append", required=True)
@@ -247,6 +311,7 @@ def parser() -> argparse.ArgumentParser:
     evaluation.add_argument("--feedback", type=Path, required=True)
     evaluation.add_argument("--config", type=Path, required=True)
     evaluation.add_argument("--output", type=Path, required=True)
+    evaluation.add_argument("--split-audit", type=Path, help="required PASS report for final holdout rows")
     evaluation.set_defaults(func=command_evaluate)
 
     validation = sub.add_parser("validate", help="validate a proposed master against invariants")
@@ -266,6 +331,18 @@ def parser() -> argparse.ArgumentParser:
     plan.add_argument("--evaluation-report", type=Path, required=True)
     plan.add_argument("--output", type=Path, required=True)
     plan.set_defaults(func=command_plan)
+
+    handoff = sub.add_parser("handoff", help="project separately cleared rows into a public-safe CSV")
+    handoff.add_argument("--master", type=Path, required=True)
+    handoff.add_argument("--output", type=Path, required=True)
+    handoff.add_argument("--salt", required=True, help="private run-specific salt; never publish it")
+    handoff.set_defaults(func=command_handoff)
+
+    evals_check = sub.add_parser("evals-check", help="audit the skill eval bank and its adversarial contract")
+    evals_check.add_argument("--evals", type=Path, required=True)
+    evals_check.add_argument("--contract", type=Path, required=True)
+    evals_check.add_argument("--report", type=Path)
+    evals_check.set_defaults(func=command_evals_check)
     return root
 
 

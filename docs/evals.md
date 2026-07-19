@@ -20,6 +20,10 @@ workflow at the points where a plausible-looking run can become unsafe or irrepr
 | Public/private collapse | 10 | Data-minimized report plus separate publication clearance |
 | Stale permissioned helper | 11 | Capability mismatch fails closed |
 | Receipt-only completion | 12 | Independent exact verification and idempotence |
+| Holdout contamination | 13 | UUID and related-cluster split audit before judgments |
+| Partial public clearance | 14 | Five independent gates and a minimized projection |
+| Config or sample drift | 15 | Candidate, config, and sample hashes remain aligned |
+| Reflexive refusal | 16 | A fully closed synthetic case receives bounded PROCEED |
 
 ## Recursive hill climb
 
@@ -28,6 +32,8 @@ workflow at the points where a plausible-looking run can become unsafe or irrepr
 3. Add deterministic regression tests for the underlying contracts whenever the repository owns them.
 4. Run the complete synthetic workflow after each change; a new eval must not weaken an older safety gate.
 5. When a field run discovers a new failure mode, add the smallest case that would have caught it before changing implementation.
+6. Run `make evals`. The contract auditor checks one-to-one case mapping, required risk coverage, concrete anti-shortcuts and counterfactuals, blocking cases, and a positive control.
+7. Mutate the auditor in tests: remove required coverage, replace every outcome with refusal, add an orphan contract case, and weaken an expectation. Each mutation must fail.
 
 Regression canaries are deliberately separate from fresh evaluation rows. They can block release,
 but they cannot increase fresh coverage, decisive precision, or per-view sample sufficiency. A lint

@@ -24,7 +24,8 @@
 - `error_category`
 - `round_id`
 - `reviewer_lens`
-- `sample_role`: `fresh` or `regression-canary`; canaries block on regression but never increase fresh-sample metrics
+- `sample_role`: `fresh`, `regression-canary`, `final-holdout-estimate`, or `final-holdout-supplemental`; canaries block on regression, supplements satisfy per-view floors only, and neither can increase aggregate precision
+- `config_sha256` and `evaluation_sample_sha256`: bind the judgments to the exact thresholds, UUIDs, views, sample roles, and estimate membership
 
 ## Error categories
 
@@ -44,6 +45,7 @@
 - Every view sampled.
 - No failed, uncertain, unreviewed, or safety-protected regression canary.
 - Duplicate image-view evaluation rows are rejected rather than counted twice.
+- Final holdout UUIDs and perceptual, duplicate, and burst clusters are disjoint from tuning and canaries; the PASS split audit is bound to the evaluated UUID set.
 - Coverage at or above configured minimum.
 - Overall decisive precision at or above configured minimum.
 - No material view remains below 0.65 decisive precision without being relabeled as uncertain/editor hypothesis.

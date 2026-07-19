@@ -87,20 +87,23 @@ Read [evaluation-loop.md](references/evaluation-loop.md) before the first visual
    - people and collective context remain meaningfully represented;
    - uncertainty is explicit;
    - the exact requested target is met with unique still-photo IDs.
+9. Freeze the candidate and config, then create a final holdout with `photo-fieldwork holdout`. Exclude every tuning-ledger UUID. Before opening judgments, run `audit_eval_split.py` against all tuning rows and canaries. Exact UUID, perceptual-cluster, duplicate-group, or burst-group overlap blocks the final evaluation.
+10. Evaluate the final holdout once with `photo-fieldwork evaluate --split-audit SPLIT-AUDIT.json`. The audit's holdout-UUID digest must match the exact sample. Use `final-holdout-estimate` rows for aggregate metrics; per-view supplemental rows may satisfy view gates but cannot improve the aggregate estimate. Reopening selection or config after seeing holdout results creates a new candidate and requires a new holdout.
 
 Do not claim success from Vision labels or metadata alone. The recursive loop requires actual preview inspection in the chat.
 
 ## Validate and commit
 
 1. Run `photo-fieldwork validate`. Save a PASS report.
-2. Generate test and production plans with `photo_archive_bridge.py snapshot-plans --evaluation-report FINAL-EVALUATION.json`. Plan generation must fail unless the report is passing and its proposal and master hashes match the exact master.
+2. Generate test and production plans with `photo_archive_bridge.py snapshot-plans --config RUN/config.json --evaluation-report FINAL-EVALUATION.json`. Plan generation must fail unless the report is passing and its proposal, master, config, and evaluation-sample hashes match the exact frozen candidate.
 3. Inspect the plans. Confirm the source count, target count, folder title, HOLD separation, and that operations are membership-only.
 4. Mark completed phases with `photo_archive_bridge.py set-phase`, then seal the master, HOLD, uncertainty, feedback, config, evaluation, and both plans with `photo_archive_bridge.py seal`.
 5. Run the ten-item write test through the app. Independently verify it with `verify_photos_commit.py`.
 6. Run the production plan through the app. Rerun it once to confirm idempotence.
 7. Independently verify every album against the plan using read-only, immutable SQLite access. The verifier must match the plan digest recorded by the app receipt.
 8. Read `photo_archive_bridge.py status` and write a completion report containing exact counts, identifiers, evaluation results, privacy facts, and unresolved uncertainty.
-9. Before sharing any report publicly, run `lint_public_report.py`. Treat a lint PASS as a data-minimization check, not publication permission; rights, consent, claims, and final publication clearance remain human decisions.
+9. Before sharing any report publicly, run `lint_public_report.py`. Treat a lint PASS as a data-minimization check, not publication permission.
+10. For a public shortlist, record rights, consent, factual-claim support, public safety, and publication-for-specific-use as separate human decisions in the local review surface. Run `photo-fieldwork handoff` to create a salted-ID, allowlisted projection. Never publish the salt or the private input manifest.
 
 The helper invocation may require a Codex permission approval for `open -W`; request a reusable approval scoped to `/Applications/Jamie Photo Archive.app`. The app's Photos permission itself should persist under its stable bundle identity.
 

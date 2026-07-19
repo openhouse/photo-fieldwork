@@ -99,6 +99,12 @@ def stable_noise(seed: int, uuid: str) -> float:
     return int.from_bytes(digest[:8], "big") / 2**64
 
 
+def object_sha256(value: object) -> str:
+    """Hash a JSON-compatible contract without presentation whitespace."""
+    canonical = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def master_sha256(rows: Iterable[dict[str, str]]) -> str:
     """Hash the exact membership and editorial assignment written to Photos."""
     payload = [
@@ -111,6 +117,26 @@ def master_sha256(rows: Iterable[dict[str, str]]) -> str:
     payload.sort(key=lambda row: (row["assigned_view"], row["uuid"]))
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def evaluation_sample_sha256(rows: Iterable[dict[str, str]]) -> str:
+    """Hash sample identity and sampling semantics, excluding human judgments."""
+    payload = [
+        {
+            "uuid": canonical_id(row["uuid"]),
+            "primary_view": str(row.get("primary_view", "")),
+            "sample_role": str(row.get("sample_role", "fresh")),
+            "estimate_included": truthy(row.get("estimate_included")),
+        }
+        for row in rows
+    ]
+    payload.sort(key=lambda row: (row["sample_role"], row["primary_view"], row["uuid"]))
+    return object_sha256(payload)
+
+
+def identifier_set_sha256(rows: Iterable[dict[str, str]]) -> str:
+    values = {canonical_id(row["uuid"]) for row in rows}
+    return hashlib.sha256("\n".join(sorted(values)).encode("utf-8")).hexdigest()
 
 
 def is_hold(row: dict[str, str]) -> bool:
@@ -549,9 +575,11 @@ def select(
     enforce_floor(lambda row: not bool(split_values(row.get("persons"))), person_free_floor, "person-free material context")
     selected.sort(key=lambda row: (row["primary_view"], -float(row["score_total"]), row["uuid"]))
     digest = master_sha256(selected)
+    config_digest = object_sha256(config)
     proposal_id = f"pfp-{digest[:16]}"
     for row in selected:
         row["master_sha256"] = digest
+        row["config_sha256"] = config_digest
         row["proposal_id"] = proposal_id
     summary = {
         "inventory_count": len(inventory),
@@ -565,6 +593,7 @@ def select(
         "uncertain_count": sum(row.get("assignment_status") == "uncertain" for row in selected),
         "capacity": capacity,
         "master_sha256": digest,
+        "config_sha256": config_digest,
         "proposal_id": proposal_id,
     }
     return selected, holds, summary
@@ -633,16 +662,98 @@ def make_sample(
         item["evaluation_note"] = ""
         sample.append(item)
         existing.add(key)
+    digest = evaluation_sample_sha256(sample)
+    for row in sample:
+        row["evaluation_sample_sha256"] = digest
     return sample
 
 
-def evaluate(feedback: list[dict[str, str]], config: dict) -> tuple[dict, bool]:
+def make_final_holdout(
+    master: list[dict[str, str]],
+    sample_size: int,
+    minimum_per_view: int,
+    seed: int,
+    excluded_ids: set[str] | None = None,
+) -> list[dict]:
+    """Create a frozen final sample after tuning, with unbiased and supplemental strata."""
+    if sample_size < 1:
+        raise ValueError("sample_size must be at least 1")
+    if minimum_per_view < 1:
+        raise ValueError("minimum_per_view must be at least 1")
+    excluded = {canonical_id(value) for value in (excluded_ids or set())}
+    eligible = [row for row in master if canonical_id(row["uuid"]) not in excluded]
+    if len(eligible) < sample_size:
+        raise ValueError(
+            f"only {len(eligible)} unseen master rows remain for a {sample_size}-row final holdout"
+        )
+    rng = random.Random(seed)
+    estimate = rng.sample(sorted(eligible, key=lambda row: canonical_id(row["uuid"])), sample_size)
+    estimate_ids = {canonical_id(row["uuid"]) for row in estimate}
+    grouped: dict[str, list[dict[str, str]]] = defaultdict(list)
+    for row in eligible:
+        grouped[str(row.get("primary_view", "unknown"))].append(row)
+
+    sample: list[dict] = []
+    for row in estimate:
+        item = dict(row)
+        item.update(
+            {
+                "sample_role": "final-holdout-estimate",
+                "estimate_included": "true",
+                "sampling_reason": "deterministic simple random final holdout",
+                "prior_review_overlap": "false",
+                "holdout_seed": str(seed),
+                "judgment": "",
+                "evaluation_note": "",
+            }
+        )
+        sample.append(item)
+
+    for view, rows in sorted(grouped.items()):
+        present = sum(str(row.get("primary_view", "unknown")) == view for row in estimate)
+        needed = max(0, minimum_per_view - present)
+        candidates = [row for row in sorted(rows, key=lambda row: canonical_id(row["uuid"])) if canonical_id(row["uuid"]) not in estimate_ids]
+        if len(candidates) < needed:
+            raise ValueError(
+                f"view {view} has only {present + len(candidates)} unseen rows but needs {minimum_per_view}"
+            )
+        for row in rng.sample(candidates, needed):
+            item = dict(row)
+            item.update(
+                {
+                    "sample_role": "final-holdout-supplemental",
+                    "estimate_included": "false",
+                    "sampling_reason": "per-view final holdout floor supplemental",
+                    "prior_review_overlap": "false",
+                    "holdout_seed": str(seed),
+                    "judgment": "",
+                    "evaluation_note": "",
+                }
+            )
+            sample.append(item)
+    digest = evaluation_sample_sha256(sample)
+    for row in sample:
+        row["evaluation_sample_sha256"] = digest
+    return sample
+
+
+def evaluate(
+    feedback: list[dict[str, str]],
+    config: dict,
+    split_audit: dict | None = None,
+) -> tuple[dict, bool]:
     proposal_ids = {row.get("proposal_id", "").strip() for row in feedback}
     master_hashes = {row.get("master_sha256", "").strip() for row in feedback}
+    config_hashes = {row.get("config_sha256", "").strip() for row in feedback}
+    sample_hashes = {row.get("evaluation_sample_sha256", "").strip() for row in feedback}
     if "" in proposal_ids or len(proposal_ids) != 1:
         raise ValueError("evaluation rows must share one non-empty proposal_id")
     if "" in master_hashes or len(master_hashes) != 1:
         raise ValueError("evaluation rows must share one non-empty master_sha256")
+    expected_config_hash = object_sha256(config)
+    if config_hashes != {expected_config_hash}:
+        raise ValueError("evaluation config_sha256 does not match the current evaluation contract")
+    expected_sample_hash = evaluation_sample_sha256(feedback)
     unknown = sorted(
         {
             row.get("judgment", "").strip().lower()
@@ -664,16 +775,34 @@ def evaluate(feedback: list[dict[str, str]], config: dict) -> tuple[dict, bool]:
             "evaluation contains duplicate image-view rows: "
             + ", ".join(f"{uuid}:{view or '<no-view>'}" for uuid, view in sorted(duplicate_edges))
         )
-    invalid_roles = sorted(
-        {
-            str(row.get("sample_role", "fresh")).strip().lower() or "fresh"
-            for row in feedback
-            if (str(row.get("sample_role", "fresh")).strip().lower() or "fresh")
-            not in {"fresh", "regression-canary"}
-        }
-    )
+    if sample_hashes != {expected_sample_hash}:
+        raise ValueError("evaluation_sample_sha256 does not match the exact frozen sample")
+    roles = {str(row.get("sample_role", "fresh")).strip().lower() or "fresh" for row in feedback}
+    allowed_roles = {
+        "fresh",
+        "regression-canary",
+        "final-holdout-estimate",
+        "final-holdout-supplemental",
+    }
+    invalid_roles = sorted(roles - allowed_roles)
     if invalid_roles:
         raise ValueError(f"unknown evaluation sample roles: {', '.join(invalid_roles)}")
+    final_roles = {"final-holdout-estimate", "final-holdout-supplemental"}
+    is_final_holdout = bool(roles & final_roles)
+    if is_final_holdout and roles - final_roles:
+        raise ValueError("final holdout rows cannot be mixed with tuning samples or regression canaries")
+    split_audit_digest = ""
+    if is_final_holdout:
+        if not split_audit or split_audit.get("status") != "PASS" or not split_audit.get("holdout_independent"):
+            raise ValueError("final holdout evaluation requires a passing independent split audit")
+        audited_id_digest = str(split_audit.get("digests", {}).get("holdout_ids_sha256", ""))
+        if audited_id_digest != identifier_set_sha256(feedback):
+            raise ValueError("split audit holdout identity does not match the evaluated sample")
+        if int(split_audit.get("counts", {}).get("holdout_ids", -1)) != len(
+            {canonical_id(row["uuid"]) for row in feedback}
+        ):
+            raise ValueError("split audit holdout count does not match the evaluated sample")
+        split_audit_digest = object_sha256(split_audit)
     judged_without_reason = [
         canonical_id(row.get("uuid"))
         for row in feedback
@@ -693,7 +822,21 @@ def evaluate(feedback: list[dict[str, str]], config: dict) -> tuple[dict, bool]:
         row for row in feedback
         if (str(row.get("sample_role", "fresh")).strip().lower() or "fresh") == "fresh"
     ]
-    judged = [row for row in fresh if row.get("judgment", "").strip().lower() in JUDGMENTS]
+    estimate_rows = [
+        row for row in feedback
+        if (str(row.get("sample_role", "")).strip().lower()) == "final-holdout-estimate"
+    ]
+    supplemental_rows = [
+        row for row in feedback
+        if (str(row.get("sample_role", "")).strip().lower()) == "final-holdout-supplemental"
+    ]
+    if is_final_holdout and not estimate_rows:
+        raise ValueError("final holdout requires at least one estimate row")
+    holdout_leakage = sum(truthy(row.get("prior_review_overlap")) for row in estimate_rows + supplemental_rows)
+    aggregate_rows = estimate_rows if is_final_holdout else fresh
+    per_view_rows = estimate_rows + supplemental_rows if is_final_holdout else fresh
+    judged = [row for row in aggregate_rows if row.get("judgment", "").strip().lower() in JUDGMENTS]
+    per_view_judged = [row for row in per_view_rows if row.get("judgment", "").strip().lower() in JUDGMENTS]
     all_judged = [row for row in feedback if row.get("judgment", "").strip().lower() in JUDGMENTS]
     fit = sum(row["judgment"].strip().lower() == "fit" for row in judged)
     reject = sum(row["judgment"].strip().lower() == "reject" for row in judged)
@@ -707,7 +850,7 @@ def evaluate(feedback: list[dict[str, str]], config: dict) -> tuple[dict, bool]:
         or str(row.get("safety_status", "clear")).strip().lower() != "clear"
         for row in canaries
     )
-    coverage = len(judged) / len(fresh) if fresh else 0.0
+    coverage = len(judged) / len(aggregate_rows) if aggregate_rows else 0.0
     precision = fit / (fit + reject) if fit + reject else 0.0
     by_view = {}
     minimum_view_precision = float(config.get("minimum_view_eval_precision", 0.65))
@@ -716,8 +859,8 @@ def evaluate(feedback: list[dict[str, str]], config: dict) -> tuple[dict, bool]:
     minimum_coverage = float(config.get("minimum_eval_coverage", 0.8))
     views_by_id = {str(view["id"]): view for view in config["views"] if int(view["quota"]) > 0}
     for view_id, view in sorted(views_by_id.items()):
-        sampled = [row for row in fresh if row.get("primary_view", "unknown") == view_id]
-        rows = [row for row in judged if row.get("primary_view", "unknown") == view_id]
+        sampled = [row for row in per_view_rows if row.get("primary_view", "unknown") == view_id]
+        rows = [row for row in per_view_judged if row.get("primary_view", "unknown") == view_id]
         decisive = [row for row in rows if row["judgment"].strip().lower() in {"fit", "reject"}]
         view_precision = (
             sum(row["judgment"].strip().lower() == "fit" for row in decisive) / len(decisive)
@@ -766,15 +909,23 @@ def evaluate(feedback: list[dict[str, str]], config: dict) -> tuple[dict, bool]:
         and precision >= float(config.get("minimum_eval_precision", 0.75))
         and safety_regressions == 0
         and canary_regressions == 0
+        and holdout_leakage == 0
         and all(result["passed"] for result in by_view.values())
     )
     report = {
-        "schema_version": 2,
+        "schema_version": 3,
+        "evaluation_scope": "final-holdout" if is_final_holdout else "tuning-round",
         "proposal_id": next(iter(proposal_ids)),
         "master_sha256": next(iter(master_hashes)),
+        "config_sha256": expected_config_hash,
+        "evaluation_sample_sha256": expected_sample_hash,
+        "split_audit_sha256": split_audit_digest or None,
         "sample_count": len(feedback),
         "fresh_sample_count": len(fresh),
         "canary_count": len(canaries),
+        "estimate_sample_count": len(estimate_rows),
+        "supplemental_sample_count": len(supplemental_rows),
+        "holdout_prior_review_overlap_count": holdout_leakage,
         "judged_count": len(judged),
         "total_judged_count": len(all_judged),
         "fit": fit,
@@ -904,6 +1055,10 @@ def validate(
     proposal_ids = {row.get("proposal_id", "") for row in master}
     if proposal_ids != {f"pfp-{expected_hash[:16]}"}:
         errors.append("proposal_id is missing or does not match master_sha256")
+    expected_config_hash = object_sha256(config)
+    config_hashes = {row.get("config_sha256", "") for row in master}
+    if config_hashes != {expected_config_hash}:
+        errors.append("config_sha256 is missing or does not match the current selection contract")
     expected_counts = {str(view["id"]): int(view["quota"]) for view in config["views"]}
     actual_counts = Counter(str(row.get("primary_view", "")) for row in master)
     quota_errors = {
@@ -931,6 +1086,7 @@ def validate(
         "quota_errors": quota_errors,
         "known_reject_overlap": len(reject_overlap),
         "master_sha256": expected_hash,
+        "config_sha256": expected_config_hash,
         "proposal_id": f"pfp-{expected_hash[:16]}",
     }
     return errors, metrics
@@ -953,6 +1109,7 @@ def build_catalog_plan(
 ) -> dict:
     """Build an adapter-neutral, membership-only catalog plan."""
     digest = master_sha256(master)
+    config_digest = object_sha256(config)
     proposal_id = f"pfp-{digest[:16]}"
     if not evaluation_report.get("passed"):
         raise ValueError("catalog plan requires a passing final evaluation")
@@ -960,6 +1117,11 @@ def build_catalog_plan(
         raise ValueError("evaluated master hash does not match the proposed catalog plan")
     if evaluation_report.get("proposal_id") != proposal_id:
         raise ValueError("evaluated proposal_id does not match the proposed catalog plan")
+    if evaluation_report.get("config_sha256") != config_digest:
+        raise ValueError("evaluated config_sha256 does not match the catalog plan contract")
+    sample_digest = str(evaluation_report.get("evaluation_sample_sha256", "")).strip()
+    if not sample_digest:
+        raise ValueError("catalog plan requires an evaluation_sample_sha256")
     view_labels = {view["id"]: view["label"] for view in config["views"]}
     albums = [
         {
@@ -977,16 +1139,22 @@ def build_catalog_plan(
                 "asset_ids": asset_ids,
             }
         )
+    evaluation_binding = {
+        "proposal_id": evaluation_report["proposal_id"],
+        "master_sha256": evaluation_report["master_sha256"],
+        "config_sha256": evaluation_report["config_sha256"],
+        "evaluation_sample_sha256": sample_digest,
+        "passed": True,
+    }
+    if evaluation_report.get("split_audit_sha256"):
+        evaluation_binding["split_audit_sha256"] = evaluation_report["split_audit_sha256"]
     plan = {
-        "schema_version": 2,
+        "schema_version": 3,
         "plan_id": plan_id,
         "proposal_id": proposal_id,
         "master_sha256": digest,
-        "evaluation": {
-            "proposal_id": evaluation_report["proposal_id"],
-            "master_sha256": evaluation_report["master_sha256"],
-            "passed": True,
-        },
+        "config_sha256": config_digest,
+        "evaluation": evaluation_binding,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "safety_mode": "create-folders-albums-and-add-membership-only",
         "adapter": {"name": "adapter-neutral", "contract_version": 1},

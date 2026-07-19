@@ -111,9 +111,10 @@ Those are different questions. Photo Fieldwork keeps them different.
 - Duplicate and burst controls.
 - Named-people and visible-apparatus signals.
 - An unclassified editor field for honest uncertainty.
-- Novel, stratified evaluation samples with separately reported regression canaries and overall and per-view release gates.
-- Content-hashed plans, durable run state, and release seals.
-- A generated local-only editor review surface with shortlist, caption, rights, consent, and public-safety fields.
+- Novel tuning samples, independent final holdouts, cluster-leakage audits, separately reported regression canaries, and aggregate and per-view release gates.
+- Master, config, evaluation-sample, split-audit, plan, source, receipt, and verifier bindings; durable run state; and release seals.
+- A local-only editor review surface plus a minimized public handoff with separate rights, consent, claim, public-safety, and publication states.
+- A self-auditing 16-case eval contract with blocking, remediation, publication, and positive PROCEED controls.
 - A fully synthetic practice run.
 - Apple Photos integration guidance and adapter contracts.
 - A case study of how visual inspection changed a real workflow.

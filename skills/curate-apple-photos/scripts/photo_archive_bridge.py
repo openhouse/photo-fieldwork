@@ -448,9 +448,13 @@ def snapshot_plan(
     if evaluation is not None:
         plan["proposal_id"] = evaluation["proposal_id"]
         plan["master_sha256"] = evaluation["master_sha256"]
+        plan["config_sha256"] = evaluation["config_sha256"]
         plan["evaluation"] = {
             "proposal_id": evaluation["proposal_id"],
             "master_sha256": evaluation["master_sha256"],
+            "config_sha256": evaluation["config_sha256"],
+            "evaluation_sample_sha256": evaluation["evaluation_sample_sha256"],
+            "split_audit_sha256": evaluation["split_audit_sha256"],
             "passed": True,
         }
     plan["plan_sha256"] = content_sha256(plan)
@@ -460,6 +464,8 @@ def snapshot_plan(
 def command_snapshot_plans(args: argparse.Namespace) -> int:
     master_rows = read_csv(args.master)
     hold_rows = read_csv(args.holds, allow_empty=True)
+    config = json.loads(args.config.read_text(encoding="utf-8"))
+    config_digest = content_sha256(config)
     master_ids = [base_identifier(row["uuid"]) for row in master_rows]
     hold_ids = [base_identifier(row["uuid"]) for row in hold_rows]
     if len(master_ids) != args.target or len(set(master_ids)) != args.target:
@@ -477,6 +483,9 @@ def command_snapshot_plans(args: argparse.Namespace) -> int:
         raise ValueError("master rows are not bound to their exact membership and assignments")
     if embedded_proposals != {proposal_id}:
         raise ValueError("master rows have a missing or mismatched proposal_id")
+    embedded_config_digests = {row.get("config_sha256", "").strip() for row in master_rows}
+    if embedded_config_digests != {config_digest}:
+        raise ValueError("master rows are not bound to the current selection config")
     evaluation = json.loads(args.evaluation_report.read_text(encoding="utf-8"))
     if not evaluation.get("passed"):
         raise ValueError("snapshot plans require a passing final evaluation")
@@ -484,12 +493,17 @@ def command_snapshot_plans(args: argparse.Namespace) -> int:
         raise ValueError("final evaluation master_sha256 does not match the proposed master")
     if evaluation.get("proposal_id") != proposal_id:
         raise ValueError("final evaluation proposal_id does not match the proposed master")
+    if evaluation.get("config_sha256") != config_digest:
+        raise ValueError("final evaluation config_sha256 does not match the current config")
+    if not evaluation.get("evaluation_sample_sha256"):
+        raise ValueError("final evaluation lacks evaluation_sample_sha256")
+    if evaluation.get("evaluation_scope") != "final-holdout":
+        raise ValueError("production snapshot plans require a final-holdout evaluation")
+    if not evaluation.get("split_audit_sha256"):
+        raise ValueError("final evaluation lacks a bound split audit")
 
     by_view: dict[str, list[str]] = {}
-    view_labels = {}
-    if args.config:
-        config = json.loads(args.config.read_text(encoding="utf-8"))
-        view_labels = {str(view["id"]): str(view["label"]) for view in config.get("views", [])}
+    view_labels = {str(view["id"]): str(view["label"]) for view in config.get("views", [])}
     for row in master_rows:
         view = row.get(args.view_column, "").strip() or "00"
         by_view.setdefault(view, []).append(base_identifier(row["uuid"]))
@@ -678,7 +692,7 @@ def parser() -> argparse.ArgumentParser:
     plans.add_argument("--version", required=True)
     plans.add_argument("--folder-title", required=True)
     plans.add_argument("--view-column", default="primary_view")
-    plans.add_argument("--config", type=Path)
+    plans.add_argument("--config", type=Path, required=True)
     plans.add_argument("--evaluation-report", type=Path, required=True)
     plans.add_argument("--source-id", default=SOURCE_ID)
     plans.add_argument("--source-count", type=int, default=SOURCE_COUNT)

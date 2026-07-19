@@ -8,7 +8,11 @@ from photo_fieldwork.pipeline import (
     candidate_view_evidence,
     content_sha256,
     evaluate,
+    evaluation_sample_sha256,
+    identifier_set_sha256,
+    make_final_holdout,
     make_sample,
+    object_sha256,
     read_config,
     read_csv,
     select,
@@ -42,6 +46,23 @@ class PipelineTests(unittest.TestCase):
         report, passed = evaluate(sample, self.config)
         self.assertTrue(passed)
         return report
+
+    def bind_sample(self, rows, config=None):
+        config = config or self.config
+        for row in rows:
+            row["config_sha256"] = object_sha256(config)
+        digest = evaluation_sample_sha256(rows)
+        for row in rows:
+            row["evaluation_sample_sha256"] = digest
+        return rows
+
+    def passing_split_audit(self, rows):
+        return {
+            "status": "PASS",
+            "holdout_independent": True,
+            "counts": {"holdout_ids": len({row["uuid"] for row in rows})},
+            "digests": {"holdout_ids_sha256": identifier_set_sha256(rows)},
+        }
 
     def test_selection_is_deterministic_exact_and_excludes_holds(self):
         first, holds, summary = select(self.inventory, self.config)
@@ -219,6 +240,7 @@ class PipelineTests(unittest.TestCase):
             dict(base, uuid="2", sample_role="fresh"),
             dict(base, uuid="3", sample_role="regression-canary", prior_review_overlap="true"),
         ]
+        self.bind_sample(feedback, config)
         report, passed = evaluate(feedback, config)
         self.assertTrue(passed)
         self.assertEqual(report["fresh_sample_count"], 2)
@@ -247,6 +269,61 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(len(canaries), 1)
         self.assertEqual(canaries[0]["prior_review_overlap"], "true")
         self.assertTrue(all(row["prior_review_overlap"] == "false" for row in fresh))
+
+    def test_final_holdout_is_unseen_and_binds_exact_sample(self):
+        master, _, _ = select(self.inventory, self.config)
+        prior = {master[0]["uuid"]}
+        holdout = make_final_holdout(master, 4, 1, 20260719, prior)
+        self.assertFalse(prior & {row["uuid"] for row in holdout})
+        self.assertTrue(all(row["prior_review_overlap"] == "false" for row in holdout))
+        self.assertEqual(
+            {row["evaluation_sample_sha256"] for row in holdout},
+            {evaluation_sample_sha256(holdout)},
+        )
+        self.assertEqual(
+            sum(row["sample_role"] == "final-holdout-estimate" for row in holdout),
+            4,
+        )
+
+    def test_final_holdout_supplementals_do_not_inflate_aggregate_precision(self):
+        master, _, _ = select(self.inventory, self.config)
+        holdout = make_final_holdout(master, 4, 2, 20260719)
+        for row in holdout:
+            row["judgment"] = "fit"
+            row["safety_status"] = "clear"
+            row["visible_reason"] = "synthetic visible fit"
+        supplemental = [row for row in holdout if row["sample_role"] == "final-holdout-supplemental"]
+        self.assertTrue(supplemental)
+        supplemental[0]["judgment"] = "reject"
+        supplemental[0]["visible_reason"] = "per-view false positive"
+        with self.assertRaisesRegex(ValueError, "split audit"):
+            evaluate(holdout, self.config)
+        report, passed = evaluate(holdout, self.config, self.passing_split_audit(holdout))
+        self.assertFalse(passed)
+        self.assertEqual(report["evaluation_scope"], "final-holdout")
+        self.assertEqual(report["precision"], 1.0)
+
+    def test_final_holdout_rejects_a_split_audit_for_another_sample(self):
+        master, _, _ = select(self.inventory, self.config)
+        holdout = make_final_holdout(master, 4, 1, 20260719)
+        audit = self.passing_split_audit(holdout)
+        audit["digests"]["holdout_ids_sha256"] = "0" * 64
+        with self.assertRaisesRegex(ValueError, "identity"):
+            evaluate(holdout, self.config, audit)
+
+    def test_evaluation_rejects_config_and_sample_drift(self):
+        master, _, _ = select(self.inventory, self.config)
+        sample = make_sample(master, 3, 20260710)
+        for row in sample:
+            row["judgment"] = "fit"
+            row["visible_reason"] = "synthetic visible fit"
+        changed = copy.deepcopy(self.config)
+        changed["minimum_eval_precision"] = 0.5
+        with self.assertRaisesRegex(ValueError, "config_sha256"):
+            evaluate(sample, changed)
+        sample[0]["uuid"] = "SUBSTITUTED"
+        with self.assertRaisesRegex(ValueError, "evaluation_sample_sha256"):
+            evaluate(sample, self.config)
 
     def test_catalog_plan_requires_evaluation_and_is_content_hashed(self):
         master, _, _ = select(self.inventory, self.config)

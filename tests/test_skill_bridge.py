@@ -104,18 +104,31 @@ class SkillBridgeTests(unittest.TestCase):
             }
             digest = bridge.master_membership_sha256([row])
             proposal_id = f"pfp-{digest[:16]}"
+            config_path = workspace / "config.json"
+            config = {"views": [{"id": "A", "label": "A", "quota": 1}]}
+            config_path.write_text(json.dumps(config), encoding="utf-8")
+            config_digest = bridge.content_sha256(config)
             row["master_sha256"] = digest
+            row["config_sha256"] = config_digest
             row["proposal_id"] = proposal_id
             master = manifests / "master.csv"
             master.write_text(
-                "uuid,primary_view,assigned_view,selection_reason,master_sha256,proposal_id\n"
-                f"ABC,A,A,visible evidence,{digest},{proposal_id}\n",
+                "uuid,primary_view,assigned_view,selection_reason,master_sha256,config_sha256,proposal_id\n"
+                f"ABC,A,A,visible evidence,{digest},{config_digest},{proposal_id}\n",
                 encoding="utf-8",
             )
             holds = manifests / "holds.csv"
             holds.write_text("uuid\n", encoding="utf-8")
             evaluation_path = workspace / "evaluation.json"
-            evaluation = {"passed": True, "master_sha256": digest, "proposal_id": proposal_id}
+            evaluation = {
+                "passed": True,
+                "master_sha256": digest,
+                "config_sha256": config_digest,
+                "evaluation_sample_sha256": "d" * 64,
+                "evaluation_scope": "final-holdout",
+                "split_audit_sha256": "e" * 64,
+                "proposal_id": proposal_id,
+            }
             evaluation_path.write_text(json.dumps(evaluation), encoding="utf-8")
             args = SimpleNamespace(
                 workspace=workspace,
@@ -125,7 +138,7 @@ class SkillBridgeTests(unittest.TestCase):
                 version="v99",
                 folder_title="v99 test",
                 view_column="primary_view",
-                config=None,
+                config=config_path,
                 evaluation_report=evaluation_path,
                 source_id="visible-library-stills://v1",
                 source_count=42,

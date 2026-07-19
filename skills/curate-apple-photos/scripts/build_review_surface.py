@@ -22,6 +22,8 @@ SAFE_FIELDS = {
     "safety_status",
     "proposal_id",
     "master_sha256",
+    "config_sha256",
+    "evaluation_sample_sha256",
 }
 
 
@@ -50,9 +52,13 @@ def build_payload(sample: list[dict[str, str]], preview_index: list[dict[str, st
         item["preview_url"] = Path(previews[item["uuid"]]["preview_path"]).resolve().as_uri()
         item["decision"] = ""
         item["caption"] = ""
+        item["alt_text"] = ""
+        item["credit"] = ""
         item["rights_status"] = "unreviewed"
         item["consent_status"] = "unreviewed"
+        item["claim_status"] = "unreviewed"
         item["public_safety_status"] = "unreviewed"
+        item["publication_status"] = "unreviewed"
         payload.append(item)
     return payload
 
@@ -90,7 +96,7 @@ article {{ background: #fff; border: 1px solid #d2d0c9; border-radius: 6px; over
 .decisions button {{ padding: 4px; min-width: 0; font-size: 11px; }}
 .decisions button[aria-pressed="true"] {{ background: #1e5d48; color: #fff; border-color: #1e5d48; }}
 textarea {{ width: 100%; min-height: 52px; padding: 7px; resize: vertical; }}
-.checks {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }}
+.checks {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 6px; }}
 .checks label {{ display: grid; gap: 3px; }}
 .checks select {{ width: 100%; min-width: 0; }}
 @media (max-width: 700px) {{ .grid {{ grid-template-columns: 1fr; }} .decisions {{ grid-template-columns: repeat(3, 1fr); }} }}
@@ -111,7 +117,13 @@ textarea {{ width: 100%; min-height: 52px; padding: 7px; resize: vertical; }}
 <script>
 const records = {data};
 const decisions = ["keep", "alternate", "reject", "uncertain", "needs-rights-review"];
-const statusOptions = ["unreviewed", "clear", "needs-review", "hold"];
+const statusOptions = {{
+  rights_status: ["unreviewed", "owner-verified", "needs-review", "hold"],
+  consent_status: ["unreviewed", "cleared-for-use", "not-applicable", "needs-review", "hold"],
+  claim_status: ["unreviewed", "visible-only", "provenance-backed", "reviewed-for-publication", "not-applicable", "needs-review", "hold"],
+  public_safety_status: ["unreviewed", "clear", "needs-review", "hold"],
+  publication_status: ["unreviewed", "cleared-for-specific-use", "published", "hold"]
+}};
 const grid = document.querySelector("#grid");
 const viewFilter = document.querySelector("#view-filter");
 const decisionFilter = document.querySelector("#decision-filter");
@@ -121,7 +133,7 @@ for (const view of [...new Set(records.map(r => r.primary_view))].sort()) {{
   const option = document.createElement("option"); option.value = view; option.textContent = view; viewFilter.append(option);
 }}
 function statusSelect(field, value, index) {{
-  const options = statusOptions.map(item => `<option ${{item === value ? "selected" : ""}}>${{item}}</option>`).join("");
+  const options = statusOptions[field].map(item => `<option ${{item === value ? "selected" : ""}}>${{item}}</option>`).join("");
   return `<label>${{field.replaceAll("_", " ")}}<select data-index="${{index}}" data-field="${{field}}">${{options}}</select></label>`;
 }}
 function render() {{
@@ -137,7 +149,9 @@ function render() {{
       <div class="meta"><span class="uuid" title="${{esc(record.uuid)}}">${{esc(record.uuid)}}</span><span>view ${{esc(record.primary_view)}}</span></div>
       <div class="decisions">${{decisions.map(decision => `<button data-index="${{index}}" data-decision="${{decision}}" aria-pressed="${{record.decision === decision}}">${{decision}}</button>`).join("")}}</div>
       <textarea data-index="${{index}}" data-field="caption" placeholder="Caption or sequence note">${{esc(record.caption)}}</textarea>
-      <div class="checks">${{statusSelect("rights_status", record.rights_status, index)}}${{statusSelect("consent_status", record.consent_status, index)}}${{statusSelect("public_safety_status", record.public_safety_status, index)}}</div>
+      <textarea data-index="${{index}}" data-field="alt_text" placeholder="Alt text">${{esc(record.alt_text)}}</textarea>
+      <textarea data-index="${{index}}" data-field="credit" placeholder="Credit">${{esc(record.credit)}}</textarea>
+      <div class="checks">${{statusSelect("rights_status", record.rights_status, index)}}${{statusSelect("consent_status", record.consent_status, index)}}${{statusSelect("claim_status", record.claim_status, index)}}${{statusSelect("public_safety_status", record.public_safety_status, index)}}${{statusSelect("publication_status", record.publication_status, index)}}</div>
     </div></article>`).join("");
   document.querySelector("#visible-count").textContent = `${{visible.length}} visible`;
   const shortlist = records.filter(record => ["keep", "alternate"].includes(record.decision)).length;
@@ -158,7 +172,7 @@ grid.addEventListener("input", event => {{
 }});
 for (const control of [viewFilter, decisionFilter, search]) control.addEventListener("input", render);
 document.querySelector("#export").addEventListener("click", () => {{
-  const fields = ["uuid", "primary_view", "proposal_id", "master_sha256", "decision", "judgment", "caption", "rights_status", "consent_status", "public_safety_status"];
+  const fields = ["uuid", "primary_view", "proposal_id", "master_sha256", "config_sha256", "evaluation_sample_sha256", "decision", "judgment", "caption", "alt_text", "credit", "rights_status", "consent_status", "claim_status", "public_safety_status", "publication_status"];
   const quote = value => `"${{String(value ?? "").replaceAll('"', '""')}}"`;
   const rows = records.filter(record => record.decision).map(record => {{
     const judgment = record.decision === "keep" ? "fit" : record.decision === "reject" ? "reject" : "uncertain";
