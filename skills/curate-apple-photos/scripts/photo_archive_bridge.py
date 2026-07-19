@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import fcntl
 import hashlib
 import json
 import os
@@ -28,6 +29,7 @@ from photo_fieldwork.contracts import (  # noqa: E402
     plan_sha256,
     validate_plan,
 )
+from photo_fieldwork.pipeline import validate as validate_master  # noqa: E402
 
 
 APP = Path("/Applications/Jamie Photo Archive.app")
@@ -97,42 +99,131 @@ def master_sha256(rows: list[dict[str, str]]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def update_run_state(workspace: Path, phase: str, status: str, **details: object) -> None:
+def _last_event(path: Path) -> dict[str, object] | None:
+    if not path.exists():
+        return None
+    lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    previous_hash = None
+    previous_revision = 0
+    last = None
+    for line in lines:
+        event = json.loads(line)
+        supplied_hash = event.get("event_sha256")
+        payload = dict(event)
+        payload.pop("event_sha256", None)
+        if supplied_hash != canonical_sha256(payload):
+            raise ValueError("run event ledger contains an invalid event hash")
+        if int(event.get("previous_revision", -1)) != previous_revision:
+            raise ValueError("run event ledger contains a revision gap")
+        if int(event.get("revision", -1)) != previous_revision + 1:
+            raise ValueError("run event ledger contains an invalid revision")
+        if event.get("previous_event_sha256") != previous_hash:
+            raise ValueError("run event ledger contains a broken hash chain")
+        previous_hash = supplied_hash
+        previous_revision = int(event["revision"])
+        last = event
+    return last
+
+
+def update_run_state(
+    workspace: Path,
+    phase: str,
+    status: str,
+    *,
+    expected_revision: int | None = None,
+    actor: str = "photo_archive_bridge",
+    **details: object,
+) -> None:
     state_path = workspace / "run-state.json"
     if not state_path.exists():
         return
-    state = json.loads(state_path.read_text(encoding="utf-8"))
-    if phase not in state.get("phases", {}):
-        raise ValueError(f"unknown run phase: {phase}")
-    if status not in PHASE_STATUSES:
-        raise ValueError(f"unknown phase status: {status}")
-    state["phases"][phase] = status
-    now = datetime.now().astimezone().isoformat(timespec="seconds")
-    records = state.setdefault("phase_records", {})
-    previous = dict(records.get(phase, {}))
-    attempts = int(previous.get("attempts", 0)) + (1 if status == "running" else 0)
-    records[phase] = {
-        **previous,
-        "status": status,
-        "updated_at": now,
-        "attempts": attempts,
-        **details,
-    }
-    phase_values = set(state["phases"].values())
-    if "failed" in phase_values:
-        state["status"] = "failed"
-    elif "interrupted" in phase_values:
-        state["status"] = "interrupted"
-    elif all(value in {"completed", "verified"} for value in phase_values):
-        state["status"] = "complete"
-    else:
-        state["status"] = "active"
-    state["updated_at"] = now
-    state["last_transition"] = {"phase": phase, "status": status, **details}
-    state["next_actions"] = next_actions(state)
-    temporary = state_path.with_suffix(".json.tmp")
-    dump_json(temporary, state)
-    temporary.replace(state_path)
+    lock_path = workspace / "run-state.lock"
+    event_path = workspace / "run-events.jsonl"
+    with lock_path.open("a+", encoding="utf-8") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        last_event = _last_event(event_path)
+        state_revision = int(state.get("revision", 0))
+        state_event = state.get("last_event_sha256")
+        if last_event and int(last_event["revision"]) == state_revision + 1:
+            if (
+                int(last_event["previous_revision"]) == state_revision
+                and last_event.get("previous_event_sha256") == state_event
+            ):
+                recovered = last_event.get("state_after")
+                if not isinstance(recovered, dict):
+                    raise ValueError("run event cannot recover interrupted state write")
+                state = dict(recovered)
+                state["last_event_sha256"] = last_event["event_sha256"]
+                state_revision = int(state["revision"])
+                state_event = last_event["event_sha256"]
+                temporary = state_path.with_suffix(".json.tmp")
+                dump_json(temporary, state)
+                temporary.replace(state_path)
+            else:
+                raise ValueError("run event ledger diverges from durable state")
+        elif last_event and last_event.get("event_sha256") != state_event:
+            raise ValueError("run event ledger diverges from durable state")
+        elif not last_event and state_event:
+            raise ValueError("run state references a missing event ledger")
+        if expected_revision is not None and expected_revision != state_revision:
+            raise ValueError(
+                f"stale run-state revision: expected {expected_revision}, found {state_revision}"
+            )
+        if phase not in state.get("phases", {}):
+            raise ValueError(f"unknown run phase: {phase}")
+        if status not in PHASE_STATUSES:
+            raise ValueError(f"unknown phase status: {status}")
+        state["phases"][phase] = status
+        now = datetime.now().astimezone().isoformat(timespec="seconds")
+        records = state.setdefault("phase_records", {})
+        previous = dict(records.get(phase, {}))
+        attempts = int(previous.get("attempts", 0)) + (1 if status == "running" else 0)
+        records[phase] = {
+            **previous,
+            "status": status,
+            "updated_at": now,
+            "attempts": attempts,
+            **details,
+        }
+        phase_values = set(state["phases"].values())
+        if "failed" in phase_values:
+            state["status"] = "failed"
+        elif "interrupted" in phase_values:
+            state["status"] = "interrupted"
+        elif all(value in {"completed", "verified"} for value in phase_values):
+            state["status"] = "complete"
+        else:
+            state["status"] = "active"
+        state["updated_at"] = now
+        state["last_transition"] = {"phase": phase, "status": status, **details}
+        state["next_actions"] = next_actions(state)
+        state["revision"] = state_revision + 1
+        state_after = dict(state)
+        state_after.pop("last_event_sha256", None)
+        event = {
+            "schema_version": 1,
+            "run_id": state.get("run_id"),
+            "revision": state["revision"],
+            "previous_revision": state_revision,
+            "previous_event_sha256": state_event,
+            "occurred_at": now,
+            "actor": actor,
+            "phase": phase,
+            "status": status,
+            "details": details,
+            "state_after": state_after,
+        }
+        event["event_sha256"] = canonical_sha256(event)
+        with event_path.open("a", encoding="utf-8") as ledger:
+            ledger.write(json.dumps(event, sort_keys=True, ensure_ascii=False) + "\n")
+            ledger.flush()
+            os.fsync(ledger.fileno())
+        event_path.chmod(0o600)
+        state["last_event_sha256"] = event["event_sha256"]
+        temporary = state_path.with_suffix(".json.tmp")
+        dump_json(temporary, state)
+        temporary.replace(state_path)
 
 
 def next_actions(state: dict[str, object]) -> list[str]:
@@ -280,6 +371,8 @@ def command_init(args: argparse.Namespace) -> int:
         "source_manifest": str(args.source_manifest.resolve()),
         "phases": {phase: "pending" for phase in RUN_PHASES},
         "phase_records": {},
+        "revision": 0,
+        "last_event_sha256": None,
     }
     state["next_actions"] = next_actions(state)
     dump_json(root / "run-state.json", state)
@@ -392,15 +485,10 @@ def snapshot_plan(args: argparse.Namespace, plan_id: str, folders: list[dict], a
         "source": args.source_manifest_data,
         "source_fingerprint": args.source_manifest_data["source_fingerprint"],
         "release_class": args.release_class,
-        "evaluation": {
-            "proposal_id": args.proposal_id,
-            "master_sha256": args.master_sha256,
-            "sample_sha256": args.evaluation_report_data["sample_sha256"],
-            "evaluation_scope": args.evaluation_report_data["evaluation_scope"],
-            "release_class": args.release_class,
-            "config_sha256": args.config_sha256,
-            "passed": True,
-        },
+        "evaluation": args.evaluation_report_data,
+        "evaluation_report_sha256": canonical_sha256(args.evaluation_report_data),
+        "validation": args.validation_report_data,
+        "validation_report_sha256": canonical_sha256(args.validation_report_data),
         "safety_mode": "create-folders-albums-and-add-membership-only",
         "source_album_identifier": args.source_manifest_data["source_identifier"],
         "expected_source_count": args.source_manifest_data["observed_count"],
@@ -475,6 +563,10 @@ def command_snapshot_plans(args: argparse.Namespace) -> int:
     ]
     if unsafe:
         raise ValueError(f"snapshot master contains {len(unsafe)} ineligible safety states")
+    validation_errors, validation_report = validate_master(master_rows, hold_rows, config)
+    if validation_errors:
+        raise ValueError("snapshot plans require a passing exact-master validation")
+    args.validation_report_data = validation_report
     for row in master_rows:
         view = row.get(args.view_column, "").strip() or "00"
         by_view.setdefault(view, []).append(base_identifier(row["uuid"]))
@@ -646,7 +738,14 @@ def command_mark_phase(args: argparse.Namespace) -> int:
     details = {}
     if args.artifact:
         details["artifacts"] = [str(path.resolve()) for path in args.artifact]
-    update_run_state(args.workspace, args.phase, args.status, **details)
+    update_run_state(
+        args.workspace,
+        args.phase,
+        args.status,
+        expected_revision=args.expected_revision,
+        actor="operator",
+        **details,
+    )
     return command_status(argparse.Namespace(workspace=args.workspace))
 
 
@@ -719,6 +818,7 @@ def parser() -> argparse.ArgumentParser:
     mark.add_argument("--phase", choices=RUN_PHASES, required=True)
     mark.add_argument("--status", choices=sorted(PHASE_STATUSES), required=True)
     mark.add_argument("--artifact", type=Path, action="append")
+    mark.add_argument("--expected-revision", type=int)
     mark.set_defaults(func=command_mark_phase)
     return root
 

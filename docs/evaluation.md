@@ -46,3 +46,14 @@ The goal is not to prove the selector is intelligent. The goal is to discover wh
 - A human editor is told that project views remain hypotheses where provenance is incomplete.
 
 Passing the gate means the corpus is ready for editors. It does not mean every category assignment is factually proven.
+
+## Composite evaluation layers
+
+The preferred composite keeps four layers separate:
+
+1. `evals/evals.json` tests skill decisions under synthetic pressure.
+2. `evals/eval-contract.json` requires risk-dimension coverage, explicit decision oracles, and both editor-field and publication positive controls.
+3. `make evals` executes product contracts for exact quotas, relational HOLD closure, holdout independence, run-state concurrency, and artifact-chain binding.
+4. Local field evaluation still inspects real pixels, runs the bounded write test, and independently verifies Apple Photos.
+
+The final holdout must be disjoint from tuning and canaries by canonical UUID and by perceptual, duplicate, and burst relations. Run `audit_eval_split.py` before using holdout results as release evidence. Its default report contains counts and membership digests, not private identifiers.

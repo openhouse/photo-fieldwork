@@ -47,7 +47,7 @@ class SkillBridgeTests(unittest.TestCase):
     def test_skill_eval_bank_and_machine_grader(self):
         eval_path = SCRIPT.parent.parent / "evals" / "evals.json"
         evals = eval_validator.validate_bank(json.loads(eval_path.read_text(encoding="utf-8")))
-        self.assertEqual(len(evals), 16)
+        self.assertEqual(len(evals), 24)
         control = next(item for item in evals if item["name"] == "clean-editor-field-completion")
         response = {
             "decision": "complete",
@@ -60,6 +60,10 @@ class SkillBridgeTests(unittest.TestCase):
                 "fresh_visual_review_required": False,
                 "helper_compatibility_required": False,
                 "independent_verification_required": False,
+                "assignment_reconciliation_required": False,
+                "evaluation_independence_required": False,
+                "artifact_chain_revalidation_required": False,
+                "run_reconciliation_required": False,
             },
             "observed_facts": ["All gates passed."],
             "unknowns": [],
@@ -205,8 +209,18 @@ class SkillBridgeTests(unittest.TestCase):
                 source_manifest_data=source,
                 release_class="editor-field-verified",
                 evaluation_report_data={
+                    "passed": True,
+                    "proposal_id": "pfp-example",
+                    "master_sha256": "a" * 64,
+                    "config_sha256": "c" * 64,
                     "sample_sha256": "b" * 64,
                     "evaluation_scope": "final-stratified-sample",
+                },
+                validation_report_data={
+                    "status": "PASS",
+                    "proposal_id": "pfp-example",
+                    "master_sha256": "a" * 64,
+                    "config_sha256": "c" * 64,
                 },
                 batch_size=100,
                 workspace=Path(directory),
@@ -242,20 +256,27 @@ class SkillBridgeTests(unittest.TestCase):
         ]
         hold_rows = [{"uuid": "HOLD", "safety_status": "hold-human"}]
         digest = bridge.master_sha256(master_rows)
+        proposal_id = f"pfp-{digest[:16]}"
+        master_rows[0]["master_sha256"] = digest
+        master_rows[0]["proposal_id"] = proposal_id
         evaluation = {
             "passed": True,
             "master_bound": True,
             "source_bound": True,
             "source_fingerprint": source["source_fingerprint"],
-            "proposal_id": f"pfp-{digest[:16]}",
+            "proposal_id": proposal_id,
             "master_sha256": digest,
             "sample_sha256": "b" * 64,
             "evaluation_scope": "final-stratified-sample",
             "release_class": "editor-field-verified",
         }
         config = {
+            "schema_version": 2,
+            "seed": 1,
+            "target_count": 1,
+            "unclassified_view": "00",
             "eligible_safety_states": ["clear", "clear-automated", "cleared-human"],
-            "views": [{"id": "00", "label": "Unclassified"}],
+            "views": [{"id": "00", "label": "Unclassified", "quota": 1}],
         }
         evaluation["config_sha256"] = canonical_sha256(config)
         with tempfile.TemporaryDirectory() as directory:

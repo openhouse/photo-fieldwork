@@ -99,6 +99,8 @@ Those are different questions. Photo Fieldwork keeps them different.
 
 - A deterministic, configurable selection engine.
 - Safety holds that cannot enter the master.
+- Relational HOLD closure across duplicate, perceptual, and burst components.
+- Exact per-view quotas with structured scarcity instead of silent padding.
 - Exact, burst, and local perceptual duplicate controls.
 - Named-people and visible-apparatus signals.
 - An unclassified editor field for honest uncertainty.
@@ -106,7 +108,7 @@ Those are different questions. Photo Fieldwork keeps them different.
 - Explicit evaluation scopes and release classes that distinguish sampled field verification from full-master and publication review.
 - Versioned album and whole-visible-library source contracts.
 - Source, configuration, master, hold, plan, helper, receipt, and verification provenance hashes.
-- Resumable run-state transitions and independently typed JSON/Markdown verification reports.
+- Locked, revisioned, hash-linked run-state transitions and independently typed JSON/Markdown verification reports.
 - A fully synthetic practice run.
 - Apple Photos integration guidance and adapter contracts.
 - A case study of how visual inspection changed a real workflow.
@@ -119,7 +121,7 @@ Those are different questions. Photo Fieldwork keeps them different.
 - Direct writes to Photos SQLite.
 - A claim that the generated corpus is the final edit.
 
-Read [the workflow](docs/workflow.md), [the architecture](docs/architecture.md), [the safety model](docs/safety.md), and [the Apple Photos guide](docs/apple-photos.md) before using a private archive. Existing configurations should read the [Revision B migration guide](docs/revision-B.md). Product rationale and sequenced follow-ons are preserved in [recommendations-B.md](recommendations-B.md).
+Read [the workflow](docs/workflow.md), [the architecture](docs/architecture.md), [the safety model](docs/safety.md), and [the Apple Photos guide](docs/apple-photos.md) before using a private archive. The [preferred composite](docs/composite-B.md) records how the parallel revision family was integrated. Existing configurations should read the [Revision B migration guide](docs/revision-B.md). Product rationale and sequenced follow-ons are preserved in [recommendations-B.md](recommendations-B.md).
 
 ## Use it as a Codex skill
 
@@ -156,7 +158,7 @@ python3 -m pip install -e '.[review]'
 
 ## Evaluate the skill safely
 
-The bundled skill includes sixteen synthetic decision drills covering source drift, interruption, safety, evaluation leakage, unsupported views, helper compatibility, preview integrity, publication boundaries, public-report privacy, topology, People context, configuration drift, circular evidence, uncertain dates, and conflicting feedback. The control case confirms that a fully evidenced editor field can complete instead of being reflexively blocked.
+The bundled skill includes twenty-four synthetic decision drills covering source drift, interruption, safety, evaluation leakage, unsupported views, helper compatibility, preview integrity, publication boundaries, public-report privacy, topology, People context, configuration drift, circular evidence, uncertain dates, conflicting feedback, exact quota scarcity, relational safety, holdout independence, concurrent run state, artifact substitution, copied receipts, and protected-source contamination. Separate editor-field and publication controls detect reflexive refusal.
 
 Validate the bank without accessing Apple Photos:
 
@@ -165,4 +167,6 @@ python3 skills/curate-apple-photos/scripts/validate_skill_evals.py \
   --evals skills/curate-apple-photos/evals/evals.json
 ```
 
-See [the eval methodology and hill-climb results](skills/curate-apple-photos/evals/README.md).
+Run the executable composite contracts with `make evals`.
+
+See [the eval methodology](skills/curate-apple-photos/evals/README.md) and [composite hill-climb report](docs/eval-hill-climb-composite-B.md).

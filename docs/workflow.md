@@ -34,6 +34,8 @@ Potential identity documents, private correspondence, contact details, financial
 
 Balance high-confidence evidence, stratified diversity, and exploratory retrieval. Preserve `candidate_views` as retrieval hypotheses and record the reviewed decision separately as `assigned_view`. Preserve `Unclassified / Editor Field`. A useful corpus does not need every image to support a named project claim.
 
+Configured view quotas are exact. If a view lacks enough eligible assignments, report its structured deficit and widen retrieval or revise the brief explicitly. Do not pad it from another view. A direct HOLD propagates through connected duplicate and burst relations before selection.
+
 People associations are first-class archive structure. Preserve named relationships already curated by the archive owner, but never identify unnamed faces or infer sensitive traits.
 
 ## 8. Evaluate and loop
@@ -49,6 +51,8 @@ Produce proposed-master, hold, membership, and append-only decision manifests be
 ## 10. Commit narrowly
 
 Write ten non-sensitive items to a uniquely named test album. Verify exact membership and rerun the test to prove idempotence. Only then create production folders and albums in moderate batches. Record every phase transition atomically so an interruption remains visible and recoverable.
+
+Run state has a monotonically increasing revision and an append-only hash-linked event ledger. Multi-operator transitions should supply the observed revision; stale writers stop and reconcile. If a crash appends an event before replacing `run-state.json`, the next locked transition restores the recorded state before continuing.
 
 ## 11. Verify independently
 

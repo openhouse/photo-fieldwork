@@ -18,6 +18,10 @@ CONTROL_KEYS = {
     "fresh_visual_review_required",
     "helper_compatibility_required",
     "independent_verification_required",
+    "assignment_reconciliation_required",
+    "evaluation_independence_required",
+    "artifact_chain_revalidation_required",
+    "run_reconciliation_required",
 }
 RESPONSE_KEYS = {
     "decision",
@@ -86,6 +90,57 @@ def validate_bank(bank: dict[str, object]) -> list[dict[str, object]]:
         if not all(isinstance(value, bool) for value in controls.values()):
             raise ValueError(f"eval {eval_id} control checks must be boolean")
     return evals
+
+
+def validate_contract(
+    contract: dict[str, object], evals: list[dict[str, object]]
+) -> dict[str, object]:
+    if contract.get("skill_name") != "curate-apple-photos":
+        raise ValueError("eval contract skill_name must be curate-apple-photos")
+    cases = contract.get("cases")
+    if not isinstance(cases, list) or not cases:
+        raise ValueError("eval contract cases must be a non-empty array")
+    eval_ids = {int(item["id"]) for item in evals}
+    case_ids = [item.get("eval_id") for item in cases if isinstance(item, dict)]
+    if set(case_ids) != eval_ids or len(case_ids) != len(set(case_ids)):
+        raise ValueError("eval contract case IDs must exactly match the eval bank")
+    allowed_oracles = {"BLOCK", "REMEDIATE", "PROCEED", "COMPLETE"}
+    dimension_counts: dict[str, int] = {}
+    for case in cases:
+        if not isinstance(case, dict) or case.get("oracle") not in allowed_oracles:
+            raise ValueError("eval contract case has an invalid oracle")
+        dimensions = case.get("dimensions")
+        if not isinstance(dimensions, list) or not dimensions:
+            raise ValueError("eval contract case requires dimensions")
+        for dimension in dimensions:
+            if not isinstance(dimension, str) or not dimension:
+                raise ValueError("eval contract dimensions must be non-empty strings")
+            dimension_counts[dimension] = dimension_counts.get(dimension, 0) + 1
+    requirements = contract.get("required_dimensions")
+    if not isinstance(requirements, dict):
+        raise ValueError("eval contract requires dimension coverage")
+    missing = {
+        name: int(minimum) - dimension_counts.get(name, 0)
+        for name, minimum in requirements.items()
+        if dimension_counts.get(name, 0) < int(minimum)
+    }
+    if missing:
+        raise ValueError(f"eval contract dimension coverage is incomplete: {missing}")
+    positive_ids = contract.get("positive_control_ids")
+    if not isinstance(positive_ids, list) or len(positive_ids) < 2:
+        raise ValueError("eval contract requires editor and publication positive controls")
+    positive_cases = {
+        int(case["eval_id"])
+        for case in cases
+        if isinstance(case, dict) and case.get("oracle") == "COMPLETE"
+    }
+    if set(positive_ids) != positive_cases:
+        raise ValueError("positive controls must exactly match COMPLETE contract cases")
+    return {
+        "case_count": len(cases),
+        "dimension_counts": dict(sorted(dimension_counts.items())),
+        "positive_control_ids": positive_ids,
+    }
 
 
 def find_response(root: Path, eval_id: int, name: str) -> Path:
@@ -168,11 +223,14 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--evals", type=Path, required=True)
     parser.add_argument("--responses", type=Path)
+    parser.add_argument("--contract", type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--ids", type=int, nargs="*")
     args = parser.parse_args()
 
     evals = validate_bank(load_json(args.evals))
+    contract_path = args.contract or args.evals.with_name("eval-contract.json")
+    contract_result = validate_contract(load_json(contract_path), evals)
     if args.ids:
         requested = set(args.ids)
         evals = [item for item in evals if int(item["id"]) in requested]
@@ -180,7 +238,11 @@ def main() -> int:
         if found != requested:
             raise ValueError(f"unknown eval ids: {sorted(requested - found)}")
     if args.responses is None:
-        result: dict[str, object] = {"valid": True, "eval_count": len(evals)}
+        result: dict[str, object] = {
+            "valid": True,
+            "eval_count": len(evals),
+            "contract": contract_result,
+        }
     else:
         result = grade(evals, args.responses)
     rendered = json.dumps(result, indent=2) + "\n"

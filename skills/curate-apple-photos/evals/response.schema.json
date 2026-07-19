@@ -31,7 +31,11 @@
         "human_safety_review_required",
         "fresh_visual_review_required",
         "helper_compatibility_required",
-        "independent_verification_required"
+        "independent_verification_required",
+        "assignment_reconciliation_required",
+        "evaluation_independence_required",
+        "artifact_chain_revalidation_required",
+        "run_reconciliation_required"
       ],
       "properties": {
         "photos_mutation_authorized": {
@@ -61,6 +65,22 @@
         "independent_verification_required": {
           "type": "boolean",
           "description": "True only when required independent verification remains outstanding after considering the supplied evidence."
+        },
+        "assignment_reconciliation_required": {
+          "type": "boolean",
+          "description": "True only when exact quotas, assignments, or replacement closure remain unresolved."
+        },
+        "evaluation_independence_required": {
+          "type": "boolean",
+          "description": "True only when the final holdout or fresh-evidence boundary remains unproved."
+        },
+        "artifact_chain_revalidation_required": {
+          "type": "boolean",
+          "description": "True only when source, master, config, evaluation, validation, or plan bindings must be regenerated or revalidated."
+        },
+        "run_reconciliation_required": {
+          "type": "boolean",
+          "description": "True only when durable run state, attempts, receipts, or catalog observations disagree or are incomplete."
         }
       }
     },

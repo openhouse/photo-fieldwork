@@ -1,5 +1,25 @@
 # Changelog
 
+## Preferred composite B - 2026-07-19
+
+### Added
+
+- Exact per-view quota enforcement with structured scarcity reports.
+- Transitive safety closure across perceptual, duplicate, and burst relations.
+- Identifier-minimized final-holdout independence auditing.
+- Locked run-state revisions and an append-only hash-linked event ledger.
+- Complete evaluation and validation artifact binding inside membership plans.
+- A 24-case skill bank, explicit eval coverage contract, and 12-case recursive executable frontier.
+
+### Changed
+
+- Aggregate target equality can no longer hide per-view quota drift.
+- Stale operators stop instead of overwriting newer run state.
+- A recomputed outer plan hash cannot legitimize substituted upstream evidence.
+- The eval practice now distinguishes prose regression canaries from executable product capabilities.
+
+See [the composite rationale](docs/composite-B.md) and [hill-climb report](docs/eval-hill-climb-composite-B.md).
+
 ## Revision B - 2026-07-15
 
 ### Added

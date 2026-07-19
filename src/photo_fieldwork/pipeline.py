@@ -25,6 +25,29 @@ from .contracts import (
 JUDGMENTS = {"fit", "reject", "uncertain"}
 ASSIGNMENT_STATUSES = {"assigned", "unclassified", "sparse-hypothesis", "held", "rejected"}
 DEFAULT_ELIGIBLE_SAFETY_STATES = {"clear", "clear-automated", "cleared-human"}
+RELATION_FIELDS = (
+    "perceptual_cluster_id",
+    "duplicate_group",
+    "duplicate_group_id",
+    "burst_group",
+)
+
+
+class SelectionInfeasible(ValueError):
+    """Selection cannot satisfy the frozen per-view or diversity contract."""
+
+    def __init__(
+        self,
+        message: str,
+        deficits: dict[str, object],
+        *,
+        holds: list[dict[str, str]] | None = None,
+        partial_master: list[dict[str, str]] | None = None,
+    ):
+        super().__init__(message)
+        self.deficits = deficits
+        self.holds = holds or []
+        self.partial_master = partial_master or []
 
 
 def read_config(path: Path) -> dict:
@@ -145,6 +168,47 @@ def is_assignment_rejected(row: dict[str, str]) -> bool:
     return str(row.get("assignment_status", "assigned")).strip().lower() == "rejected"
 
 
+def relational_hold_origins(
+    rows: list[dict[str, str]], config: dict
+) -> dict[str, list[str]]:
+    """Propagate direct HOLD states through duplicate and burst relations."""
+    parents = list(range(len(rows)))
+
+    def find(index: int) -> int:
+        while parents[index] != index:
+            parents[index] = parents[parents[index]]
+            index = parents[index]
+        return index
+
+    def union(left: int, right: int) -> None:
+        left_root = find(left)
+        right_root = find(right)
+        if left_root != right_root:
+            parents[right_root] = left_root
+
+    first_by_relation: dict[tuple[str, str], int] = {}
+    for index, row in enumerate(rows):
+        for field in RELATION_FIELDS:
+            value = str(row.get(field, "")).strip()
+            if not value:
+                continue
+            key = (field, value)
+            if key in first_by_relation:
+                union(index, first_by_relation[key])
+            else:
+                first_by_relation[key] = index
+
+    origins_by_root: dict[int, set[str]] = defaultdict(set)
+    for index, row in enumerate(rows):
+        if is_hold(row, config):
+            origins_by_root[find(index)].add(str(row["uuid"]))
+    return {
+        str(row["uuid"]): sorted(origins_by_root.get(find(index), set()))
+        for index, row in enumerate(rows)
+        if origins_by_root.get(find(index))
+    }
+
+
 def attention_score(row: dict[str, str]) -> float:
     favorite = truthy(row.get("favorite"))
     edited = truthy(row.get("edited"))
@@ -232,14 +296,26 @@ def rank_row(row: dict[str, str], config: dict) -> float:
 
 
 def select(inventory: list[dict[str, str]], config: dict) -> tuple[list[dict], list[dict], dict]:
-    holds = [dict(row) for row in inventory if is_hold(row, config)]
-    rejected = [dict(row) for row in inventory if not is_hold(row, config) and is_assignment_rejected(row)]
+    hold_origins = relational_hold_origins(inventory, config)
+    holds = []
+    rejected = []
+    eligible_rows = []
+    for row in inventory:
+        identifier = str(row["uuid"])
+        if identifier in hold_origins:
+            item = dict(row)
+            if not is_hold(row, config):
+                item["safety_status"] = "hold-related"
+                item["safety_reason"] = (
+                    "related safety HOLD: " + ";".join(hold_origins[identifier])
+                )
+            holds.append(item)
+        elif is_assignment_rejected(row):
+            rejected.append(dict(row))
+        else:
+            eligible_rows.append(dict(row))
     eligible = cluster_representatives(
-        [
-            dict(row)
-            for row in inventory
-            if not is_hold(row, config) and not is_assignment_rejected(row)
-        ],
+        eligible_rows,
         config,
     )
     for row in eligible:
@@ -267,6 +343,20 @@ def select(inventory: list[dict[str, str]], config: dict) -> tuple[list[dict], l
     for rows in by_view.values():
         rows.sort(key=lambda row: float(row["score_total"]), reverse=True)
 
+    deficits = {
+        str(view["id"]): {
+            "required": int(view["quota"]),
+            "available": len(by_view[str(view["id"])]),
+            "deficit": int(view["quota"]) - len(by_view[str(view["id"])]),
+        }
+        for view in config["views"]
+        if len(by_view[str(view["id"])]) < int(view["quota"])
+    }
+    if deficits:
+        raise SelectionInfeasible(
+            "candidate field cannot satisfy exact view quotas", deficits, holds=holds
+        )
+
     selected: list[dict] = []
     selected_ids: set[str] = set()
     for view in config["views"]:
@@ -274,19 +364,7 @@ def select(inventory: list[dict[str, str]], config: dict) -> tuple[list[dict], l
             if row["uuid"] not in selected_ids:
                 selected.append(row)
                 selected_ids.add(row["uuid"])
-
     target = int(config["target_count"])
-    if len(selected) < target:
-        remainder = sorted(
-            (row for row in eligible if row["uuid"] not in selected_ids),
-            key=lambda row: float(row["score_total"]),
-            reverse=True,
-        )
-        for row in remainder[: target - len(selected)]:
-            selected.append(row)
-            selected_ids.add(row["uuid"])
-
-    selected = selected[:target]
 
     def enforce_floor(predicate, required: int, reason: str) -> None:
         nonlocal selected, selected_ids
@@ -301,11 +379,12 @@ def select(inventory: list[dict[str, str]], config: dict) -> tuple[list[dict], l
         while current < required and candidates:
             incoming = candidates.pop(0)
             donors = sorted(
-                (row for row in selected if not predicate(row)),
-                key=lambda row: (
-                    row["primary_view"] != incoming["primary_view"],
-                    float(row["score_total"]),
+                (
+                    row
+                    for row in selected
+                    if row["primary_view"] == incoming["primary_view"] and not predicate(row)
                 ),
+                key=lambda row: float(row["score_total"]),
             )
             if not donors:
                 break
@@ -322,9 +401,19 @@ def select(inventory: list[dict[str, str]], config: dict) -> tuple[list[dict], l
     enforce_floor(lambda row: bool(split_values(row.get("persons"))), named_floor, "named relationships")
     enforce_floor(lambda row: not bool(split_values(row.get("persons"))), person_free_floor, "person-free material context")
     if sum(bool(split_values(row.get("persons"))) for row in selected) < named_floor:
-        raise ValueError("candidate field cannot satisfy minimum_named_people_fraction")
+        raise SelectionInfeasible(
+            "candidate field cannot satisfy minimum_named_people_fraction",
+            {"minimum_named_people_fraction": {"required": named_floor}},
+            holds=holds,
+            partial_master=selected,
+        )
     if sum(not bool(split_values(row.get("persons"))) for row in selected) < person_free_floor:
-        raise ValueError("candidate field cannot satisfy minimum_person_free_fraction")
+        raise SelectionInfeasible(
+            "candidate field cannot satisfy minimum_person_free_fraction",
+            {"minimum_person_free_fraction": {"required": person_free_floor}},
+            holds=holds,
+            partial_master=selected,
+        )
     selected.sort(key=lambda row: (row["primary_view"], -float(row["score_total"]), row["uuid"]))
     digest = master_sha256(selected)
     proposal_id = f"pfp-{digest[:16]}"
@@ -725,6 +814,19 @@ def validate(master: list[dict[str, str]], holds: list[dict[str, str]], config: 
     missing_views = configured - represented
     if missing_views:
         errors.append(f"configured views absent from master: {', '.join(sorted(missing_views))}")
+    actual_view_counts = Counter(str(row.get("primary_view") or "") for row in master)
+    expected_view_counts = {
+        str(view["id"]): int(view["quota"])
+        for view in config["views"]
+        if int(view["quota"]) > 0
+    }
+    quota_drift = {
+        view_id: {"expected": expected, "actual": actual_view_counts.get(view_id, 0)}
+        for view_id, expected in expected_view_counts.items()
+        if actual_view_counts.get(view_id, 0) != expected
+    }
+    if quota_drift:
+        errors.append(f"master view counts do not match exact quotas: {quota_drift}")
     metrics = {
         "status": "PASS" if not errors else "FAIL",
         "master_count": len(master),
@@ -734,6 +836,10 @@ def validate(master: list[dict[str, str]], holds: list[dict[str, str]], config: 
         "hold_sha256": identifier_set_sha256(hold_ids),
         "ineligible_safety_count": len(unsafe),
         "represented_views": sorted(represented),
+        "view_counts": dict(sorted(actual_view_counts.items())),
+        "expected_view_counts": expected_view_counts,
+        "quota_drift": quota_drift,
+        "config_sha256": canonical_sha256(config),
         "master_sha256": expected_hash,
         "proposal_id": f"pfp-{expected_hash[:16]}",
     }
@@ -781,6 +887,9 @@ def build_catalog_plan(
     if master_ids & hold_ids:
         raise ValueError("catalog plan master overlaps safety holds")
     hold_digest = identifier_set_sha256(hold_ids)
+    validation_errors, validation_report = validate(master, holds, config)
+    if validation_errors:
+        raise ValueError("catalog plan requires a passing exact-master validation")
     view_labels = {view["id"]: view["label"] for view in config["views"]}
     albums = [
         {
@@ -807,15 +916,10 @@ def build_catalog_plan(
         "config_sha256": config_digest,
         "source_fingerprint": source["source_fingerprint"],
         "release_class": actual_release_class,
-        "evaluation": {
-            "proposal_id": evaluation_report["proposal_id"],
-            "master_sha256": evaluation_report["master_sha256"],
-            "sample_sha256": evaluation_report["sample_sha256"],
-            "evaluation_scope": evaluation_report["evaluation_scope"],
-            "release_class": actual_release_class,
-            "config_sha256": config_digest,
-            "passed": True,
-        },
+        "evaluation": dict(evaluation_report),
+        "evaluation_report_sha256": canonical_sha256(evaluation_report),
+        "validation": validation_report,
+        "validation_report_sha256": canonical_sha256(validation_report),
         "created_at": datetime.now(timezone.utc).isoformat(),
         "safety_mode": "create-folders-albums-and-add-membership-only",
         "source": source,

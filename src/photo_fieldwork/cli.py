@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .contracts import build_source_manifest, load_source_manifest, rows_membership_sha256
 from .pipeline import (
+    SelectionInfeasible,
     apply_feedback,
     build_catalog_plan,
     evaluate,
@@ -37,8 +38,32 @@ def markdown_report(title: str, data: dict) -> str:
 def command_select(args: argparse.Namespace) -> int:
     config = read_config(args.config)
     inventory = read_csv(args.inventory)
-    master, holds, summary = select(inventory, config)
     output = args.output
+    try:
+        master, holds, summary = select(inventory, config)
+    except SelectionInfeasible as error:
+        manifests = output / "manifests"
+        reports = output / "reports"
+        reports.mkdir(parents=True, exist_ok=True)
+        if error.holds:
+            write_csv(manifests / "hold-sensitive.csv", error.holds)
+        if error.partial_master:
+            write_csv(manifests / "proposed-master-partial.csv", error.partial_master)
+        report = {
+            "status": "BLOCKED",
+            "reason": str(error),
+            "deficits": error.deficits,
+            "hold_count": len(error.holds),
+            "partial_master_count": len(error.partial_master),
+        }
+        (reports / "selection-failure.json").write_text(
+            json.dumps(report, indent=2) + "\n", encoding="utf-8"
+        )
+        (reports / "selection-failure.md").write_text(
+            markdown_report("Selection failure", report), encoding="utf-8"
+        )
+        print(f"selection blocked: {error}; deficits={error.deficits}", file=sys.stderr)
+        return 2
     write_csv(output / "manifests" / "proposed-master.csv", master)
     write_csv(output / "manifests" / "hold-sensitive.csv", holds)
     reports = output / "reports"

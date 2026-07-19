@@ -170,6 +170,28 @@ def validate_plan(plan: Mapping[str, object]) -> dict[str, object]:
     source = validate_source_manifest(source_value)
     if str(plan.get("source_fingerprint", "")) != str(source["source_fingerprint"]):
         raise ValueError("plan source_fingerprint does not match source manifest")
+    if str(plan.get("operation", "")) == "snapshot-membership":
+        for field, digest_field in (
+            ("evaluation", "evaluation_report_sha256"),
+            ("validation", "validation_report_sha256"),
+        ):
+            artifact = plan.get(field)
+            if not isinstance(artifact, Mapping):
+                raise ValueError(f"snapshot plan {field} must be an object")
+            digest = str(plan.get(digest_field, ""))
+            if digest != canonical_sha256(artifact):
+                raise ValueError(f"snapshot plan {digest_field} does not match {field}")
+        evaluation = plan["evaluation"]
+        validation = plan["validation"]
+        if not isinstance(evaluation, Mapping) or evaluation.get("passed") is not True:
+            raise ValueError("snapshot plan requires a passing evaluation")
+        if not isinstance(validation, Mapping) or validation.get("status") != "PASS":
+            raise ValueError("snapshot plan requires a passing validation")
+        for field in ("proposal_id", "master_sha256", "config_sha256"):
+            if str(evaluation.get(field, "")) != str(plan.get(field, "")):
+                raise ValueError(f"snapshot plan evaluation {field} does not match plan")
+            if str(validation.get(field, "")) != str(plan.get(field, "")):
+                raise ValueError(f"snapshot plan validation {field} does not match plan")
     return dict(plan)
 
 

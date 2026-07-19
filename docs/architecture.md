@@ -35,7 +35,7 @@ retrieval hypotheses + local inspection
 
 ## Core
 
-The standard-library Python core reads a normalized CSV, applies typed safety exclusions, reduces exact, burst, and perceptual clusters, consumes explicit editor assignments, creates selection reasons, freezes proposal and sample hashes, distinguishes evaluation scopes and release classes, validates invariants, and emits an adapter-neutral catalog plan only when the exact master and source match a passing final evaluation.
+The standard-library Python core reads a normalized CSV, propagates typed safety exclusions through connected duplicate and burst relations, consumes explicit editor assignments, enforces exact quotas, creates selection reasons, freezes proposal and sample hashes, distinguishes evaluation scopes and release classes, validates invariants, and emits an adapter-neutral catalog plan only when the exact master and source match passing evaluation and validation artifacts.
 
 The core does not read a Photos database, open images, call a model, or mutate a catalog.
 
@@ -57,7 +57,7 @@ An inspector may add local visible-context, technical-quality, and generalized s
 
 ## Writer adapters
 
-A writer consumes schema-version-2 `catalog-plan.json`. It may create version folders, create albums, and add existing stable IDs. It must not invent selection logic. It must decode and preserve source, proposal, master, hold, plan, release, and helper-revision fields; emit a matching receipt; update durable run state; and be safe to rerun.
+A writer consumes schema-version-2 `catalog-plan.json`. It may create version folders, create albums, and add existing stable IDs. It must not invent selection logic. It must decode and preserve source, proposal, master, hold, evaluation, validation, plan, release, and helper-revision fields; emit a matching receipt; update revisioned hash-linked run state; and be safe to rerun.
 
 ## Verifier adapters
 

@@ -6,6 +6,7 @@
   "required": [
     "schema_version", "plan_id", "plan_sha256", "proposal_id", "master_sha256",
     "hold_sha256", "config_sha256", "source", "source_fingerprint", "release_class",
+    "evaluation", "evaluation_report_sha256", "validation", "validation_report_sha256",
     "safety_mode", "albums"
   ],
   "properties": {
@@ -19,6 +20,10 @@
     "source": {"$ref": "source-manifest.schema.json"},
     "source_fingerprint": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "release_class": {"enum": ["editor-field-verified", "master-human-reviewed", "publication-ready"]},
+    "evaluation": {"type": "object"},
+    "evaluation_report_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "validation": {"type": "object"},
+    "validation_report_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "safety_mode": {"type": "string"},
     "albums": {
       "type": "array",

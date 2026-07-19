@@ -37,3 +37,9 @@ The bank was developed against a snapshot of the pre-eval Revision B skill. All 
 4. The independent final grading pass found 48 of 48 human expectations satisfied, including four held-out cases added after the first hill climb.
 
 The final grader still observed occasional broad workflow boilerplate in otherwise correct answers. This is a useful next benchmark dimension: measure whether an answer stays proportional to the immediate decision without weakening downstream safety boundaries.
+
+## Preferred composite hill climb
+
+The composite expands the bank from 16 to 24 decision drills and adds an explicit coverage contract with two positive controls. The new prose cases proved valuable as regression canaries but did not reliably distinguish the frozen Revision B skill from the composite after their facts were made unambiguous.
+
+The hill climb therefore promoted the enforceable claims into `run_composite_evals.py`. The frozen `456a246` implementation passed 0/8 single mutations and 0/12 after compound expansion. The composite passed 8/8 and then 12/12. See [the full public-safe report](../../../docs/eval-hill-climb-composite-B.md).
