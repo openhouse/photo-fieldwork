@@ -60,6 +60,11 @@ def practice_feedback(sample_path: Path) -> None:
     for index, row in enumerate(rows):
         row["judgment"] = "reject" if index == 3 else "fit"
         row["evaluation_note"] = "Synthetic practice judgment; inspect real pixels in production."
+        row["visible_reason"] = "Synthetic visible evidence for the practice fixture."
+        row["reviewer_actor"] = "synthetic-practice-editor"
+        row["reviewer_lens"] = "practice"
+        row["provenance_status"] = "synthetic"
+        row["editorial_safety_status"] = "clear"
     with sample_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
@@ -75,4 +80,3 @@ def write_demo_readme(path: Path) -> None:
         "safety and Apple Photos documentation.\n",
         encoding="utf-8",
     )
-

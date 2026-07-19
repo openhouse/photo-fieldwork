@@ -1,0 +1,54 @@
+{
+  "scenario": "A 4,000-item final master has a passing aggregate score, but one material view failed and the final holdout overlaps tuning feedback.",
+  "evidence": [
+    {
+      "id": "aggregate-report",
+      "kind": "evaluation_report",
+      "coverage": 0.96,
+      "decisive_precision": 0.93,
+      "minimum_coverage": 0.90,
+      "minimum_precision": 0.80,
+      "status": "aggregate-pass"
+    },
+    {
+      "id": "civic-view-report",
+      "kind": "view_evaluation",
+      "view": "civic-work",
+      "decisive": 8,
+      "fits": 4,
+      "precision": 0.50,
+      "minimum_decisive": 8,
+      "minimum_precision": 0.75,
+      "status": "fail"
+    },
+    {
+      "id": "nightlife-view-report",
+      "kind": "view_evaluation",
+      "view": "nightlife",
+      "decisive": 14,
+      "fits": 13,
+      "precision": 0.93,
+      "minimum_decisive": 8,
+      "minimum_precision": 0.75,
+      "status": "pass"
+    },
+    {
+      "id": "holdout-audit",
+      "kind": "sample_lineage",
+      "sample_role": "final-holdout",
+      "sample_count": 200,
+      "overlap_with_tuning_feedback": 7,
+      "status": "contaminated"
+    },
+    {
+      "id": "final-master",
+      "kind": "manifest_summary",
+      "unique_stills": 4000,
+      "target": 4000
+    }
+  ],
+  "constraints": [
+    "A passing aggregate cannot override a failed material view.",
+    "A final holdout must be untouched by tuning feedback."
+  ]
+}

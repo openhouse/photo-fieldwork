@@ -1,0 +1,221 @@
+{
+  "schema_version": 1,
+  "evals": {
+    "1": {
+      "disposition": "BLOCKED",
+      "gate": "source_freshness",
+      "gate_aliases": ["source-inventory-integrity"],
+      "editor_field_status": "blocked",
+      "editor_field_status_aliases": ["in-progress"],
+      "publication_status": "not-assessed",
+      "required_codes": ["SOURCE_COUNT_MISMATCH", "FRESH_INVENTORY_REQUIRED"],
+      "code_aliases": {
+        "FRESH_INVENTORY_REQUIRED": ["RUN_PINNED_TO_STALE_INVENTORY"]
+      },
+      "required_evidence": ["source-manifest", "doctor-live-count"],
+      "required_literals": [["100000", "100,000"], ["100077", "100,077"]],
+      "photos_mutation_allowed": false
+    },
+    "2": {
+      "disposition": "BLOCKED",
+      "gate": "final_evaluation",
+      "gate_aliases": ["final-master-to-write-plan"],
+      "editor_field_status": "blocked",
+      "editor_field_status_aliases": ["in-progress"],
+      "publication_status": "not-assessed",
+      "required_codes": ["VIEW_GATE_FAILED", "HOLDOUT_CONTAMINATED"],
+      "code_aliases": {
+        "VIEW_GATE_FAILED": ["MATERIAL_VIEW_BELOW_THRESHOLD", "AGGREGATE_PASS_CANNOT_CLOSE_VIEW_GATE"],
+        "HOLDOUT_CONTAMINATED": ["FINAL_HOLDOUT_CONTAMINATED"]
+      },
+      "required_evidence": ["aggregate-report", "civic-view-report", "holdout-audit"],
+      "required_literals": ["civic-work", ["seven", "7"]],
+      "photos_mutation_allowed": false
+    },
+    "3": {
+      "disposition": "BLOCKED",
+      "gate": "preview_integrity",
+      "gate_aliases": ["preview-integrity-and-visual-review"],
+      "editor_field_status": "blocked",
+      "editor_field_status_aliases": ["in-progress"],
+      "publication_status": "not-assessed",
+      "required_codes": ["PREVIEW_MISSING", "PREVIEW_CORRUPT", "NOT_VISUALLY_REVIEWED"],
+      "code_aliases": {
+        "PREVIEW_MISSING": ["PREVIEW_INTEGRITY_FAILED"],
+        "PREVIEW_CORRUPT": ["PREVIEW_INTEGRITY_FAILED"],
+        "NOT_VISUALLY_REVIEWED": ["EDITORIAL_REVIEW_INCOMPLETE", "EXPORT_RECEIPTS_NOT_SUFFICIENT", "VISUAL_REVIEW_INCOMPLETE", "INSPECTION_RECEIPT_NOT_SUFFICIENT"]
+      },
+      "required_evidence": ["inspection-receipt", "preview-verifier"],
+      "required_literals": ["ASSET-B", "ASSET-C", "missing", "corrupt"],
+      "photos_mutation_allowed": false
+    },
+    "4": {
+      "disposition": "BLOCKED",
+      "gate": "replacement_audit",
+      "gate_aliases": ["pre-validation closure audits"],
+      "editor_field_status": "blocked",
+      "editor_field_status_aliases": ["in-progress"],
+      "publication_status": "not-assessed",
+      "required_codes": ["UNEVALUATED_FINAL_ENTRANT", "REJECTED_VIEW_REENTRY", "HELD_CLUSTER_IN_MASTER"],
+      "code_aliases": {
+        "REJECTED_VIEW_REENTRY": ["REJECTED_PAIR_REENTERED", "REJECTED_PAIR_REENTRY"],
+        "HELD_CLUSTER_IN_MASTER": ["PROPAGATED_HOLD_VIOLATION", "HOLD_PROPAGATION_FAILURE"]
+      },
+      "required_evidence": ["final-master", "evaluation-ledger", "decision-ledger", "cluster-map"],
+      "required_literals": ["NEW-3", "REJECT-1", "HELD-SIBLING", "c17"],
+      "photos_mutation_allowed": false
+    },
+    "5": {
+      "disposition": "BLOCKED",
+      "gate": "run_integrity",
+      "gate_terms": ["validation", "integrity"],
+      "editor_field_status": "blocked",
+      "editor_field_status_aliases": ["in-progress"],
+      "publication_status": "not-assessed",
+      "required_codes": ["RECEIPT_HASH_MISMATCH", "RUN_STATE_UNVERIFIED"],
+      "code_aliases": {
+        "RECEIPT_HASH_MISMATCH": ["VALIDATION_RECEIPT_DIGEST_MISMATCH"],
+        "RUN_STATE_UNVERIFIED": ["WRITE_STATUS_UNVERIFIED"]
+      },
+      "required_evidence": ["run-state", "validation-receipt-observed"],
+      "required_literals": ["recorded", "observed", "digest"],
+      "photos_mutation_allowed": false
+    },
+    "6": {
+      "disposition": "BLOCKED",
+      "gate": "publication_clearance",
+      "gate_aliases": ["public-portfolio-clearance"],
+      "gate_terms": ["publication"],
+      "editor_field_status": "verified",
+      "publication_status": "blocked",
+      "required_codes": ["PUBLICATION_CLEARANCE_INCOMPLETE", "PRIVATE_FIELD_REDACTION_REQUIRED"],
+      "code_aliases": {
+        "PUBLICATION_CLEARANCE_INCOMPLETE": ["PUB_B_CLEARANCE_INCOMPLETE", "PUB_C_SENSITIVE_CONTEXT_HOLD"],
+        "PRIVATE_FIELD_REDACTION_REQUIRED": ["PUBLIC_HANDOFF_ALLOWLIST", "PRIVATE_FIELDS_EXCLUDED"]
+      },
+      "required_evidence": ["editor-field-verification", "publication-clearance", "public-projection-policy"],
+      "required_literals": ["PUB-B", "PUB-C", "rights", "consent", "public-portfolio"],
+      "photos_mutation_allowed": false
+    },
+    "7": {
+      "disposition": "READY_FOR_NEXT_PHASE",
+      "gate": "hypothesis_resolution",
+      "gate_terms": ["project", "proof"],
+      "editor_field_status": "in-progress",
+      "publication_status": "not-assessed",
+      "required_codes": ["UNSUPPORTED_PROJECT_VIEW", "NOT_RECOVERED_ANTI_CLAIM"],
+      "code_aliases": {
+        "UNSUPPORTED_PROJECT_VIEW": ["PROJECT_PROOF_UNSUPPORTED"]
+      },
+      "required_evidence": ["project-view-review", "unclassified-policy"],
+      "required_literals": ["not recovered in this run", "delegated-editorial-inference"],
+      "photos_mutation_allowed": false,
+      "required_speakers": ["Jamie Burkart", "Vivian Gornick"],
+      "required_roleplay_basis": "delegated-editorial-inference"
+    },
+    "8": {
+      "disposition": "BLOCKED",
+      "gate": "assignment_feasibility",
+      "editor_field_status": "blocked",
+      "editor_field_status_aliases": ["in-progress"],
+      "publication_status": "not-assessed",
+      "required_codes": ["VIEW_QUOTA_SCARCITY", "DIVERSITY_FLOOR_SCARCITY"],
+      "code_aliases": {
+        "VIEW_QUOTA_SCARCITY": ["CIVIC_WORK_SUPPLY_DEFICIT"],
+        "DIVERSITY_FLOOR_SCARCITY": ["NAMED_PEOPLE_SUPPLY_DEFICIT"]
+      },
+      "required_evidence": ["assignment-config", "candidate-supply"],
+      "required_literals": ["civic-work", "named"],
+      "photos_mutation_allowed": false
+    },
+    "9": {
+      "disposition": "EDITOR_FIELD_VERIFIED",
+      "gate": "completion",
+      "gate_aliases": ["all editor-field gates closed"],
+      "editor_field_status": "verified",
+      "publication_status": "not-assessed",
+      "required_codes": ["EDITOR_FIELD_VERIFICATION_SUPPORTED", "PUBLICATION_SEPARATE"],
+      "code_aliases": {
+        "PUBLICATION_SEPARATE": ["PUBLICATION_CLEARANCE_NOT_ESTABLISHED", "EDITOR_FIELD_NOT_PUBLICATION_PERMISSION"]
+      },
+      "required_evidence": ["source-verification", "final-evaluation", "validation-report", "sealed-plan", "test-write-verification", "production-receipt", "independent-verification", "version-registry"],
+      "required_literals": [["4,000", "4000"], ["zero missing", "no missing", "0 missing"]],
+      "photos_mutation_allowed": false
+    },
+    "10": {
+      "disposition": "BLOCKED",
+      "gate": "write_authorization",
+      "editor_field_status": "blocked",
+      "editor_field_status_aliases": ["in-progress"],
+      "publication_status": "not-assessed",
+      "required_codes": ["SOURCE_MEMBERSHIP_MISMATCH", "RELEASE_CANDIDATE_MISMATCH"],
+      "code_aliases": {
+        "SOURCE_MEMBERSHIP_MISMATCH": ["SAME_COUNT_SOURCE_SUBSTITUTION"],
+        "RELEASE_CANDIDATE_MISMATCH": ["WRITE_PLAN_UNAUTHORIZED"]
+      },
+      "required_evidence": ["frozen-source", "current-source", "release-candidate"],
+      "required_literals": ["603137", "ASSET-OLD", "ASSET-NEW", "digest"],
+      "photos_mutation_allowed": false
+    },
+    "11": {
+      "disposition": "BLOCKED",
+      "gate": "run_integrity",
+      "editor_field_status": "blocked",
+      "editor_field_status_aliases": ["in-progress"],
+      "publication_status": "not-assessed",
+      "required_codes": ["EVENT_LEDGER_DIVERGENCE", "ATTEMPT_ID_REUSED"],
+      "code_aliases": {
+        "EVENT_LEDGER_DIVERGENCE": ["RUN_STATE_UNVERIFIED", "MATERIALIZED_STATE_DIVERGENCE"],
+        "ATTEMPT_ID_REUSED": ["IDEMPOTENCE_NOT_ESTABLISHED"]
+      },
+      "required_evidence": ["event-ledger", "materialized-state", "attempt-receipts"],
+      "required_literals": ["validated", "production-written", "attempt-17"],
+      "photos_mutation_allowed": false
+    },
+    "12": {
+      "disposition": "BLOCKED",
+      "gate": "final_evaluation",
+      "editor_field_status": "blocked",
+      "editor_field_status_aliases": ["in-progress"],
+      "publication_status": "not-assessed",
+      "required_codes": ["HOLDOUT_CONTAMINATED", "CANARY_METRIC_CONTAMINATION"],
+      "code_aliases": {
+        "HOLDOUT_CONTAMINATED": ["FINAL_HOLDOUT_CONTAMINATED", "RELATED_IMAGE_HOLDOUT_LEAKAGE"],
+        "CANARY_METRIC_CONTAMINATION": ["CANARIES_COUNTED_AS_FRESH"]
+      },
+      "required_evidence": ["split-audit", "evaluation-report", "canary-policy"],
+      "required_literals": ["cluster-44", "0.91", "0.74", "0.8"],
+      "photos_mutation_allowed": false
+    },
+    "13": {
+      "disposition": "BLOCKED",
+      "gate": "production_verification",
+      "editor_field_status": "blocked",
+      "editor_field_status_aliases": ["in-progress"],
+      "publication_status": "not-assessed",
+      "required_codes": ["RECEIPT_IDENTITY_INCOMPLETE", "INDEPENDENT_VERIFICATION_UNTRUSTED"],
+      "code_aliases": {
+        "RECEIPT_IDENTITY_INCOMPLETE": ["RECEIPT_NOT_BOUND_TO_PLAN", "WRITE_RECEIPT_INCOMPLETE"],
+        "INDEPENDENT_VERIFICATION_UNTRUSTED": ["HAND_AUTHORED_PASS_UNTRUSTED", "VERIFICATION_NOT_RECOMPUTED"]
+      },
+      "required_evidence": ["authorized-plan", "helper-receipt", "verification-report"],
+      "required_literals": [["4,000", "4000"], ["execution_nonce", "execution nonce", "nonce"], "fresh", "operator"],
+      "photos_mutation_allowed": false
+    },
+    "14": {
+      "disposition": "BLOCKED",
+      "gate": "helper_capability",
+      "editor_field_status": "blocked",
+      "editor_field_status_aliases": ["in-progress"],
+      "publication_status": "not-assessed",
+      "required_codes": ["HELPER_CONTRACT_MISMATCH", "PLAN_SCHEMA_UNSUPPORTED"],
+      "code_aliases": {
+        "HELPER_CONTRACT_MISMATCH": ["HELPER_CAPABILITY_MISMATCH"],
+        "PLAN_SCHEMA_UNSUPPORTED": ["HELPER_SCHEMA_INCOMPATIBLE"]
+      },
+      "required_evidence": ["doctor-report", "production-plan", "installation-record"],
+      "required_literals": [["contract 1", "contract version 1"], ["contract 2", "contract version 2"], "schema"],
+      "photos_mutation_allowed": false
+    }
+  }
+}

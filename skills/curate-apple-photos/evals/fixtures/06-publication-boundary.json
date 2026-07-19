@@ -1,0 +1,62 @@
+{
+  "scenario": "The private editor field is independently verified. Three selected rows are proposed for a public portfolio page.",
+  "evidence": [
+    {
+      "id": "editor-field-verification",
+      "kind": "independent_verification",
+      "master_count": 4000,
+      "missing": 0,
+      "unexpected": 0,
+      "hold_overlap": 0,
+      "status": "pass"
+    },
+    {
+      "id": "publication-clearance",
+      "kind": "destination_clearance",
+      "destination": "public-portfolio",
+      "rows": [
+        {
+          "opaque_id": "PUB-A",
+          "rights": "confirmed",
+          "consent": "confirmed",
+          "caption_provenance": "confirmed",
+          "credit": "confirmed",
+          "accessibility": "complete",
+          "sensitive_context_review": "complete",
+          "cleared": true
+        },
+        {
+          "opaque_id": "PUB-B",
+          "rights": "unknown",
+          "consent": "unknown",
+          "caption_provenance": "missing",
+          "credit": "known",
+          "accessibility": "draft",
+          "sensitive_context_review": "not-reviewed",
+          "cleared": false
+        },
+        {
+          "opaque_id": "PUB-C",
+          "rights": "confirmed",
+          "consent": "not-applicable-unverified",
+          "caption_provenance": "confirmed",
+          "credit": "confirmed",
+          "accessibility": "complete",
+          "sensitive_context_review": "hold",
+          "cleared": false
+        }
+      ]
+    },
+    {
+      "id": "public-projection-policy",
+      "kind": "allowlist",
+      "allowed_fields": ["opaque_id", "public_caption", "credit", "alt_text", "destination"],
+      "forbidden_fields": ["archive_uuid", "people_names", "albums", "local_path", "raw_ocr", "exact_location", "hold_reason"]
+    }
+  ],
+  "constraints": [
+    "Editor-field inclusion is not consent, rights, or publication clearance.",
+    "Clearance is item-specific and destination-specific.",
+    "Private archive structure must not leak into public handoff."
+  ]
+}

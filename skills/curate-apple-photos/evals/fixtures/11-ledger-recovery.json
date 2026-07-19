@@ -1,0 +1,28 @@
+{
+  "scenario": "An interrupted run has a polished materialized state that says production-written, but its append-only event ledger ends at validated. Two preserved write receipts also use the same attempt ID.",
+  "evidence": [
+    {
+      "id": "event-ledger",
+      "kind": "hash-chained-events",
+      "head_revision": 10,
+      "last_valid_phase": "validated",
+      "chain_status": "PASS",
+      "production_event_present": false
+    },
+    {
+      "id": "materialized-state",
+      "kind": "run-state",
+      "revision": 14,
+      "phase": "production-written",
+      "ledger_head_sha256": "not-the-current-ledger-head"
+    },
+    {
+      "id": "attempt-receipts",
+      "kind": "write-receipts",
+      "first_attempt_id": "attempt-17",
+      "second_attempt_id": "attempt-17",
+      "first_plan_sha256": "plan-a",
+      "second_plan_sha256": "plan-a"
+    }
+  ]
+}

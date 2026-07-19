@@ -1,0 +1,38 @@
+{
+  "scenario": "The configuration requests exact view quotas and global representation floors, but the eligible supply cannot satisfy them jointly.",
+  "evidence": [
+    {
+      "id": "assignment-config",
+      "kind": "selection_config",
+      "target": 12,
+      "view_quotas": {
+        "civic-work": 4,
+        "nightlife": 4,
+        "unclassified": 4
+      },
+      "minimum_named_people": 5,
+      "minimum_person_free": 5
+    },
+    {
+      "id": "candidate-supply",
+      "kind": "eligible_supply",
+      "unique_eligible": 14,
+      "eligible_by_view": {
+        "civic-work": 3,
+        "nightlife": 7,
+        "unclassified": 8
+      },
+      "named_people_eligible": 4,
+      "person_free_eligible": 9,
+      "notes": [
+        "Some candidates are eligible for more than one view.",
+        "No additional candidate has inspected evidence supporting civic-work or named-people status."
+      ]
+    }
+  ],
+  "constraints": [
+    "Do not silently lower quotas or floors.",
+    "Do not assign a candidate to a view unsupported by inspected evidence.",
+    "Return scarcity diagnostics and ask for new evidence or an explicitly revised config."
+  ]
+}

@@ -32,11 +32,12 @@ make check
 
 1. Copy `config/starter.json` and edit the views, quotas, and thresholds.
 2. Prepare a CSV using `schemas/inventory-fields.md`.
-3. Run the selection and create an evaluation sample.
-4. Inspect sampled images locally and record `fit`, `reject`, or `uncertain`.
-5. Evaluate, revise, and repeat until the agreed criteria pass.
-6. Generate a catalog write plan. Test ten items before any production write.
-7. Verify the committed album membership independently and read-only.
+3. Freeze exact source membership, then run selection and create an evaluation sample.
+4. Build the offline review surface, inspect sampled images locally, and record `fit`, `reject`, or `uncertain`.
+5. Append feedback to the decision ledger, apply it to candidates, and repeat until every view passes.
+6. Audit tuning/final/canary separation and run a candidate-bound final evaluation.
+7. Generate a sealed catalog plan from the unchanged source, candidate, evaluation, and validation artifacts. Test ten items before production.
+8. Verify helper receipts, idempotence, and committed membership against a private WAL-visible read-only snapshot.
 
 ```bash
 ./bin/photo-fieldwork select \
@@ -44,15 +45,41 @@ make check
   --config path/to/config.json \
   --output runs/my-run
 
+./bin/photo-fieldwork source-freeze \
+  --inventory path/to/inventory.csv \
+  --source-adapter apple-photos \
+  --source-identifier SOURCE-ID \
+  --predicate-version visible-stills-v1 \
+  --output runs/my-run/manifests/source-manifest.json
+
 ./bin/photo-fieldwork sample \
   --master runs/my-run/manifests/proposed-master.csv \
   --output runs/my-run/manifests/eval-sample.csv \
   --per-view 3
 
+./bin/photo-fieldwork review \
+  --sample runs/my-run/manifests/eval-sample.csv \
+  --previews runs/my-run/previews \
+  --output runs/my-run/review
+
+./bin/photo-fieldwork audit-evaluation-splits \
+  --tuning runs/my-run/manifests/tuning-feedback.csv \
+  --final-holdout runs/my-run/manifests/eval-sample.csv \
+  --canaries runs/my-run/manifests/regression-canaries.csv \
+  --output runs/my-run/reports/evaluation-split-audit.json
+
 ./bin/photo-fieldwork evaluate \
   --feedback runs/my-run/manifests/eval-sample.csv \
+  --master runs/my-run/manifests/proposed-master.csv \
+  --source-manifest runs/my-run/manifests/source-manifest.json \
+  --scope final-holdout \
   --config path/to/config.json \
   --output runs/my-run/reports
+
+./bin/photo-fieldwork decisions-append \
+  --feedback runs/my-run/manifests/eval-sample.csv \
+  --ledger runs/my-run/manifests/editorial-decisions.csv \
+  --round-id round-01
 
 ./bin/photo-fieldwork validate \
   --master runs/my-run/manifests/proposed-master.csv \
@@ -62,10 +89,16 @@ make check
 
 ./bin/photo-fieldwork plan \
   --master runs/my-run/manifests/proposed-master.csv \
+  --holds runs/my-run/manifests/hold-sensitive.csv \
   --config path/to/config.json \
   --plan-id my-run-v01 \
-  --source-title "Wide retrieval - do not edit" \
-  --source-identifier SOURCE-ID \
+  --source-inventory path/to/inventory.csv \
+  --source-manifest runs/my-run/manifests/source-manifest.json \
+  --evaluation-sample runs/my-run/manifests/eval-sample.csv \
+  --tuning-sample runs/my-run/manifests/tuning-feedback.csv \
+  --evaluation-report runs/my-run/reports/evaluation-report.json \
+  --validation-report runs/my-run/reports/validation-report.json \
+  --split-audit-report runs/my-run/reports/evaluation-split-audit.json \
   --output runs/my-run/manifests/catalog-plan.json
 ```
 
@@ -82,12 +115,23 @@ Those are different questions. Photo Fieldwork keeps them different.
 ## What is included
 
 - A deterministic, configurable selection engine.
+- Exact multi-view quota assignment with named-people and person-free floors solved together.
 - Safety holds that cannot enter the master.
 - Duplicate and burst controls.
 - Named-people and visible-apparatus signals.
 - An unclassified editor field for honest uncertainty.
-- Stratified evaluation samples and precision thresholds.
+- Stratified evaluation samples with enforced overall and per-view evidence gates.
+- An append-only editorial decision ledger and replacement-entry audit.
+- A hash-chained append-only run ledger, atomic recovery, revision checks, and unique write attempts.
+- Frozen source manifests and content-addressed release candidates that bind every write authorization input.
+- Relationship-level final-holdout audits and canaries that cannot inflate final quality metrics.
+- Capability-negotiated helper receipts and WAL-visible frozen independent verification snapshots.
+- Conflict-safe candidate and inspection batch utilities.
+- An offline local review surface that downloads compact feedback CSV.
+- Prior-version integrity registration and publication-clearance manifests.
+- A whole-visible-library Apple Photos inventory adapter.
 - A fully synthetic practice run.
+- Fourteen adversarial skill-behavior evals with a deterministic evidence-closure grader and repeatable agent runner.
 - Apple Photos integration guidance and adapter contracts.
 - A case study of how visual inspection changed a real workflow.
 
@@ -99,7 +143,7 @@ Those are different questions. Photo Fieldwork keeps them different.
 - Direct writes to Photos SQLite.
 - A claim that the generated corpus is the final edit.
 
-Read [the workflow](docs/workflow.md), [the architecture](docs/architecture.md), [the safety model](docs/safety.md), and [the Apple Photos guide](docs/apple-photos.md) before using a private archive.
+Read [the composite design](docs/composite-revision-e.md), [the workflow](docs/workflow.md), [the architecture](docs/architecture.md), [the safety model](docs/safety.md), and [the Apple Photos guide](docs/apple-photos.md) before using a private archive.
 
 ## Use it as a Codex skill
 

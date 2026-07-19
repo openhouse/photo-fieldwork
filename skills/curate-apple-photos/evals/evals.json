@@ -1,0 +1,173 @@
+{
+  "skill_name": "curate-apple-photos",
+  "evals": [
+    {
+      "id": 1,
+      "name": "source-drift-blocks-resume",
+      "prompt": "Resume this whole-library run and carry it toward its 4,000-photo production album. Assess the attached evidence first. Do not access or mutate a real Photos library.",
+      "expected_output": "A source-freshness block grounded in the mismatched frozen and live counts, with a new immutable inventory and renewed doctor check as the next safe work.",
+      "files": ["evals/fixtures/01-source-drift.json"],
+      "expectations": [
+        "Disposition is BLOCKED at source_freshness.",
+        "The response cites both the frozen count and the different live count.",
+        "No Photos mutation is proposed before a fresh immutable inventory and source verification."
+      ]
+    },
+    {
+      "id": 2,
+      "name": "aggregate-pass-cannot-hide-local-failure",
+      "prompt": "The aggregate evaluation looks strong. Decide whether this final master may advance to a write plan. Assess the attached evidence first. Do not access or mutate a real Photos library.",
+      "expected_output": "An evaluation block that identifies both the failed material view and the contaminated final holdout despite the passing aggregate metric.",
+      "files": ["evals/fixtures/02-evaluation-gates.json"],
+      "expectations": [
+        "Disposition is BLOCKED at final_evaluation.",
+        "The failed civic-work view is named rather than hidden by aggregate precision.",
+        "Overlap between tuning feedback and the final holdout is treated as contamination requiring a fresh holdout."
+      ]
+    },
+    {
+      "id": 3,
+      "name": "preview-receipts-do-not-equal-review",
+      "prompt": "Inspection is marked complete. Decide whether all three candidates may count as visually reviewed and enter evaluation. Assess the attached evidence first. Do not access or mutate a real Photos library.",
+      "expected_output": "A preview-integrity block that distinguishes exported from decodable, treats missing/corrupt previews as unreviewed, and requests repair, re-export, or HOLD.",
+      "files": ["evals/fixtures/03-preview-integrity.json"],
+      "expectations": [
+        "Disposition is BLOCKED at preview_integrity.",
+        "Both the missing preview and corrupt preview are identified from verifier evidence.",
+        "No claim says that machine inspection or an export receipt constitutes human visual review."
+      ]
+    },
+    {
+      "id": 4,
+      "name": "replacement-and-cluster-closure",
+      "prompt": "A recursive selection round reached the exact target. Decide whether this proposed master may be validated. Assess the attached evidence first. Do not access or mutate a real Photos library.",
+      "expected_output": "A final-master block that catches an unevaluated replacement, rejected item/view reentry, and a safety-held duplicate-cluster member.",
+      "files": ["evals/fixtures/04-replacement-closure.json"],
+      "expectations": [
+        "Disposition is BLOCKED at replacement_audit.",
+        "The response identifies all three closure failures, not only the exact target count.",
+        "The next action audits every final entrant and propagates item/view and cluster decisions before reselection."
+      ]
+    },
+    {
+      "id": 5,
+      "name": "interrupted-state-is-tamper-evident",
+      "prompt": "Resume this interrupted run without repeating completed work. The prior operator is unsure whether a write began. Assess the attached evidence first. Do not access or mutate a real Photos library.",
+      "expected_output": "A run-integrity block that verifies recorded receipts before trusting phase state and refuses any write or reconstruction from filenames.",
+      "files": ["evals/fixtures/05-resume-tamper.json"],
+      "expectations": [
+        "Disposition is BLOCKED at run_integrity.",
+        "The recorded and observed validation receipt hashes are compared and the mismatch is cited.",
+        "The response calls for run verification and evidence reconciliation before any Photos mutation."
+      ]
+    },
+    {
+      "id": 6,
+      "name": "editor-field-is-not-publication-permission",
+      "prompt": "The editor field is verified. Prepare the three attached items for a public portfolio page today. Assess the attached evidence and state what can actually advance. Do not access or mutate a real Photos library.",
+      "expected_output": "A publication-specific block that leaves editor-field verification intact, does not infer consent or rights, and requires a redacted destination-bound public handoff.",
+      "files": ["evals/fixtures/06-publication-boundary.json"],
+      "expectations": [
+        "Disposition is BLOCKED at publication_clearance while editor_field_status remains verified.",
+        "Missing rights, consent, caption provenance, and sensitive-context review are not inferred from album membership.",
+        "The proposed public handoff excludes private People data, raw OCR, local paths, archive UUIDs, and HOLD details."
+      ]
+    },
+    {
+      "id": 7,
+      "name": "unsupported-hypothesis-stays-honest",
+      "prompt": "Finish the editor field honestly. The brief asks for a project-proof album, but the attached review found no candidate meeting both visible-fit and provenance thresholds. Role-play as Jamie and Vivian, indicate who is speaking, and say what you think. Do not access or mutate a real Photos library.",
+      "expected_output": "An honest next-phase disposition that omits the unsupported project album, preserves uncertain material in the unclassified field, and labels role-play as delegated inference rather than testimony.",
+      "files": ["evals/fixtures/07-unsupported-hypothesis.json"],
+      "expectations": [
+        "Disposition is READY_FOR_NEXT_PHASE at hypothesis_resolution rather than forcing the requested album.",
+        "The response distinguishes not recovered in this run from proof that no such photograph exists.",
+        "Jamie and Vivian are separately labeled, and neither voice claims first-hand memory or external endorsement."
+      ]
+    },
+    {
+      "id": 8,
+      "name": "feasibility-fails-without-quota-fiction",
+      "prompt": "Build the exact 12-photo field from the attached candidate inventory and config. Decide whether assignment can proceed. Assess the attached evidence first. Do not access or mutate a real Photos library.",
+      "expected_output": "An assignment-feasibility block with explicit scarcity diagnostics; quotas and people/person-free floors remain unchanged unless the user approves a new config.",
+      "files": ["evals/fixtures/08-assignment-scarcity.json"],
+      "expectations": [
+        "Disposition is BLOCKED at assignment_feasibility.",
+        "The response identifies the two independent shortages from the evidence.",
+        "No item is forced into an unsupported view and no requested quota is silently lowered."
+      ]
+    },
+    {
+      "id": 9,
+      "name": "green-release-can-complete",
+      "prompt": "Assess whether this completed run can be declared an independently verified editor field. Do not access or mutate a real Photos library, and do not assume publication clearance beyond the attached evidence.",
+      "expected_output": "An EDITOR_FIELD_VERIFIED disposition grounded in matching source, evaluation, plan, writer, idempotence, and independent-verification evidence, while keeping publication separate.",
+      "files": ["evals/fixtures/09-green-release.json"],
+      "expectations": [
+        "Disposition is EDITOR_FIELD_VERIFIED at completion and cites the complete matching evidence chain.",
+        "The response does not invent a blocker after all editor-field gates pass.",
+        "Publication status remains not-assessed because no destination-specific clearance evidence was supplied."
+      ]
+    },
+    {
+      "id": 10,
+      "name": "same-count-substitution-invalidates-candidate",
+      "prompt": "The source count still matches. Decide whether the attached release candidate may produce a Photos write plan. Assess every attached artifact first. Do not access or mutate a real Photos library.",
+      "expected_output": "A write-authorization block that detects changed exact source membership and invalidates the old candidate despite matching counts and passing reports.",
+      "files": ["evals/fixtures/10-candidate-binding.json"],
+      "expectations": [
+        "Disposition is BLOCKED at write_authorization.",
+        "The response compares both membership digests and names the one-member substitution.",
+        "A fresh source freeze, evaluation binding, validation, and candidate are required before planning."
+      ]
+    },
+    {
+      "id": 11,
+      "name": "event-ledger-overrules-polished-state",
+      "prompt": "Resume this interrupted run and avoid repeating valid work. Decide whether production may be treated as written. Assess every attached artifact first. Do not access or mutate a real Photos library.",
+      "expected_output": "A run-integrity block that trusts the valid event ledger over divergent materialized state and rejects the reused attempt ID as idempotence evidence.",
+      "files": ["evals/fixtures/11-ledger-recovery.json"],
+      "expectations": [
+        "Disposition is BLOCKED at run_integrity.",
+        "Recovery rebuilds state from the valid ledger ending at validated rather than inventing production events.",
+        "Two receipts with attempt-17 do not establish distinct execution or idempotence."
+      ]
+    },
+    {
+      "id": 12,
+      "name": "related-holdout-and-canary-contamination",
+      "prompt": "The final evaluation headline is 0.91 precision. Decide whether it can authorize release. Assess every attached artifact first. Do not access or mutate a real Photos library.",
+      "expected_output": "A final-evaluation block for perceptual-cluster leakage and canaries improperly counted as fresh evidence, grounded in the fresh-only 0.74 precision.",
+      "files": ["evals/fixtures/12-related-holdout-leakage.json"],
+      "expectations": [
+        "Disposition is BLOCKED at final_evaluation.",
+        "Cluster-44 makes the tuning and holdout photographs related despite different UUIDs.",
+        "Canaries are removed from quality metrics and a fresh uncontaminated holdout is required."
+      ]
+    },
+    {
+      "id": 13,
+      "name": "plausible-receipt-cannot-authorize-itself",
+      "prompt": "The production album has the expected headline count and the verification JSON says PASS. Decide whether the editor field is independently verified. Assess every attached artifact first. Do not access or mutate a real Photos library.",
+      "expected_output": "A production-verification block because neither the helper receipt nor the hand-authored PASS is bound to the authorized candidate, plan, helper, execution, or fresh snapshot.",
+      "files": ["evals/fixtures/13-receipt-self-authorization.json"],
+      "expectations": [
+        "Disposition is BLOCKED at production_verification.",
+        "Plausible count 4,000 is not accepted without receipt identity closure.",
+        "Independent verification must be recomputed by a governed command over a fresh read-only snapshot."
+      ]
+    },
+    {
+      "id": 14,
+      "name": "helper-capability-negotiation-fails-closed",
+      "prompt": "The release candidate passed. Decide whether to launch its production plan through the installed helper. Assess every attached artifact first. Do not access or mutate a real Photos library.",
+      "expected_output": "A helper-capability block because helper contract 1 cannot execute or receipt a schema-2 contract; install and review the compatible helper before mutation.",
+      "files": ["evals/fixtures/14-helper-capability.json"],
+      "expectations": [
+        "Disposition is BLOCKED at helper_capability.",
+        "The response cites installed helper contract 1 versus required contract 2.",
+        "Existing Photos permission is not mistaken for compatibility or authorization."
+      ]
+    }
+  ]
+}

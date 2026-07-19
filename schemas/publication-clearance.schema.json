@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Photo Fieldwork publication clearance row",
+  "type": "object",
+  "required": ["uuid", "publication_cleared"],
+  "properties": {
+    "uuid": {"type": "string", "minLength": 1},
+    "publication_cleared": {"type": ["boolean", "string"]},
+    "rights_status": {"type": "string"},
+    "participant_consent": {"type": "string"},
+    "collaborator_approval": {"type": "string"},
+    "artwork_review": {"type": "string"},
+    "caption": {"type": "string"},
+    "caption_provenance": {"type": "string"},
+    "credit": {"type": "string"},
+    "crop_approved": {"type": "string"},
+    "alt_text": {"type": "string"},
+    "sensitive_context_review": {"type": "string"},
+    "public_destination": {"type": "string"},
+    "review_date": {"type": "string"}
+  },
+  "additionalProperties": true
+}

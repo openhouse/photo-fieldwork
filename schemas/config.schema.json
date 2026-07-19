@@ -11,6 +11,8 @@
     "exploratory_fraction": {"type": "number", "minimum": 0, "maximum": 1},
     "minimum_eval_precision": {"type": "number", "minimum": 0, "maximum": 1},
     "minimum_eval_coverage": {"type": "number", "minimum": 0, "maximum": 1},
+    "minimum_view_eval_precision": {"type": "number", "minimum": 0, "maximum": 1},
+    "minimum_decisive_per_view": {"type": "integer", "minimum": 1},
     "minimum_named_people_fraction": {"type": "number", "minimum": 0, "maximum": 1},
     "minimum_person_free_fraction": {"type": "number", "minimum": 0, "maximum": 1},
     "views": {
@@ -22,9 +24,11 @@
         "properties": {
           "id": {"type": "string"},
           "label": {"type": "string"},
-          "quota": {"type": "integer", "minimum": 0}
+          "quota": {"type": "integer", "minimum": 0},
+          "minimum_eval_precision": {"type": "number", "minimum": 0, "maximum": 1}
         }
       }
     }
-  }
+  },
+  "additionalProperties": true
 }

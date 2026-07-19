@@ -1,0 +1,27 @@
+{
+  "scenario": "The final report passes only because canaries were counted as fresh evidence. A tuning image and a different final-holdout image also share one perceptual cluster.",
+  "evidence": [
+    {
+      "id": "split-audit",
+      "kind": "evaluation-split-audit",
+      "status": "FAIL",
+      "relation": "perceptual_cluster_id",
+      "overlap_value": "cluster-44",
+      "tuning_uuid": "TUNE-44A",
+      "final_holdout_uuid": "HOLDOUT-44B"
+    },
+    {
+      "id": "evaluation-report",
+      "kind": "quality-report",
+      "reported_precision": 0.91,
+      "fresh_only_precision": 0.74,
+      "minimum_precision": 0.8,
+      "canary_rows_counted_as_fresh": 20
+    },
+    {
+      "id": "canary-policy",
+      "kind": "evaluation-policy",
+      "rule": "Canaries may block regressions but cannot increase final holdout coverage, sample sufficiency, or precision."
+    }
+  ]
+}

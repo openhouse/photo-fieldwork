@@ -8,6 +8,10 @@ The brief is editorial authority. Preserve it verbatim in `brief.md`, then deriv
 {
   "seed": 20260710,
   "candidate_multiplier": 1.75,
+  "unclassified_view": "00",
+  "excluded_album_terms": ["prior export", "contact sheet"],
+  "prior_corpus_album_title": "",
+  "minimum_outside_prior_fraction": 0.0,
   "people_floor": 0.35,
   "person_free_floor": 0.20,
   "views": [
@@ -39,6 +43,7 @@ Follow `/Volumes/16TB_SSD/Sites/photo-fieldwork/schemas/config.schema.json`.
 - Preserve both a named-people field and a meaningful person-free field.
 - Project views should say `Editor Hypothesis` until validated.
 - Default evaluation minimums: 0.80 precision and 0.90 coverage.
+- Default per-view minimum: 0.65 decisive precision with at least 3 decisive judgments per view. Raise the count for large or high-risk views.
 - Default selection floors: `minimum_named_people_fraction` 0.35 and `minimum_person_free_fraction` 0.20, adjusted when the brief genuinely calls for a different balance.
 - Keep the random seed fixed for the run.
 
