@@ -12,7 +12,7 @@ Requirements: Python 3.11 or newer. The practice workflow has no third-party dep
 make demo
 ```
 
-This creates a synthetic inventory, runs a deterministic selection, quarantines unsafe records, produces a stratified evaluation sample, applies practice feedback, and validates the result under `runs/practice/`.
+This creates a synthetic inventory, runs a deterministic selection, quarantines unsafe records, produces a stratified evaluation sample, applies practice feedback, validates the result, audits a final holdout, records a synthetic editorial decision, and seals the exact editor-field candidate under `runs/practice/`.
 
 Inspect the outputs:
 
@@ -20,6 +20,7 @@ Inspect the outputs:
 open runs/practice/reports/selection-summary.md
 open runs/practice/reports/evaluation-report.md
 open runs/practice/manifests/eval-sample.csv
+open runs/practice/manifests/release-seal.json
 ```
 
 Run the tests:
@@ -28,6 +29,14 @@ Run the tests:
 make check
 ```
 
+Run the recursive adversarial eval bank directly:
+
+```bash
+make evals
+```
+
+The eval runner starts from valid synthetic workflows, recursively applies harmless and unsafe mutations, and requires unsafe variants to fail closed. See [the evaluation system](docs/evals.md).
+
 ## Use it with your own inventory
 
 1. Copy `config/starter.json` and edit the views, quotas, and thresholds.
@@ -35,8 +44,9 @@ make check
 3. Run the selection and create an evaluation sample.
 4. Inspect sampled images locally and record `fit`, `reject`, or `uncertain`.
 5. Evaluate, revise, and repeat until the agreed criteria pass.
-6. Generate a catalog write plan. Test ten items before any production write.
-7. Verify the committed album membership independently and read-only.
+6. Freeze the pre-clearance safety baseline, audit the final holdout, verify the run-bound decision ledger, and seal the exact editor-field candidate.
+7. Generate release-bound test and production plans. Test ten items before any production write.
+8. Verify the committed album membership and release identity independently and read-only.
 
 ```bash
 ./bin/photo-fieldwork select \
@@ -66,8 +76,67 @@ make check
   --plan-id my-run-v01 \
   --source-title "Wide retrieval - do not edit" \
   --source-identifier SOURCE-ID \
+  --source-members path/to/source-members.csv \
   --output runs/my-run/manifests/catalog-plan.json
+
+./bin/photo-fieldwork audit-holdout \
+  --tuning runs/my-run/manifests/eval-sample.csv \
+  --holdout runs/my-run/manifests/final-holdout.csv \
+  --output runs/my-run/reports/holdout-audit.json
+
+./bin/photo-fieldwork release-audit \
+  --config path/to/config.json \
+  --master runs/my-run/manifests/proposed-master.csv \
+  --holds runs/my-run/manifests/hold-sensitive.csv \
+  --feedback runs/my-run/manifests/eval-sample.csv \
+  --holdout runs/my-run/manifests/final-holdout.csv \
+  --safety-baseline runs/my-run/manifests/pre-clearance-safety-baseline.csv \
+  --plan runs/my-run/manifests/catalog-plan.json \
+  --decision-ledger runs/my-run/manifests/decision-events.jsonl \
+  --holdout-report runs/my-run/reports/holdout-audit.json \
+  --output runs/my-run/manifests/release-seal.json
 ```
+
+The selector uses deterministic capacity flow so overlapping candidate views can satisfy exact quotas when the candidate graph is feasible. Infeasible configurations report deficient views and candidate reach instead of silently backfilling another category.
+
+## Resume a private production run
+
+Keep machine paths and real catalog identifiers in a gitignored local profile based on `config/local-profile.example.json`.
+
+```bash
+./bin/photo-fieldwork run \
+  --workspace /private/path/to/runs/v05 \
+  --brief brief.md \
+  --profile /private/path/to/.photo-fieldwork.local.json \
+  --version v05 \
+  --target 4000
+
+./bin/photo-fieldwork checkpoint \
+  --workspace /private/path/to/runs/v05 \
+  --phase doctor \
+  --artifact /private/path/to/runs/v05/reports/doctor.json
+```
+
+Run state stores artifact digests, not the local profile. Repeating an identical checkpoint is safe; changing an artifact behind a completed checkpoint is rejected.
+
+## Review locally
+
+Build a static review instrument that opens with `file://` and starts no server:
+
+```bash
+./bin/photo-fieldwork review-pack \
+  --sample runs/v05/manifests/eval-sample.csv \
+  --previews runs/v05/previews/round-01 \
+  --round-id round-01 \
+  --reviewer-lens "delegated editorial review" \
+  --output runs/v05/contact-sheets/review-round-01.html
+```
+
+The review separates visible category fit, safety, public suitability, and provenance. Its export feeds `photo-fieldwork evaluate` and `photo-fieldwork apply-feedback`.
+
+## Hand off visual corroboration safely
+
+`photo-fieldwork evidence-handoff` converts reviewed, operator-authored summaries into a public-safe Markdown note. It rejects asset IDs, filenames, local paths, People associations, coordinates, raw OCR, email addresses, and real catalog identifiers. The generated note says explicitly that photographs do not establish authorship, causation, outcomes, endorsement, consent, credit, or publication rights.
 
 ## The central distinction
 
@@ -82,11 +151,19 @@ Those are different questions. Photo Fieldwork keeps them different.
 ## What is included
 
 - A deterministic, configurable selection engine.
+- Feasibility-aware exact-quota assignment with actionable diagnostics.
 - Safety holds that cannot enter the master.
 - Duplicate and burst controls.
 - Named-people and visible-apparatus signals.
 - An unclassified editor field for honest uncertainty.
 - Stratified evaluation samples and precision thresholds.
+- Wilson intervals, small-sample warnings, and separated review dimensions.
+- Resumable phase checkpoints and version-comparison reports.
+- Source, plan, album, master-membership, and master-assignment digests.
+- Hash-chained, run-bound decision history with asset-specific human safety-clearance transitions.
+- Asset- and cluster-level holdout contamination audits recomputed from the current split manifests at release.
+- Candidate-bound editor-field release seals carried through writer and independent-verifier receipts.
+- A static offline review workspace and public-safe evidence handoff.
 - A fully synthetic practice run.
 - Apple Photos integration guidance and adapter contracts.
 - A case study of how visual inspection changed a real workflow.
@@ -99,7 +176,7 @@ Those are different questions. Photo Fieldwork keeps them different.
 - Direct writes to Photos SQLite.
 - A claim that the generated corpus is the final edit.
 
-Read [the workflow](docs/workflow.md), [the architecture](docs/architecture.md), [the safety model](docs/safety.md), and [the Apple Photos guide](docs/apple-photos.md) before using a private archive.
+Read [the workflow](docs/workflow.md), [the architecture](docs/architecture.md), [the safety model](docs/safety.md), [the evaluation system](docs/evals.md), [the composite note](docs/composite-D.md), and [the Apple Photos guide](docs/apple-photos.md) before using a private archive.
 
 ## Use it as a Codex skill
 
@@ -126,4 +203,4 @@ production album creation, and independent verification.
 [PASTE TODAY'S BRIEF]
 ```
 
-The skill integrates with the installed `/Applications/Jamie Photo Archive.app`, preserving its stable Photos permission identity. Its reviewed source is retained under `integrations/jamie-photo-archive/`; replacing or rebuilding the installed app is a separate, explicit operation because macOS may request Photos authorization again.
+The skill integrates with the permissioned app declared in the private local profile, preserving its stable Photos permission identity. Reviewed helper source is retained under `integrations/jamie-photo-archive/`; replacing or rebuilding the installed app is a separate, explicit operation because macOS may request Photos authorization again.

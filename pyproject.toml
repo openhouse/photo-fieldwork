@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "photo-fieldwork"
-version = "0.1.0"
+version = "0.3.0"
 description = "A local-first, evidence-aware workflow for building editor-ready photo corpora"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -12,9 +12,11 @@ license = {text = "MIT"}
 authors = [{name = "Photo Fieldwork contributors"}]
 dependencies = []
 
+[project.optional-dependencies]
+apple-photos = ["Pillow>=10"]
+
 [project.scripts]
 photo-fieldwork = "photo_fieldwork.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-

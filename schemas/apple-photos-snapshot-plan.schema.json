@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Photo Fieldwork Apple Photos snapshot plan",
+  "type": "object",
+  "required": ["operation", "schema_version", "plan_id", "plan_sha256", "safety_mode", "source_album_identifier", "expected_source_count", "source_membership_sha256", "release_candidate_sha256", "release_seal_sha256", "catalog_plan_sha256", "master_assignment_sha256", "publication_approval_default", "batch_size", "log_path", "receipt_path", "folders", "albums"],
+  "properties": {
+    "operation": {"const": "snapshot-membership"},
+    "schema_version": {"const": 3},
+    "plan_id": {"type": "string"},
+    "plan_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "safety_mode": {"const": "create-folders-albums-and-add-membership-only"},
+    "source_album_identifier": {"type": "string"},
+    "expected_source_count": {"type": "integer", "minimum": 1},
+    "source_membership_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "release_candidate_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "release_seal_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "catalog_plan_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "master_assignment_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "publication_approval_default": {"const": "not-approved"},
+    "batch_size": {"type": "integer", "minimum": 1, "maximum": 2000},
+    "log_path": {"type": "string", "minLength": 1},
+    "receipt_path": {"type": "string"},
+    "folders": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["key", "title", "parent_key", "existing_identifier"],
+        "properties": {
+          "key": {"type": "string", "minLength": 1},
+          "title": {"type": "string", "minLength": 1},
+          "parent_key": {"type": ["string", "null"]},
+          "existing_identifier": {"type": ["string", "null"]}
+        },
+        "additionalProperties": false
+      }
+    },
+    "albums": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["title", "parent_folder_key", "existing_identifier", "asset_identifiers", "membership_sha256"],
+        "properties": {
+          "title": {"type": "string", "minLength": 1},
+          "parent_folder_key": {"type": "string", "minLength": 1},
+          "existing_identifier": {"type": ["string", "null"]},
+          "asset_identifiers": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+          "membership_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

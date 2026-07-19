@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Photo Fieldwork resumable run state",
+  "type": "object",
+  "required": ["schema_version", "run_id", "version", "target_count", "status", "brief_sha256", "profile_sha256", "privacy", "phases"],
+  "properties": {
+    "schema_version": {"const": 3},
+    "run_id": {"type": "string"},
+    "version": {"type": "string"},
+    "target_count": {"type": "integer", "minimum": 1},
+    "status": {"enum": ["in_progress", "complete"]},
+    "brief_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "profile_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "privacy": {"type": "object"},
+    "phases": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["status", "completed_at", "artifacts"],
+        "properties": {
+          "status": {"enum": ["pending", "complete"]},
+          "completed_at": {"type": ["string", "null"]},
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["path", "size", "sha256"],
+              "properties": {
+                "path": {"type": "string", "minLength": 1},
+                "size": {"type": "integer", "minimum": 0},
+                "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

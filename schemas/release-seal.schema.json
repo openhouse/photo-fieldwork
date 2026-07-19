@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Photo Fieldwork editor-field release seal",
+  "type": "object",
+  "required": ["schema_version", "status", "release_class", "publication_clearance", "candidate_sha256", "bindings", "gates", "release_seal_sha256"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "status": {"const": "PASS"},
+    "release_class": {"const": "editor-field"},
+    "publication_clearance": {"const": false},
+    "candidate_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "bindings": {
+      "type": "object",
+      "required": ["config_sha256", "master_sha256", "master_assignment_sha256", "master_membership_sha256", "hold_membership_sha256", "feedback_sha256", "evaluation_report_sha256", "validation_report_sha256", "catalog_plan_sha256", "decision_ledger_sha256", "holdout_report_sha256", "source_membership_sha256", "safety_baseline_sha256"],
+      "properties": {
+        "config_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "master_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "master_assignment_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "master_membership_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "hold_membership_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "feedback_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "evaluation_report_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "validation_report_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "catalog_plan_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "decision_ledger_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "holdout_report_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "source_membership_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "safety_baseline_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      },
+      "additionalProperties": false
+    },
+    "gates": {
+      "type": "object",
+      "required": ["evaluation_recomputed", "validation_recomputed", "decision_chain", "holdout_independence", "catalog_plan_integrity"],
+      "properties": {
+        "evaluation_recomputed": {"const": "PASS"},
+        "validation_recomputed": {"const": "PASS"},
+        "decision_chain": {"const": "PASS"},
+        "holdout_independence": {"const": "PASS"},
+        "catalog_plan_integrity": {"const": "PASS"}
+      },
+      "additionalProperties": false
+    },
+    "release_seal_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  },
+  "additionalProperties": false
+}

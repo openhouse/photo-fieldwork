@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Photo Fieldwork evaluation split audit",
+  "type": "object",
+  "required": ["schema_version", "status", "holdout_independent", "counts", "digests", "leakage", "problems", "private_identifiers_included"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "status": {"enum": ["PASS", "FAIL"]},
+    "holdout_independent": {"type": "boolean"},
+    "counts": {
+      "type": "object",
+      "required": ["tuning_rows", "holdout_rows", "canary_rows"],
+      "properties": {
+        "tuning_rows": {"type": "integer", "minimum": 0},
+        "holdout_rows": {"type": "integer", "minimum": 1},
+        "canary_rows": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "digests": {
+      "type": "object",
+      "required": ["tuning_membership_sha256", "holdout_membership_sha256", "canary_membership_sha256", "tuning_structure_sha256", "holdout_structure_sha256", "canary_structure_sha256"],
+      "properties": {
+        "tuning_membership_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "holdout_membership_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "canary_membership_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "tuning_structure_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "holdout_structure_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "canary_structure_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      },
+      "additionalProperties": false
+    },
+    "leakage": {
+      "type": "object",
+      "required": ["tuning_duplicate_uuid_count", "holdout_duplicate_uuid_count", "canary_duplicate_uuid_count", "tuning_uuid_overlap_count", "canary_uuid_overlap_count", "tuning_cluster_overlap_count", "canary_cluster_overlap_count"],
+      "properties": {
+        "tuning_duplicate_uuid_count": {"type": "integer", "minimum": 0},
+        "holdout_duplicate_uuid_count": {"type": "integer", "minimum": 0},
+        "canary_duplicate_uuid_count": {"type": "integer", "minimum": 0},
+        "tuning_uuid_overlap_count": {"type": "integer", "minimum": 0},
+        "canary_uuid_overlap_count": {"type": "integer", "minimum": 0},
+        "tuning_cluster_overlap_count": {"type": "integer", "minimum": 0},
+        "canary_cluster_overlap_count": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "problems": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+    "private_identifiers_included": {"const": false}
+  },
+  "additionalProperties": false
+}

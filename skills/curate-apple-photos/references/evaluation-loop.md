@@ -8,10 +8,11 @@
 4. Render contact sheets with stable UUID labels.
 5. Inspect all sheets with `view_image`; open individual previews when needed.
 6. Record decisions in CSV.
-7. Compute coverage and precision.
-8. Read every rejection and representative uncertainty.
-9. State the observed failure pattern and one system change.
-10. Rebuild deterministically and repeat.
+7. Verify that the returned canonical UUID and `primary_view` pairs still match the frozen sample digest and count.
+8. Compute coverage, decisive precision, and per-view sufficiency.
+9. Read every rejection and representative uncertainty.
+10. State the observed failure pattern and one system change.
+11. Rebuild deterministically and repeat.
 
 ## Required feedback fields
 
@@ -23,6 +24,8 @@
 - `error_category`
 - `round_id`
 - `reviewer_lens`
+- `evaluation_sample_sha256`
+- `evaluation_sample_count`
 
 ## Error categories
 
@@ -40,6 +43,7 @@
 
 - Zero known identity-document or private-record regressions in the master.
 - Every view sampled.
+- Every configured nonzero view meets the minimum decisive sample; no aggregate score waives a missing or underpowered view.
 - Coverage at or above configured minimum.
 - Overall decisive precision at or above configured minimum.
 - No material view remains below 0.65 decisive precision without being relabeled as uncertain/editor hypothesis.
@@ -50,4 +54,3 @@
 ## Stop conditions
 
 Run up to five substantial rounds. Stop earlier when all gates pass and failure review reveals no new systematic issue. Do not lower thresholds merely to finish. If the same genuine blocker recurs, preserve the run and explain exactly what input or permission is missing.
-

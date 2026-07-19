@@ -9,6 +9,7 @@ Before opening a change:
 3. Add or update a test for behavioral changes.
 4. State whether the change touches pixels, OCR, faces, locations, or catalog writes.
 5. Include a failure case. A successful example alone is not an evaluation.
+6. Keep machine paths and real catalog identifiers in a gitignored local profile.
+7. Run `make privacy-check` before publishing.
 
 Do not commit real private photographs, raw OCR, exact private locations, credentials, contact exports, or personal Photos manifests. Use synthetic fixtures.
-

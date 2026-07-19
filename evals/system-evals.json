@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "suite": "revision-D-composite-critical-contracts",
+  "description": "Synthetic, local-only adversarial evaluations distilled from the feature/revision-* fieldwork family.",
+  "default_max_depth": 16,
+  "cases": [
+    {
+      "id": "selection-order-invariance",
+      "category": "selection",
+      "runner": "selection_order",
+      "max_depth": 4,
+      "mutations": ["reverse", "rotate", "identifier-suffix", "mixed-identifier-suffix"],
+      "contract": "Exact assignments remain deterministic under harmless representation changes."
+    },
+    {
+      "id": "safety-fails-closed",
+      "category": "safety",
+      "runner": "safety_states",
+      "max_depth": 1,
+      "mutations": ["needs-review", "machine-suspected", "human-confirmed-hold", "editor-only", "unknown", "missing-state"],
+      "contract": "Only explicitly clear assets can enter a production-configured master."
+    },
+    {
+      "id": "master-hold-publication-boundary",
+      "category": "release",
+      "runner": "validation_boundary",
+      "max_depth": 3,
+      "mutations": ["canonical-hold-overlap", "canonical-master-duplicate", "publication-approved"],
+      "contract": "Canonical HOLD overlap, duplicate identities, and publication-approved states block validation."
+    },
+    {
+      "id": "evaluation-sample-integrity",
+      "category": "evaluation",
+      "runner": "evaluation_integrity",
+      "max_depth": 5,
+      "mutations": ["drop-view", "underpower-view", "substitute-uuid", "duplicate-uuid", "swap-view-labels"],
+      "contract": "Frozen asset-and-view identity and per-view sufficiency prevent aggregate metrics from hiding missing or relabeled evidence."
+    },
+    {
+      "id": "feedback-identity",
+      "category": "evaluation",
+      "runner": "feedback_identity",
+      "max_depth": 5,
+      "mutations": ["reverse", "drop-row", "unknown-uuid", "duplicate-uuid", "strip-binding"],
+      "contract": "Feedback is order-independent but rejects missing, unknown, substituted, or duplicate identities."
+    },
+    {
+      "id": "checkpoint-chain-integrity",
+      "category": "recovery",
+      "runner": "checkpoint_chain",
+      "max_depth": 2,
+      "mutations": ["tamper-prior-artifact", "remove-prior-artifact"],
+      "contract": "Every completed checkpoint remains digest-valid before a later phase can advance."
+    },
+    {
+      "id": "inspection-shard-integrity",
+      "category": "inspection",
+      "runner": "inspection_shards",
+      "max_depth": 5,
+      "mutations": ["substitute-row", "drop-row", "receipt-count", "source-digest", "source-count"],
+      "contract": "Each shard must exactly match its plan, receipt, and frozen source before combination."
+    },
+    {
+      "id": "public-handoff-boundary",
+      "category": "privacy",
+      "runner": "handoff_boundary",
+      "max_depth": 5,
+      "mutations": ["email", "posix-path", "windows-path", "phone", "photos-identifier"],
+      "contract": "Public handoffs reject operational identifiers and contact details under single and compound leaks."
+    },
+    {
+      "id": "plan-content-addressing",
+      "category": "catalog",
+      "runner": "plan_binding",
+      "max_depth": 4,
+      "mutations": ["plan-id", "album-membership", "source-membership", "publication-default"],
+      "contract": "Any material plan mutation invalidates its digest and publication remains closed."
+    },
+    {
+      "id": "unclassified-honesty",
+      "category": "editorial",
+      "runner": "unclassified_honesty",
+      "max_depth": 3,
+      "mutations": ["unknown-view", "empty-evidence", "input-reorder"],
+      "contract": "Unsupported hypotheses fall back to the unclassified editor field without invented evidence."
+    },
+    {
+      "id": "decision-ledger-integrity",
+      "category": "governance",
+      "runner": "decision_ledger",
+      "max_depth": 5,
+      "mutations": ["tamper-content", "remove-middle", "duplicate-event-id", "human-authority-mismatch", "reorder"],
+      "contract": "Decision history is hash-chained, canonically identified, and reserves safety clearance and publication authority for identified humans."
+    },
+    {
+      "id": "holdout-contamination",
+      "category": "evaluation",
+      "runner": "holdout_integrity",
+      "max_depth": 7,
+      "mutations": ["uuid-overlap", "duplicate-holdout", "perceptual-overlap", "duplicate-group-overlap", "duplicate-alias-overlap", "burst-overlap", "canary-overlap"],
+      "contract": "Final holdout evidence is disjoint from tuning and regression canaries by canonical asset and related-image clusters."
+    },
+    {
+      "id": "candidate-bound-release",
+      "category": "release",
+      "runner": "release_candidate",
+      "max_depth": 16,
+      "mutations": ["master-membership", "assignment-drift", "safety-drift", "config-drift", "feedback-drop", "tuning-cluster-drift", "holdout-cluster-drift", "canary-cluster-drift", "plan-digest", "plan-album-substitution", "holdout-fail", "holdout-status-forgery", "ledger-tamper", "publication-approval-event", "unrelated-run", "missing-safety-clearance"],
+      "contract": "An editor-field release seal recomputes every gate and binds configuration, assignment, safety, feedback, decision history, holdout, and catalog plan without granting publication clearance."
+    }
+  ]
+}

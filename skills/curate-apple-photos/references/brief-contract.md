@@ -32,7 +32,7 @@ Use People names only when they already exist in Apple Photos or the brief names
 
 ## config.json
 
-Follow `/Volumes/16TB_SSD/Sites/photo-fieldwork/schemas/config.schema.json`.
+Follow the repository's `schemas/config.schema.json`.
 
 - Quotas must sum exactly to the requested target.
 - Reserve 8-12% for `Unclassified / Editor Field` unless the brief gives a reason not to.
