@@ -39,6 +39,19 @@ python3 scripts/photo_archive_bridge.py doctor
 
 Read [safety.md](references/safety.md) whenever a brief concerns private homes, minors, health, legal strategy, financial records, identity documents, or vulnerable collaborators.
 
+## Fail-closed decisions
+
+Before resuming a run or advancing a release phase, compare the durable identities and receipts involved. Stop at the first unresolved mismatch.
+
+- **Source drift:** if the observed count or membership digest differs from the accepted source manifest, preserve that manifest as historical evidence. Block retrieval, evaluation reuse, and Photos writes until a new source version is deliberately created and accepted.
+- **Interrupted state:** if state and a receipt disagree, preserve every attempt and reconcile the receipt independently. Record the reconciliation as a new atomic event or legal transition; never infer completion from filenames or blindly rerun an ambiguous write.
+- **Failed material view:** a passing aggregate cannot override a failed material view. Block plan generation, return unsupported assignments to unclassified or label the view `sparse-hypothesis`, and run a new full final-master audit after any change. Do not lower the threshold to manufacture a pass.
+- **Evaluated artifact drift:** if the proposal, master, configuration, or source identity differs from what passed evaluation, the evaluation is stale. Freeze a new proposal identity and repeat the full final audit before plan generation, even when counts still match.
+- **Unavailable pixels:** a missing or corrupt preview is unavailable evidence, not a visually inspected candidate. Put the asset in HOLD or `needs-review`; use bounded re-export plus independent decode verification before ranking it.
+- **Protected states:** exclude HOLD and unresolved `needs-review` assets before ranking. Only an identified human reviewer may clear one `needs-review` item with an item-specific decision and generalized reason; the decision cannot weaken the detector or clear a class. HOLD remains held. Editor-field membership never confers publication consent or clearance.
+- **Unsupported project view:** visible resemblance without provenance cannot become project proof. Preserve useful material as unclassified or an editor hypothesis and report that supporting evidence was not recovered, never that it did not exist.
+- **Public report failure:** if lint or review finds private operational data, preserve the private source unchanged and unpublished. Create a separate redacted derivative, rerun lint, and require human publication review before release.
+
 ## Build the candidate field
 
 1. Query the shared read-only inventory:

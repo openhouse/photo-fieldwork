@@ -1,0 +1,13 @@
+{
+  "proposal_id": "pfp-evaluated",
+  "evaluated_master": {
+    "count": 4000,
+    "master_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "evaluation_passed": true
+  },
+  "current_master": {
+    "count": 4000,
+    "master_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "change_note": "Two assignments changed after the edge audit"
+  }
+}
