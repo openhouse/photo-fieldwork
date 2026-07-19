@@ -47,7 +47,9 @@ class PhotosVerificationSnapshotTests(unittest.TestCase):
             output = root / "snapshot.sqlite"
             plan.write_text(
                 json.dumps({
+                    "operation": "snapshot-membership",
                     "plan_id": "test",
+                    "safety_mode": "create-folders-albums-and-add-membership-only",
                     "source_album_identifier": snapshotter.VISIBLE_LIBRARY_STILLS,
                     "expected_source_count": 1,
                     "source_membership_sha256": hashlib.sha256(b"ASSET\n").hexdigest(),
@@ -60,8 +62,17 @@ class PhotosVerificationSnapshotTests(unittest.TestCase):
                 }),
                 encoding="utf-8",
             )
+            plan_digest = hashlib.sha256(plan.read_bytes()).hexdigest()
             receipt.write_text(
                 json.dumps({
+                    "plan_id": "test",
+                    "source_album_identifier": snapshotter.VISIBLE_LIBRARY_STILLS,
+                    "source_count": 1,
+                    "source_membership_sha256": hashlib.sha256(b"ASSET\n").hexdigest(),
+                    "safety_mode": "create-folders-albums-and-add-membership-only",
+                    "plan_file_sha256": plan_digest,
+                    "execution_nonce": "a" * 32,
+                    "helper_revision": "photo-fieldwork-composite-v1",
                     "folders": [{"key": "version", "identifier": "FOLDER/L0/020", "title": "Version"}],
                     "albums": [{"identifier": "ALBUM/L0/040", "title": "Master", "count": 1}],
                 }),

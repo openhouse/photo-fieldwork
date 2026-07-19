@@ -19,7 +19,9 @@
 
 ## Safety hold contract
 
-Only `safety_state=clear_for_editor_field` or the legacy `safety_status=clear` state may enter ranking. `review_required`, `hold_automatic`, `hold_human`, `editor_only`, hidden, missing, and unknown non-empty states fail closed. Validation independently rejects a non-clear state even when a hold manifest is incomplete.
+Only `safety_status=clear` or an attributed `clear_for_editor_field` decision may enter ranking. The latter requires a non-empty `safety_clearance_actor` and `safety_clearance_authority=human-editor`. Missing state, `review_required`, automatic HOLD, human HOLD, `editor_only`, hidden, and unavailable material fail closed. Validation independently rejects a non-clear state even when a hold manifest is incomplete.
+
+An unresolved state propagates transitively through perceptual-cluster, duplicate-group, duplicate-group-id, and burst-group relationships. This is conservative protection against another frame carrying the same sensitive content. Event, person, location, and date associations never propagate a hold by themselves.
 
 The HOLD set should be private and access-controlled. It is not an editor album and must not be exported casually.
 
@@ -36,5 +38,11 @@ A production adapter must:
 5. Be idempotent and resumable.
 6. Emit a receipt with exact identifiers and counts.
 7. Support independent read-only verification.
+8. Verify the exact source-membership fingerprint and required helper revision before mutation.
+9. Bind the receipt to a fresh execution nonce and the SHA-256 of the exact plan bytes executed.
 
-If an adapter cannot meet all seven conditions, it is not production-ready.
+If an adapter cannot meet all nine conditions, it is not production-ready.
+
+## Public derivative contract
+
+An editor field is never publication permission. Public projection requires separate explicit values for rights, consent, factual-claim support, safety, and publication approval. The public manifest contains only `public_id`, repository-relative derivative path, alt text, caption, credit, and view label. Source UUIDs, People associations, raw OCR, coordinates, and private evidence remain in the private workspace.

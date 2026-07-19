@@ -9,12 +9,20 @@ import json
 import os
 import plistlib
 import re
+import secrets
 import sqlite3
 import subprocess
 import sys
 import hashlib
 from datetime import datetime
 from pathlib import Path
+
+
+SCRIPT_DIRECTORY = Path(__file__).resolve().parent
+if str(SCRIPT_DIRECTORY) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIRECTORY))
+
+from run_state import advance_phase, initialize_run, load_status
 
 
 APP = Path("/Applications/Jamie Photo Archive.app")
@@ -32,6 +40,7 @@ ROOT_FOLDER_ID = "92BBCF49-B077-478D-B9EE-DD94FAAFEAB5/L0/020"
 PRIVATE_FOLDER_ID = "1095845F-B6FA-41D0-8A22-D156C3071631/L0/020"
 AUDIT_FOLDER_ID = "7F9EB400-C06D-412C-9443-300A2C47CCE7/L0/020"
 VISIBLE_LIBRARY_STILLS = "visible-library-stills://v1"
+HELPER_REVISION = "photo-fieldwork-composite-v1"
 
 
 def dump_json(path: Path, value: object) -> None:
@@ -48,6 +57,46 @@ def local_identifier(value: str) -> str:
 
 def base_identifier(value: str) -> str:
     return value.split("/", 1)[0]
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def validate_snapshot_receipt(
+    plan_path: Path,
+    plan: dict,
+    receipt: dict,
+    execution_nonce: str,
+) -> None:
+    if receipt.get("plan_id") != plan.get("plan_id"):
+        raise ValueError("helper receipt plan_id does not match the launched plan")
+    if receipt.get("source_album_identifier") != plan.get("source_album_identifier"):
+        raise ValueError("helper receipt source identifier does not match the launched plan")
+    if int(receipt.get("source_count", -1)) != int(plan.get("expected_source_count", -2)):
+        raise ValueError("helper receipt source count does not match the launched plan")
+    if receipt.get("source_membership_sha256") != plan.get("source_membership_sha256"):
+        raise ValueError("helper receipt source membership does not match the launched plan")
+    if receipt.get("plan_file_sha256") != file_sha256(plan_path):
+        raise ValueError("helper receipt plan digest does not match the exact launched bytes")
+    if receipt.get("execution_nonce") != execution_nonce:
+        raise ValueError("helper receipt execution nonce does not match this launch")
+    if receipt.get("helper_revision") != HELPER_REVISION:
+        raise ValueError("helper receipt revision does not match this bridge")
+    if plan.get("operation") != "inspect-local-images" and receipt.get("safety_mode") != plan.get("safety_mode"):
+        raise ValueError("helper receipt safety mode does not match the launched plan")
+
+
+def validate_helper_contract(plan: dict) -> None:
+    if plan.get("required_helper_revision") != HELPER_REVISION:
+        raise ValueError("plan helper revision does not match this bridge")
+    source_digest = str(plan.get("source_membership_sha256", ""))
+    if len(source_digest) != 64 or any(character not in "0123456789abcdef" for character in source_digest):
+        raise ValueError("plan source membership must be 64 lowercase hexadecimal characters")
 
 
 def read_csv(path: Path) -> list[dict[str, str]]:
@@ -113,38 +162,43 @@ def command_doctor(_: argparse.Namespace) -> int:
 
 
 def command_init(args: argparse.Namespace) -> int:
+    validate_helper_contract({
+        "required_helper_revision": HELPER_REVISION,
+        "source_membership_sha256": args.source_membership_sha256,
+    })
     stamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
     root = (args.workspace_root / f"{args.version}-{safe_slug(args.slug)}-{stamp}").resolve()
     if root.exists():
         raise ValueError(f"workspace already exists: {root}")
     for name in ("inventory", "manifests", "reports", "logs", "previews", "contact-sheets", "scripts"):
         (root / name).mkdir(parents=True, exist_ok=False)
-    state = {
-        "schema_version": 1,
-        "run_id": root.name,
-        "status": "initialized",
-        "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-        "version": args.version,
-        "target_count": args.target,
-        "source_album_identifier": args.source_id,
-        "expected_source_count": args.source_count,
-        "phases": {
-            "brief": "pending",
-            "retrieval": "pending",
-            "local_inspection": "pending",
-            "recursive_evaluation": "pending",
-            "validation": "pending",
-            "write_test": "pending",
-            "production_commit": "pending",
-            "independent_verification": "pending",
+    initialize_run(
+        root,
+        run_id=root.name,
+        phases=[
+            "brief",
+            "retrieval",
+            "local_inspection",
+            "recursive_evaluation",
+            "validation",
+            "write_test",
+            "production_commit",
+            "independent_verification",
+        ],
+        metadata={
+            "version": args.version,
+            "target_count": args.target,
+            "source_album_identifier": args.source_id,
+            "expected_source_count": args.source_count,
+            "source_membership_sha256": args.source_membership_sha256,
         },
-    }
-    dump_json(root / "run-state.json", state)
+    )
     (root / "README.md").write_text(
         f"# {args.version}: {args.slug}\n\n"
         f"- Target: {args.target:,} unique still photographs\n"
         f"- Immutable source identifier: `{args.source_id}`\n"
         f"- Expected source count: {args.source_count:,}\n"
+        f"- Source membership SHA-256: `{args.source_membership_sha256}`\n"
         "- Final publication edit performed: no\n"
         "- External image or metadata upload permitted: no\n",
         encoding="utf-8",
@@ -159,6 +213,10 @@ def command_inspection_plan(args: argparse.Namespace) -> int:
     if args.limit:
         identifiers = identifiers[: args.limit]
     root = args.workspace.resolve()
+    validate_helper_contract({
+        "required_helper_revision": HELPER_REVISION,
+        "source_membership_sha256": args.source_membership_sha256,
+    })
     plan = {
         "operation": "inspect-local-images",
         "schema_version": 1,
@@ -167,6 +225,7 @@ def command_inspection_plan(args: argparse.Namespace) -> int:
         "safety_mode": "read-only-local-inspection-and-preview-export",
         "source_album_identifier": args.source_id,
         "expected_source_count": args.source_count,
+        "source_membership_sha256": args.source_membership_sha256,
         "asset_identifiers": identifiers,
         "output_jsonl_path": str(root / "manifests" / f"{args.plan_id}-inspection.jsonl"),
         "receipt_path": str(root / "manifests" / f"{args.plan_id}-receipt.json"),
@@ -178,6 +237,7 @@ def command_inspection_plan(args: argparse.Namespace) -> int:
         "classify_all": not args.no_classify,
         "detect_faces": not args.no_face_detection,
         "network_access_allowed": False,
+        "required_helper_revision": HELPER_REVISION,
     }
     dump_json(args.output, plan)
     print(f"inspection_assets={len(identifiers)}")
@@ -240,6 +300,7 @@ def snapshot_plan(args: argparse.Namespace, plan_id: str, folders: list[dict], a
         "source_album_identifier": args.source_id,
         "expected_source_count": args.source_count,
         "source_membership_sha256": getattr(args, "source_membership_sha256", None),
+        "required_helper_revision": HELPER_REVISION,
         "batch_size": args.batch_size,
         "log_path": str(workspace / "logs" / "jamie-photo-archive-app.log"),
         "receipt_path": str(workspace / "manifests" / receipt),
@@ -355,11 +416,16 @@ def command_run_plan(args: argparse.Namespace) -> int:
     plan_path = args.plan.resolve()
     plan = json.loads(plan_path.read_text(encoding="utf-8"))
     validate_plan_paths(plan, plan_path)
+    validate_helper_contract(plan)
     receipt_path = Path(plan["receipt_path"]).resolve()
     if not APP.is_dir():
         raise ValueError(f"permissioned app not found: {APP}")
     before = receipt_path.stat().st_mtime_ns if receipt_path.exists() else None
-    command = ["/usr/bin/open", "-W", "-n", str(APP), "--args", "--plan", str(plan_path)]
+    execution_nonce = secrets.token_hex(16)
+    command = [
+        "/usr/bin/open", "-W", "-n", str(APP), "--args",
+        "--plan", str(plan_path), "--launch-nonce", execution_nonce,
+    ]
     print("launching permissioned helper; this may run for a long time", flush=True)
     completed = subprocess.run(command, check=False)
     if completed.returncode:
@@ -370,6 +436,7 @@ def command_run_plan(args: argparse.Namespace) -> int:
     if before is not None and before == after:
         raise ValueError(f"receipt was not refreshed: {receipt_path}")
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    validate_snapshot_receipt(plan_path, plan, receipt, execution_nonce)
     print(json.dumps(receipt, indent=2, ensure_ascii=False))
     return 0
 
@@ -394,17 +461,18 @@ def validate_plan_paths(plan: dict, plan_path: Path) -> None:
 
 def command_status(args: argparse.Namespace) -> int:
     workspace = args.workspace.resolve()
-    state_path = workspace / "run-state.json"
-    state = json.loads(state_path.read_text(encoding="utf-8"))
-    phases = state.get("phases", {})
-    next_phase = next((name for name, status in phases.items() if status != "completed"), None)
-    report = {
-        "run_id": state.get("run_id"),
-        "status": state.get("status"),
-        "next_phase": next_phase,
-        "phases": phases,
-    }
-    print(json.dumps(report, indent=2))
+    print(json.dumps(load_status(workspace), indent=2))
+    return 0
+
+
+def command_advance(args: argparse.Namespace) -> int:
+    state = advance_phase(
+        args.workspace.resolve(),
+        phase=args.phase,
+        artifacts=args.artifact,
+        expected_revision=args.expected_revision,
+    )
+    print(json.dumps(state, indent=2))
     return 0
 
 
@@ -422,6 +490,7 @@ def parser() -> argparse.ArgumentParser:
     init.add_argument("--workspace-root", type=Path, default=WORKSPACE_ROOT)
     init.add_argument("--source-id", default=SOURCE_ID)
     init.add_argument("--source-count", type=int, default=SOURCE_COUNT)
+    init.add_argument("--source-membership-sha256", required=True)
     init.set_defaults(func=command_init)
 
     inspect = sub.add_parser("inspection-plan", help="build an exact plan for local PhotoKit inspection")
@@ -431,6 +500,7 @@ def parser() -> argparse.ArgumentParser:
     inspect.add_argument("--plan-id", required=True)
     inspect.add_argument("--source-id", default=SOURCE_ID)
     inspect.add_argument("--source-count", type=int, default=SOURCE_COUNT)
+    inspect.add_argument("--source-membership-sha256", required=True)
     inspect.add_argument("--target-long-edge", type=int, default=1280)
     inspect.add_argument("--limit", type=int)
     inspect.add_argument("--no-previews", action="store_true")
@@ -462,6 +532,13 @@ def parser() -> argparse.ArgumentParser:
     status = sub.add_parser("status", help="show durable run progress and the next incomplete phase")
     status.add_argument("--workspace", type=Path, required=True)
     status.set_defaults(func=command_status)
+
+    advance = sub.add_parser("advance-run", help="complete the next phase with hashed evidence")
+    advance.add_argument("--workspace", type=Path, required=True)
+    advance.add_argument("--phase", required=True)
+    advance.add_argument("--artifact", type=Path, action="append", required=True)
+    advance.add_argument("--expected-revision", type=int, required=True)
+    advance.set_defaults(func=command_advance)
     return root
 
 

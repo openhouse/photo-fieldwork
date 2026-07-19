@@ -7,7 +7,10 @@ Catalog reader or filesystem scanner
               |
               v
        inventory.csv
-              |
+              |             run-events.jsonl
+              |                    |
+              |                    v
+              |             derived run-state.json
               v
  deterministic selector ---> hold-sensitive.csv
               |
@@ -21,7 +24,10 @@ Catalog reader or filesystem scanner
                  catalog writer adapter
                          |
                          v
-                  independent verifier
+                 independent verifier
+                         |
+                         v
+             allowlisted public derivative
 ```
 
 ## Core
@@ -29,6 +35,12 @@ Catalog reader or filesystem scanner
 The standard-library Python core reads a normalized CSV, applies immutable safety exclusions, reduces duplicate and burst clusters, assigns editor views, creates selection reasons, samples evaluations, measures results, validates invariants, and emits an adapter-neutral catalog plan.
 
 The core does not read a Photos database, open images, call a model, or mutate a catalog.
+
+Exact assignment is one capacity problem: view quotas and named-person/person-free floors are not repaired in separate greedy passes. Safety closure runs first across duplicate, perceptual-cluster, and burst relations.
+
+## Run lifecycle
+
+`run-events.jsonl` is the authority for operational progress. Each phase-completion event names regular-file evidence, size, SHA-256, previous event hash, and revision. `run-state.json` is an atomic materialized view that may be regenerated after truncation or drift. Revision conflicts, skipped phases, symlinks, and changed completed evidence fail closed.
 
 ## Decision lineage
 
@@ -54,9 +66,15 @@ An inspector may add local visible-context, technical-quality, and generalized s
 
 A writer consumes `catalog-plan.json`. It may create version folders, create albums, and add existing stable IDs. It must not invent selection logic. It must emit a receipt and be safe to rerun.
 
+The Apple Photos writer verifies its required helper revision and the exact sorted source-membership fingerprint before mutation. Its receipt returns a fresh execution nonce and the SHA-256 of the exact plan bytes received, allowing the bridge and verifier to reject stale or copied receipts.
+
 ## Verifier adapters
 
 A verifier independently compares plan and catalog. It should be read-only and should not share mutation code with the writer.
+
+## Public projection
+
+An editor field is private. `photo-fieldwork public-handoff` creates a separate public-derivative manifest only from records with explicit rights, consent, claim, safety, and publication clearance. It exports a fixed allowlist and never carries source archive identifiers or private evidence into the public artifact.
 
 ## Extension points
 

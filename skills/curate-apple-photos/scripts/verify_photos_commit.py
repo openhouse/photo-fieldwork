@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import hashlib
 import json
 import sqlite3
 from datetime import datetime
@@ -15,6 +16,15 @@ DEFAULT_DB = Path(
     "/Volumes/apple-photos-8tb-external-ssd/Photos Library.photoslibrary/database/Photos.sqlite"
 )
 VISIBLE_LIBRARY_STILLS = "visible-library-stills://v1"
+HELPER_REVISION = "photo-fieldwork-composite-v1"
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def base(value: str) -> str:
@@ -82,6 +92,22 @@ def main() -> None:
 
     plan = json.loads(args.plan.read_text(encoding="utf-8"))
     receipt = json.loads(args.receipt.read_text(encoding="utf-8"))
+    if receipt.get("plan_file_sha256") != file_sha256(args.plan):
+        raise RuntimeError("receipt does not bind the exact plan bytes")
+    if receipt.get("helper_revision") != HELPER_REVISION:
+        raise RuntimeError("receipt helper revision does not match the independent verifier")
+    if not receipt.get("execution_nonce"):
+        raise RuntimeError("receipt lacks a helper execution nonce")
+    expected_receipt = {
+        "plan_id": plan.get("plan_id"),
+        "source_album_identifier": plan.get("source_album_identifier"),
+        "source_count": plan.get("expected_source_count"),
+        "source_membership_sha256": plan.get("source_membership_sha256"),
+        "safety_mode": plan.get("safety_mode"),
+    }
+    for key, expected_value in expected_receipt.items():
+        if receipt.get(key) != expected_value:
+            raise RuntimeError(f"receipt {key} does not match the exact plan")
     expected = {
         item["title"]: {base(identifier) for identifier in item["asset_identifiers"]}
         for item in plan["albums"]

@@ -24,6 +24,14 @@ These timings are implementation-development observations, not portable performa
 
 The deterministic contracts test software behavior. The prompt bank tests whether an agent using the skill notices when it must stop, widen retrieval, preserve uncertainty, or keep publication closed. Neither can replace fresh visual inspection, archive-owner judgment, consent, provenance research, a ten-item Photos write test, or independent verification of a real run.
 
+## Composite climb
+
+The updated revision family was compared again after every branch added its own eval work. Revision N then adopted the strongest compatible contracts and added six new prompt cases, five initial software contracts, four hostile boundary cases, four final release cases, and a meta-evaluator.
+
+The climb moved from 14/19 on the first expanded deterministic bank to 19/19, then from 31/35 to 35/35 on a harder boundary subset. A final four-case release expansion moved from 0/4 to 4/4. A late review caught category-order rank distortion and added a permanent non-binding-floor regression. The completed candidate passes 26/26 recursive and meta-eval tests and 63/63 full tests.
+
+The meta-evaluator fails when a mutation removes a critical risk dimension, makes the bank refusal-only, duplicates case identity, drops unsafe-shortcut descriptions, or introduces private fixture data. See [Revision N composite](revision-composite-N.md) for the adopted branch contracts and complete iteration table.
+
 ## Candidate versus previous skill
 
 Three prompt cases were run against the untouched Revision N skill snapshot and the revised skill with the same synthetic facts.

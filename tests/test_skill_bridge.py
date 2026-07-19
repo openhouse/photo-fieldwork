@@ -1,4 +1,5 @@
 import importlib.util
+import hashlib
 import json
 import tempfile
 import unittest
@@ -39,6 +40,7 @@ class SkillBridgeTests(unittest.TestCase):
             self.assertTrue(Path(plan["receipt_path"]).is_absolute())
             self.assertEqual(Path(plan["workspace_path"]), workspace.resolve())
             self.assertEqual(plan["source_membership_sha256"], "a" * 64)
+            self.assertEqual(plan["required_helper_revision"], bridge.HELPER_REVISION)
 
     def test_plan_paths_must_be_absolute_and_inside_workspace(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -61,12 +63,63 @@ class SkillBridgeTests(unittest.TestCase):
     def test_status_reports_next_incomplete_phase(self):
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory)
-            (workspace / "run-state.json").write_text(
-                json.dumps({"run_id": "run", "status": "active", "phases": {"brief": "completed", "retrieval": "pending"}}),
-                encoding="utf-8",
+            bridge.initialize_run(
+                workspace,
+                run_id="run",
+                phases=["brief", "retrieval"],
+                metadata={},
             )
             args = type("Args", (), {"workspace": workspace})()
             self.assertEqual(bridge.command_status(args), 0)
+
+    def test_snapshot_receipt_binds_exact_plan_launch_and_helper(self):
+        with tempfile.TemporaryDirectory() as directory:
+            plan_path = Path(directory) / "plan.json"
+            plan_path.write_text(
+                json.dumps({
+                    "plan_id": "plan",
+                    "source_album_identifier": "source",
+                    "expected_source_count": 2,
+                    "source_membership_sha256": "b" * 64,
+                    "safety_mode": "create-folders-albums-and-add-membership-only",
+                    "required_helper_revision": bridge.HELPER_REVISION,
+                }) + "\n",
+                encoding="utf-8",
+            )
+            digest = hashlib.sha256(plan_path.read_bytes()).hexdigest()
+            plan = json.loads(plan_path.read_text())
+            receipt = {
+                "plan_id": "plan",
+                "source_album_identifier": "source",
+                "source_count": 2,
+                "source_membership_sha256": "b" * 64,
+                "safety_mode": "create-folders-albums-and-add-membership-only",
+                "required_helper_revision": bridge.HELPER_REVISION,
+                "plan_file_sha256": digest,
+                "execution_nonce": "a" * 32,
+                "helper_revision": bridge.HELPER_REVISION,
+            }
+            bridge.validate_snapshot_receipt(plan_path, plan, receipt, "a" * 32)
+            with self.assertRaisesRegex(ValueError, "plan digest"):
+                bridge.validate_snapshot_receipt(
+                    plan_path,
+                    plan,
+                    dict(receipt, plan_file_sha256="0" * 64),
+                    "a" * 32,
+                )
+            with self.assertRaisesRegex(ValueError, "execution nonce"):
+                bridge.validate_snapshot_receipt(plan_path, plan, receipt, "b" * 32)
+
+    def test_helper_revision_mismatch_blocks_before_launch(self):
+        bridge.validate_helper_contract({
+            "required_helper_revision": bridge.HELPER_REVISION,
+            "source_membership_sha256": "a" * 64,
+        })
+        with self.assertRaisesRegex(ValueError, "helper revision"):
+            bridge.validate_helper_contract({
+                "required_helper_revision": "stale-helper",
+                "source_membership_sha256": "a" * 64,
+            })
 
 
 if __name__ == "__main__":

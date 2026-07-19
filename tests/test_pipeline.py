@@ -46,10 +46,12 @@ class PipelineTests(unittest.TestCase):
         sample = make_sample(master, 3, 20260710)
         for row in sample:
             row["judgment"] = "reject"
+            row["evaluation_note"] = "Visible evidence does not support this view."
         _, passed = evaluate(sample, self.config)
         self.assertFalse(passed)
         for row in sample:
             row["judgment"] = "fit"
+            row["evaluation_note"] = "Visible evidence supports this view."
         _, passed = evaluate(sample, self.config)
         self.assertTrue(passed)
 
@@ -58,6 +60,7 @@ class PipelineTests(unittest.TestCase):
         sample = make_sample(master, 3, 20260710)
         for row in sample:
             row["judgment"] = "fit"
+            row["evaluation_note"] = "Visible evidence supports this view."
         sample[0]["judgment"] = "uncertain"
         report, _ = evaluate(sample, self.config)
         self.assertIn("decisive_precision", report)
@@ -100,6 +103,7 @@ class PipelineTests(unittest.TestCase):
         sample = make_sample(master, 3, 20260710)
         for row in sample:
             row["judgment"] = "fit"
+            row["evaluation_note"] = "Visible evidence supports this view."
         report, passed = evaluate(sample, self.config)
         self.assertTrue(passed)
         plan = build_catalog_plan(master, self.config, "practice", "Source", "SOURCE-1", report)
@@ -114,6 +118,7 @@ class PipelineTests(unittest.TestCase):
         sample = make_sample(master, 3, 20260710)
         for row in sample:
             row["judgment"] = "fit"
+            row["evaluation_note"] = "Visible evidence supports this view."
         report, passed = evaluate(sample, self.config)
         self.assertTrue(passed)
         plan = build_catalog_plan(master, self.config, "practice", "Source", "SOURCE-1", report)

@@ -7,8 +7,19 @@ import sys
 from pathlib import Path
 
 from .audit import audit_paths, repository_paths
+from .handoff import build_public_handoff
 from .ledger import build_events
-from .pipeline import build_catalog_plan, evaluate, make_sample, read_config, read_csv, select, validate, write_csv
+from .pipeline import (
+    audit_holdout_split,
+    build_catalog_plan,
+    evaluate,
+    make_sample,
+    read_config,
+    read_csv,
+    select,
+    validate,
+    write_csv,
+)
 from .practice import create_demo_inventory, practice_feedback, write_demo_readme
 
 
@@ -42,19 +53,27 @@ def command_select(args: argparse.Namespace) -> int:
 def command_sample(args: argparse.Namespace) -> int:
     master = read_csv(args.master)
     excluded_ids = set()
+    known_regressions = None
     exclude_feedback = getattr(args, "exclude_feedback", None)
     if exclude_feedback:
         excluded_ids = {row["uuid"] for row in read_csv(exclude_feedback)}
+    if getattr(args, "known_regressions", None):
+        known_regressions = read_csv(args.known_regressions)
     sample = make_sample(
         master,
         args.per_view,
         args.seed,
         excluded_ids=excluded_ids,
         novel_only=getattr(args, "novel_only", False),
+        known_regressions=known_regressions,
     )
     write_csv(args.output, sample)
     overlap = sum(row.get("prior_review_overlap") == "true" for row in sample)
-    print(f"wrote {len(sample)} evaluation rows to {args.output}; prior UUID overlap={overlap}")
+    canaries = sum(row.get("sample_role") == "regression-canary" for row in sample)
+    print(
+        f"wrote {len(sample)} evaluation rows to {args.output}; "
+        f"prior UUID overlap={overlap}; regression canaries={canaries}"
+    )
     return 0
 
 
@@ -175,6 +194,30 @@ def command_ledger(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_audit_holdout(args: argparse.Namespace) -> int:
+    tuning = read_csv(args.tuning)
+    holdout = read_csv(args.holdout)
+    report, passed = audit_holdout_split(tuning, holdout)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    print(f"holdout audit {report['status']}")
+    return 0 if passed else 2
+
+
+def command_public_handoff(args: argparse.Namespace) -> int:
+    rows = read_csv(args.input)
+    manifest, report = build_public_handoff(rows)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.report.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    args.report.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    print(
+        f"public handoff {report['status']}: "
+        f"included={report['included_count']}, excluded={report['excluded_count']}"
+    )
+    return 0 if manifest["publication_clearance"] else 2
+
+
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(prog="photo-fieldwork", description="Build an auditable editor-ready photo corpus")
     sub = root.add_subparsers(dest="command", required=True)
@@ -194,6 +237,24 @@ def parser() -> argparse.ArgumentParser:
     ledger.add_argument("--output", type=Path, required=True)
     ledger.set_defaults(func=command_ledger)
 
+    holdout = sub.add_parser(
+        "audit-holdout",
+        help="fail on UUID, duplicate, perceptual-cluster, or burst leakage",
+    )
+    holdout.add_argument("--tuning", type=Path, required=True)
+    holdout.add_argument("--holdout", type=Path, required=True)
+    holdout.add_argument("--output", type=Path, required=True)
+    holdout.set_defaults(func=command_audit_holdout)
+
+    handoff = sub.add_parser(
+        "public-handoff",
+        help="project explicitly cleared derivatives into an allowlisted manifest",
+    )
+    handoff.add_argument("--input", type=Path, required=True)
+    handoff.add_argument("--output", type=Path, required=True)
+    handoff.add_argument("--report", type=Path, required=True)
+    handoff.set_defaults(func=command_public_handoff)
+
     selection = sub.add_parser("select", help="select a proposed master and safety holds")
     selection.add_argument("--inventory", type=Path, required=True)
     selection.add_argument("--config", type=Path, required=True)
@@ -207,6 +268,11 @@ def parser() -> argparse.ArgumentParser:
     sample.add_argument("--seed", type=int, default=20260710)
     sample.add_argument("--exclude-feedback", type=Path, help="prior evaluation CSV whose UUIDs should be tracked")
     sample.add_argument("--novel-only", action="store_true", help="fail unless the sample has zero prior UUID overlap")
+    sample.add_argument(
+        "--known-regressions",
+        type=Path,
+        help="CSV of master rows with expected_judgment and optional expected_safety_state",
+    )
     sample.set_defaults(func=command_sample)
 
     evaluation = sub.add_parser("evaluate", help="measure labeled evaluation feedback")
