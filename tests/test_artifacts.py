@@ -36,6 +36,17 @@ class ArtifactTests(unittest.TestCase):
             self.assertEqual(len((workspace / "events.jsonl").read_text().splitlines()), 3)
             self.assertTrue((workspace / "run-state.json").exists())
 
+    def test_run_ledger_rejects_skipped_phases_and_duplicate_attempts(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            snapshot = build_source_snapshot(["A"], "visible://v1")
+            initialize_run(workspace, "run-1", 10, snapshot, "v01")
+            with self.assertRaisesRegex(ValueError, "earlier phase"):
+                record_phase(workspace, "production_commit", "completed")
+            record_phase(workspace, "brief", "completed", attempt_id="brief-1")
+            with self.assertRaisesRegex(ValueError, "attempt_id already recorded"):
+                record_phase(workspace, "brief", "completed", attempt_id="brief-1")
+
 
 if __name__ == "__main__":
     unittest.main()

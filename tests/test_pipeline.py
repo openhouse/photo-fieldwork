@@ -77,6 +77,35 @@ class PipelineTests(unittest.TestCase):
         self.assertFalse(passed)
         self.assertGreater(report["uncertainty_rate"], config["maximum_uncertain_fraction"])
 
+    def test_evaluation_fails_unsampled_configured_view(self):
+        feedback = [
+            {"uuid": "A", "primary_view": "01", "judgment": "fit"},
+            {"uuid": "B", "primary_view": "01", "judgment": "fit"},
+        ]
+        config = {
+            "views": [
+                {"id": "01", "quota": 1},
+                {"id": "02", "quota": 1},
+            ],
+            "minimum_eval_coverage": 1.0,
+            "minimum_eval_precision": 0.5,
+            "minimum_view_precision": 0.5,
+            "minimum_decisive_samples_per_view": 1,
+            "maximum_uncertain_fraction": 0.5,
+        }
+        report, passed = evaluate(feedback, config)
+        self.assertFalse(passed)
+        self.assertIn("02", report["by_view"])
+        self.assertIn("no sampled rows", report["view_failures"][0]["reasons"])
+
+    def test_evaluation_rejects_duplicate_sample_uuid(self):
+        feedback = [
+            {"uuid": "A", "primary_view": "01", "judgment": "fit"},
+            {"uuid": "A", "primary_view": "01", "judgment": "fit"},
+        ]
+        with self.assertRaisesRegex(ValueError, "duplicate UUIDs"):
+            evaluate(feedback, self.config)
+
     def test_provenance_aware_safety_states_block_selection(self):
         self.assertTrue(is_hold({"safety_status": "auto-hold"}))
         self.assertTrue(is_hold({"safety_status": "needs-human-review"}))
@@ -88,6 +117,13 @@ class PipelineTests(unittest.TestCase):
         errors, metrics = validate(master, holds, self.config)
         self.assertEqual(errors, [])
         self.assertEqual(metrics["status"], "PASS")
+
+    def test_validation_enforces_exact_view_quotas(self):
+        master, holds, _ = select(self.inventory, self.config)
+        master[0]["primary_view"] = master[-1]["primary_view"]
+        errors, metrics = validate(master, holds, self.config)
+        self.assertEqual(metrics["status"], "FAIL")
+        self.assertTrue(any("view quota mismatch" in error for error in errors))
 
     def test_catalog_plan_allows_only_membership_writes(self):
         master, _, _ = select(self.inventory, self.config)

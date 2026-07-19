@@ -38,6 +38,10 @@
 
 ## Gates
 
+Read every numeric gate from the frozen run config before interpreting a
+report. Defaults in this guide help create a config; they do not override one.
+If the active config is unavailable, do not claim a numeric pass or failure.
+
 - Zero known identity-document or private-record regressions in the master.
 - Every view sampled.
 - Coverage at or above configured minimum.

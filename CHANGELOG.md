@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Evaluation
+
+- Expanded the skill bank from four prompts to twelve evidence-gradeable,
+  adversarial scenarios spanning recovery, freshness, source identity,
+  per-view quality, safety, artifact binding, catalog verification, privacy,
+  and provenance.
+- Added a recursive eval hill-climb protocol and structural regression tests.
+- Promoted observed eval failures into executable gates for unique evaluation
+  UUIDs, sampled requested views, exact view quotas, ordered run phases, unique
+  attempt IDs, and nonblank editorial evidence.
+- Clarified that active run configuration, not documentation defaults, controls
+  numeric release thresholds.
+
 ## 0.2.0 - 2026-07-13
 
 ### Added

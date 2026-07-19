@@ -25,6 +25,8 @@ The goal is not to prove the selector is intelligent. The goal is to discover wh
 
 ## Release gates
 
+- The report is interpreted against the exact run config, not a remembered
+  default from documentation.
 - Evaluation coverage meets the configured threshold.
 - Overall precision meets the configured threshold.
 - Every represented view meets configured precision and decisive-sample thresholds.
@@ -36,6 +38,10 @@ The goal is not to prove the selector is intelligent. The goal is to discover wh
 - A human editor is told that project views remain hypotheses where provenance is incomplete.
 
 Passing the gate means the corpus is ready for editors. It does not mean every category assignment is factually proven.
+
+Evaluation rows must have unique UUIDs. Every requested positive-quota view
+must appear in the sample; a missing view is a failure, not zero-error evidence.
+Final validation also checks each configured view's exact quota.
 
 ## Fresh evidence
 

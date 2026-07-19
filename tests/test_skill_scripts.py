@@ -172,6 +172,47 @@ class SkillScriptTests(unittest.TestCase):
             self.assertEqual(row["safety_actor"], "archive owner")
             self.assertTrue(row["safety_reviewed_at"])
 
+    def test_feedback_rejects_blank_required_evidence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            sample = root / "sample.csv"
+            decisions = root / "decisions.csv"
+            output = root / "reviewed.csv"
+            sample.write_text("uuid,filename\nA,a.jpg\n", encoding="utf-8")
+            with decisions.open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=[
+                        "uuid",
+                        "judgment",
+                        "visible_reason",
+                        "safety_status",
+                        "error_category",
+                        "round_id",
+                        "reviewer_lens",
+                    ],
+                )
+                writer.writeheader()
+                writer.writerow(
+                    {
+                        "uuid": "A",
+                        "judgment": "fit",
+                        "visible_reason": "",
+                        "safety_status": "clear",
+                        "error_category": "visible-fit",
+                        "round_id": "round-1",
+                        "reviewer_lens": "editor",
+                    }
+                )
+            completed = run_script(
+                "apply_feedback.py",
+                "--sample", str(sample),
+                "--decisions", str(decisions),
+                "--output", str(output),
+            )
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertIn("blank required fields", completed.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

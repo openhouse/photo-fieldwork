@@ -80,6 +80,9 @@ Read [evaluation-loop.md](references/evaluation-loop.md) before the first visual
 4. Speak briefly as the requested peers. If Jamie cannot review, role-play Jamie using the supplied brief and voice references, while marking the judgment as delegated editorial inference rather than eyewitness fact.
 5. Record `fit`, `reject`, or `uncertain`, one visible reason, a safety state, and an error category in the evaluation CSV.
 6. Run `photo-fieldwork evaluate`. Read all rejections and a stratified uncertainty sample.
+   Read release thresholds from the exact run's `config.json`. A documented
+   production default is guidance, not the active gate. If the run config is
+   unavailable, name the visible failure but do not invent a numeric threshold.
 7. Change retrieval, assignments, penalties, quotas, or hold rules in response to observed errors. Keep the seed fixed. Save each round separately.
 8. Repeat until:
    - evaluation coverage and precision meet `config.json`;

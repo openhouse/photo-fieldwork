@@ -85,6 +85,24 @@ def record_phase(
     state = derive_state(workspace)
     if data is not None and not isinstance(data, dict):
         raise ValueError("phase event data must be an object")
+    phase_index = PHASES.index(phase)
+    incomplete_earlier = [
+        earlier
+        for earlier in PHASES[:phase_index]
+        if state["phases"][earlier] != "completed"
+    ]
+    if incomplete_earlier:
+        raise ValueError(
+            f"cannot record {phase} before earlier phase completion: {', '.join(incomplete_earlier)}"
+        )
+    if attempt_id:
+        used_attempts = {
+            event.get("attempt_id")
+            for event in read_events(workspace)
+            if event.get("attempt_id")
+        }
+        if attempt_id in used_attempts:
+            raise ValueError(f"attempt_id already recorded: {attempt_id}")
     return append_event(
         workspace,
         {

@@ -55,6 +55,11 @@ def main() -> None:
         judgment = decision["judgment"].strip().lower()
         if judgment not in JUDGMENTS:
             raise ValueError(f"invalid judgment for {row['uuid']}: {judgment}")
+        blank = [field for field in FIELDS if not decision[field].strip()]
+        if blank:
+            raise ValueError(
+                f"blank required fields for {row['uuid']}: {', '.join(blank)}"
+            )
         for field in FIELDS:
             row[field] = decision[field].strip()
         row["judgment"] = judgment

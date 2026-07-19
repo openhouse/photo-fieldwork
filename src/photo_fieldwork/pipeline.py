@@ -290,6 +290,11 @@ def make_sample(master: list[dict[str, str]], per_view: int, seed: int) -> list[
 
 def evaluate(feedback: list[dict[str, str]], config: dict) -> tuple[dict, bool]:
     allowed = {"fit", "reject", "uncertain"}
+    identifiers = [row.get("uuid", "").strip() for row in feedback]
+    if any(not identifier for identifier in identifiers):
+        raise ValueError("evaluation rows require non-empty UUIDs")
+    if len(identifiers) != len(set(identifiers)):
+        raise ValueError("evaluation contains duplicate UUIDs")
     judged = [row for row in feedback if row.get("judgment", "").strip().lower() in allowed]
     fit = sum(row["judgment"].strip().lower() == "fit" for row in judged)
     reject = sum(row["judgment"].strip().lower() == "reject" for row in judged)
@@ -302,12 +307,21 @@ def evaluate(feedback: list[dict[str, str]], config: dict) -> tuple[dict, bool]:
     maximum_uncertain_fraction = float(config.get("maximum_uncertain_fraction", 1.0))
     by_view = {}
     view_failures = []
-    for view in sorted({row.get("primary_view", "unknown") for row in feedback}):
+    observed_views = {row.get("primary_view", "unknown") for row in feedback}
+    configured_views = {
+        view["id"]
+        for view in config.get("views", [])
+        if int(view.get("quota", 0)) > 0
+    }
+    for view in sorted(observed_views | configured_views):
+        sampled_rows = [row for row in feedback if row.get("primary_view", "unknown") == view]
         rows = [row for row in judged if row.get("primary_view", "unknown") == view]
         decisive = [row for row in rows if row["judgment"].strip().lower() in {"fit", "reject"}]
         view_precision = sum(row["judgment"].strip().lower() == "fit" for row in decisive) / len(decisive) if decisive else None
         view_uncertain = sum(row["judgment"].strip().lower() == "uncertain" for row in rows)
         reasons = []
+        if not sampled_rows:
+            reasons.append("no sampled rows")
         if len(decisive) < minimum_decisive_samples:
             reasons.append(f"decisive sample {len(decisive)} below {minimum_decisive_samples}")
         if view_precision is None or view_precision < minimum_view_precision:
@@ -315,6 +329,7 @@ def evaluate(feedback: list[dict[str, str]], config: dict) -> tuple[dict, bool]:
         if reasons:
             view_failures.append({"view": view, "reasons": reasons})
         by_view[view] = {
+            "sampled": len(sampled_rows),
             "judged": len(rows),
             "decisive": len(decisive),
             "fit": sum(row["judgment"].strip().lower() == "fit" for row in decisive),
@@ -368,9 +383,17 @@ def validate(master: list[dict[str, str]], holds: list[dict[str, str]], config: 
         errors.append("one or more selected rows lack a selection reason")
     configured = {view["id"] for view in config["views"] if int(view["quota"]) > 0}
     represented = {row.get("primary_view") for row in master}
+    view_counts = Counter(row.get("primary_view") for row in master)
     missing_views = configured - represented
     if missing_views:
         errors.append(f"configured views absent from master: {', '.join(sorted(missing_views))}")
+    for view in config["views"]:
+        expected = int(view["quota"])
+        actual = view_counts[view["id"]]
+        if actual != expected:
+            errors.append(
+                f"view quota mismatch for {view['id']}: expected {expected}, found {actual}"
+            )
     metrics = {
         "status": "PASS" if not errors else "FAIL",
         "master_count": len(master),
@@ -378,6 +401,7 @@ def validate(master: list[dict[str, str]], holds: list[dict[str, str]], config: 
         "hold_count": len(holds),
         "hold_overlap": len(overlap),
         "represented_views": sorted(represented),
+        "view_counts": dict(sorted(view_counts.items())),
     }
     return errors, metrics
 

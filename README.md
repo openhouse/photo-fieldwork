@@ -31,6 +31,15 @@ Run the tests:
 make check
 ```
 
+The synthetic [skill evaluation bank](evals/README.md) covers recovery,
+fresh-evidence discipline, source and artifact identity, stratified quality,
+safety and consent, catalog verification, privacy-safe handoff, and epistemic
+provenance. It includes adversarial shortcuts so an agreeable but unsafe answer
+does not count as a pass.
+
+The latest [evaluation hill climb](docs/eval-hillclimb.md) records how weak
+assertions were challenged and promoted into executable regressions.
+
 ## Use it with your own inventory
 
 1. Copy `config/starter.json` and edit the views, quotas, and thresholds.
