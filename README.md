@@ -32,6 +32,7 @@ Run the tests:
 
 ```bash
 make check
+make evals
 ```
 
 ## Use it with your own inventory
@@ -53,6 +54,14 @@ make check
 ./bin/photo-fieldwork sample \
   --master runs/my-run/manifests/proposed-master.csv \
   --output runs/my-run/manifests/eval-sample.csv \
+  --per-view 3
+
+# Later rounds must use newly inspected UUIDs.
+./bin/photo-fieldwork sample \
+  --master runs/my-run/manifests/proposed-master.csv \
+  --exclude-feedback runs/my-run/manifests/eval-sample.csv \
+  --novel-only \
+  --output runs/my-run/manifests/eval-round-02.csv \
   --per-view 3
 
 ./bin/photo-fieldwork evaluate \
@@ -94,14 +103,15 @@ Those are different questions. Photo Fieldwork keeps them different.
 
 ## What is included
 
-- A deterministic, configurable selection engine.
+- A deterministic, capacity-aware selection engine that meets exact view quotas or reports deficits.
 - Safety holds that cannot enter the master.
 - Duplicate and burst controls.
 - Named-people and visible-apparatus signals.
 - An unclassified editor field for honest uncertainty.
-- Stratified evaluation samples and precision thresholds.
+- Hash-bound stratified evaluation samples, novel-only recursive rounds, and per-view precision thresholds.
 - Explicit decisive-precision, fit-rate, uncertainty, and population-weighted evaluation measures.
-- Exact-master hashes that bind evaluation to catalog plans.
+- Exact master and evaluation-sample hashes that bind editor-field evaluation to catalog plans.
+- A public-safe adversarial skill eval bank and recursive hill-climb record.
 - A fully synthetic practice run.
 - Apple Photos integration guidance and adapter contracts.
 - Whole-visible-library inventory, preview-integrity, and WAL-safe verification tools.
@@ -115,7 +125,7 @@ Those are different questions. Photo Fieldwork keeps them different.
 - Direct writes to Photos SQLite.
 - A claim that the generated corpus is the final edit.
 
-Read [the workflow](docs/workflow.md), [the architecture](docs/architecture.md), [the safety model](docs/safety.md), [the Apple Photos guide](docs/apple-photos.md), and [the editor handoff](docs/editor-handoff.md) before using a private archive. The [v04-N case study](docs/case-study-v04-n.md) records the failures that shaped the current gates.
+Read [the workflow](docs/workflow.md), [the architecture](docs/architecture.md), [the safety model](docs/safety.md), [the Apple Photos guide](docs/apple-photos.md), and [the editor handoff](docs/editor-handoff.md) before using a private archive. The [v04-N case study](docs/case-study-v04-n.md) records the failures that shaped the current gates, and the [recursive eval hill climb](docs/eval-hill-climb.md) records how those gates were challenged.
 
 Before publishing changes to this public repository, run:
 

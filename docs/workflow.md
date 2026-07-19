@@ -8,7 +8,7 @@ Write down what may be read, what may be created, where outputs live, and which 
 
 ## 1. Freeze a source corpus
 
-Give the broad retrieval corpus a stable name and count. Never alter it during a versioned run. Preserve v00, v01, and later runs as separate folders so selection logic can be compared rather than overwritten.
+Give the broad retrieval corpus a stable name and count. Hash its sorted stable-ID membership so a different source with the same count cannot be substituted unnoticed. Never alter it during a versioned run. Preserve v00, v01, and later runs as separate folders so selection logic can be compared rather than overwritten.
 
 ## 2. Build a compact inventory
 
@@ -34,19 +34,19 @@ Use distinct states for `review_required`, automatic HOLD, human HOLD, and `edit
 
 ## 7. Select with uncertainty
 
-Balance high-confidence evidence, stratified diversity, and exploratory retrieval. Preserve `Unclassified / Editor Field`. A useful corpus does not need every image to support a named project claim.
+Balance high-confidence evidence, stratified diversity, and exploratory retrieval. Preserve `Unclassified / Editor Field`. A useful corpus does not need every image to support a named project claim. Meet every configured view quota exactly; when overlap makes the brief infeasible, report the capacity deficit without silently rewriting the quotas.
 
 People associations are first-class archive structure. Preserve named relationships already curated by the archive owner, but never identify unnamed faces or infer sensitive traits.
 
 ## 8. Evaluate and loop
 
-Sample low, middle, and high-scoring images from each view. Measure coverage, decisive precision, fit rate, uncertainty, and safety misses. Read the rejected examples. Revise retrieval, scoring, holds, or labels, then rerun with the same seed. A metric without inspected failure cases is not enough.
+Sample low, middle, and high-scoring images from each view. Measure coverage, decisive precision, fit rate, uncertainty, and safety misses both overall and per view. Read the rejected examples. Revise retrieval, scoring, holds, or labels, then rerun with the same seed and UUIDs excluded from prior rounds. A metric without inspected failure cases is not enough, and a repeated sample is not fresh evidence.
 
 ## 9. Plan before writing
 
 Produce proposed-master, hold, membership, and decision manifests before touching the catalog. Every selected stable ID needs a reason. The plan must be idempotent.
 
-Hash the exact stable-ID membership and view assignments. The final passing evaluation and catalog plan must name the same hash.
+Hash the exact stable-ID membership and view assignments as well as the exact evaluation sample. The final passing evaluation and catalog plan must name the same hashes. The plan is authorized only for an editor-field release; it records `publication_clearance: false`.
 
 ## 10. Commit narrowly
 

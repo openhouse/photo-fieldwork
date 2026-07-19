@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sqlite3
 from datetime import datetime
@@ -56,6 +57,14 @@ def source_members(conn: sqlite3.Connection, identifier: str) -> tuple[set[str],
     return members(conn, source_pk), source_title
 
 
+def membership_sha256(values: set[str]) -> str:
+    digest = hashlib.sha256()
+    for value in sorted(values):
+        digest.update(value.encode("utf-8"))
+        digest.update(b"\n")
+    return digest.hexdigest()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--plan", type=Path, required=True)
@@ -89,6 +98,12 @@ def main() -> None:
     source, source_title = source_members(conn, plan["source_album_identifier"])
     if len(source) != plan["expected_source_count"]:
         raise RuntimeError(f"source count changed: {len(source)} != {plan['expected_source_count']}")
+    source_digest = membership_sha256(source)
+    if source_digest != plan.get("source_membership_sha256"):
+        raise RuntimeError(
+            "source membership changed: "
+            f"{source_digest} != {plan.get('source_membership_sha256', '<missing>')}"
+        )
 
     verified = []
     folder_receipts = {item["key"]: item for item in receipt.get("folders", [])}
@@ -140,6 +155,7 @@ def main() -> None:
         f"- Plan: `{plan['plan_id']}`",
         f"- Source: `{source_title}`",
         f"- Source membership: {len(source):,}",
+        f"- Source membership SHA-256: `{source_digest}`",
         f"- Albums exactly verified: {len(verified)}",
         "- Unexpected memberships: 0",
         "- Missing memberships: 0",

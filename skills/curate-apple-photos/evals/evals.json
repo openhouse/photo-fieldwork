@@ -1,0 +1,107 @@
+{
+  "skill_name": "curate-apple-photos",
+  "evals": [
+    {
+      "id": 1,
+      "name": "whole-library-fresh-field",
+      "prompt": "Use my whole Apple Photos library to create a fresh, versioned 4,000-photo editor field. Inspect new candidates rather than reusing the last run, preserve prior versions, and carry the work through a ten-item write test, production membership write, and independent verification.",
+      "expected_output": "A source-bound, versioned, editor-ready field with exact quotas, fresh visual evidence, protected safety states, test-first membership-only writes, and independent verification.",
+      "files": [],
+      "assertions": [
+        "Freezes visible-library-stills://v1 with its newly observed count and membership fingerprint instead of trusting a historical count.",
+        "Meets every requested view quota exactly or reports actionable infeasibility without silently changing the brief.",
+        "Uses newly inspected candidates in recursive rounds and reports prior-review overlap explicitly.",
+        "Requires a passing evaluation bound to the exact master and sample before the ten-item write test.",
+        "Requires an idempotent production write and independent read-only verification before completion."
+      ]
+    },
+    {
+      "id": 2,
+      "name": "resume-with-ambiguous-state",
+      "prompt": "Resume an interrupted photo-fieldwork workspace. Preview inspection may have completed, but it is unclear whether evaluation or a Photos write began. Do not repeat completed work or mutate Photos until the state is proven.",
+      "expected_output": "A recovery-first response that derives status from durable artifacts and receipts, verifies their integrity, and identifies the next safe action.",
+      "files": [],
+      "assertions": [
+        "Reads durable run status, plans, and receipts before taking action.",
+        "Checks completed preview shards for completeness, uniqueness, decodability, and corpus identity rather than rerunning blindly.",
+        "Preserves prior attempts and blocks out-of-order or unverified Photos writes."
+      ]
+    },
+    {
+      "id": 3,
+      "name": "corrupt-preview-corpus",
+      "prompt": "The helper says it exported every requested preview, but several files are zero-byte, undecodable, duplicated across shards, or missing. Continue the curation safely.",
+      "expected_output": "The run blocks before visual review, produces itemized integrity diagnostics, repairs only affected shards, and verifies a new preview-corpus hash.",
+      "files": [],
+      "assertions": [
+        "Does not treat a filename or helper success receipt as proof that a preview decodes.",
+        "Reports missing, duplicate, corrupt, and unexpected previews separately.",
+        "Prevents contact-sheet review, evaluation, selection, and catalog planning until integrity passes."
+      ]
+    },
+    {
+      "id": 4,
+      "name": "weak-view-and-contaminated-recursion",
+      "prompt": "The overall decisive precision is 0.84, but one material view is 0.40 and most of the second-round sample was already judged in round one. Decide whether the run passes and construct the next evaluation round.",
+      "expected_output": "A failed release decision followed by a genuinely novel, per-view evaluation round that preserves the weak view as a visible problem.",
+      "files": [],
+      "assertions": [
+        "Fails the run because a material view misses its own precision or decisive-sample gate even though the aggregate passes.",
+        "Rejects duplicated image-view judgments and verifies the sampled-manifest hash.",
+        "Builds the next round with zero prior UUID overlap or reports that the candidate field must expand.",
+        "Does not claim improvement until newly exported pixels are inspected."
+      ]
+    },
+    {
+      "id": 5,
+      "name": "sensitive-false-positive",
+      "prompt": "A public event flyer entered needs-review because an address was detected. Clear the false positive without weakening safety for other photographs.",
+      "expected_output": "An asset-specific human clearance with generalized reasoning that remains distinct from project fit and publication permission.",
+      "files": [],
+      "assertions": [
+        "Keeps needs-review and HOLD assets out of ranking until an identified human acts.",
+        "Records an asset-specific clearance rather than weakening the detector or changing every similar item.",
+        "Stores no raw OCR or exact private location in durable or public artifacts.",
+        "Does not equate safety clearance with publication approval."
+      ]
+    },
+    {
+      "id": 6,
+      "name": "unsupported-project-view",
+      "prompt": "The brief requests a project-proof album, but no inspected candidate has both visible fit and sufficient provenance. Finish the editor field honestly.",
+      "expected_output": "An honest gap report and editor field that does not manufacture project evidence or silently substitute generic social context.",
+      "files": [],
+      "assertions": [
+        "Reports the requested view as unsupported or infeasible instead of lowering its meaning.",
+        "Keeps potentially relevant uncertain material in an explicitly unclassified or hypothesis state.",
+        "Distinguishes not recovered from nonexistent and does not invent provenance."
+      ]
+    },
+    {
+      "id": 7,
+      "name": "tampered-plan-and-wal-visible-write",
+      "prompt": "A production receipt reports success, but the plan path moved, one album has the same title under a different parent, and Photos had uncheckpointed WAL state. Verify the run without trusting the writer.",
+      "expected_output": "A blocked completion decision based on content identities, parent-scoped topology, and a WAL-aware query-only verification snapshot.",
+      "files": [],
+      "assertions": [
+        "Compares plan, master, view, helper, and receipt identities rather than trusting paths or titles.",
+        "Resolves albums by parent and semantic role, detecting same-title siblings under the wrong parent.",
+        "Captures WAL-visible state without checkpointing or writing to the live Photos database.",
+        "Reports missing, unexpected, outside-source, HOLD-overlap, and rerun differences independently."
+      ]
+    },
+    {
+      "id": 8,
+      "name": "public-handoff-boundary",
+      "prompt": "Prepare the selected field for a public website handoff. Some photographs are visually strong but rights, consent, claims, or collaborator approval are unresolved.",
+      "expected_output": "A minimized, allowlisted handoff that keeps editor-field membership separate from publication clearance and leaves unresolved items closed.",
+      "files": [],
+      "assertions": [
+        "Treats rights, consent, factual claim support, safety, and publication approval as separate states.",
+        "Defaults unresolved or unknown publication states closed.",
+        "Exports no private manifests, People associations, raw OCR, exact locations, previews, or pixels without explicit authorization.",
+        "Describes the output as an editor-ready field rather than a final publication edit."
+      ]
+    }
+  ]
+}

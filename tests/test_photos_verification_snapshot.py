@@ -1,4 +1,5 @@
 import importlib.util
+import hashlib
 import json
 import sqlite3
 import subprocess
@@ -49,6 +50,7 @@ class PhotosVerificationSnapshotTests(unittest.TestCase):
                     "plan_id": "test",
                     "source_album_identifier": snapshotter.VISIBLE_LIBRARY_STILLS,
                     "expected_source_count": 1,
+                    "source_membership_sha256": hashlib.sha256(b"ASSET\n").hexdigest(),
                     "folders": [{"key": "version", "title": "Version"}],
                     "albums": [{
                         "title": "Master",

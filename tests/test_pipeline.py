@@ -97,11 +97,17 @@ class PipelineTests(unittest.TestCase):
 
     def test_catalog_plan_allows_only_membership_writes(self):
         master, _, _ = select(self.inventory, self.config)
-        plan = build_catalog_plan(master, self.config, "practice", "Source", "SOURCE-1")
+        sample = make_sample(master, 3, 20260710)
+        for row in sample:
+            row["judgment"] = "fit"
+        report, passed = evaluate(sample, self.config)
+        self.assertTrue(passed)
+        plan = build_catalog_plan(master, self.config, "practice", "Source", "SOURCE-1", report)
         self.assertEqual(plan["safety_mode"], "create-folders-albums-and-add-membership-only")
         self.assertEqual(plan["expected_master_count"], 12)
         self.assertEqual(plan["write_test_count"], 10)
         self.assertEqual(len(plan["albums"][0]["asset_ids"]), 12)
+        self.assertFalse(plan["publication_clearance"])
 
     def test_catalog_plan_is_bound_to_passing_evaluation(self):
         master, _, _ = select(self.inventory, self.config)

@@ -24,7 +24,7 @@ python3 scripts/photo_archive_bridge.py doctor
 
 ## Governing invariants
 
-- Use either the verified wide album or `visible-library-stills://v1` as an explicit immutable source. Whole-library work must build a fresh read-only inventory quality report. Verify the chosen source identifier and current count before work.
+- Use either the verified wide album or `visible-library-stills://v1` as an explicit immutable source. Whole-library work must build a fresh read-only inventory quality report. Freeze the chosen source identifier, current count, and sorted-UUID membership SHA-256 before work; a matching count alone cannot prove source identity.
 - Do not alter source albums, originals, metadata, faces, favorite status, dates, locations, or prior versions.
 - Never write Photos SQLite. The permissioned app may only inspect locally or create folders/albums and add existing membership.
 - Do not upload pixels, previews, OCR, faces, coordinates, or manifests.
@@ -73,9 +73,10 @@ Read [evaluation-loop.md](references/evaluation-loop.md) before the first visual
 3. Build contact sheets with `make_contact_sheets.py`. Use `view_image` to inspect every page. Open individual previews when context or safety is unclear.
 4. Speak briefly as the requested peers. If Jamie cannot review, role-play Jamie using the supplied brief and voice references, while marking the judgment as delegated editorial inference rather than eyewitness fact.
 5. Record `fit`, `reject`, or `uncertain`, one visible reason, a safety state, and an error category in the evaluation CSV.
-6. Run `photo-fieldwork evaluate`. Read all rejections and a stratified uncertainty sample.
-7. Change retrieval, assignments, penalties, quotas, or hold rules in response to observed errors. Keep the seed fixed. Save each round separately.
-8. Repeat until:
+6. Run `photo-fieldwork evaluate`. Treat the overall metric as diagnostic: every material view must independently meet coverage, decisive-sample, precision, uncertainty, and safety gates. A sparse hypothesis requires an explicit written waiver that remains visible in the report and plan.
+7. For every recursive round after the first, pass the prior feedback to `photo-fieldwork sample --exclude-feedback PRIOR.csv --novel-only`. The command must report zero prior UUID overlap; if a view lacks enough fresh candidates, expand retrieval instead of recycling evidence.
+8. Change retrieval, assignments, penalties, quotas, or hold rules in response to observed errors. Keep the seed fixed. Save each round separately. The evaluation sample hash must remain unchanged between sampling and evaluation.
+9. Repeat until:
    - evaluation coverage, decisive precision, and maximum uncertainty meet `config.json`;
    - every view has been visually sampled;
    - known safety regressions are absent;
@@ -84,12 +85,14 @@ Read [evaluation-loop.md](references/evaluation-loop.md) before the first visual
    - uncertainty is explicit;
    - the exact requested target is met with unique still-photo IDs.
 
+Selection must meet each configured view quota exactly. If overlap makes the brief infeasible, preserve the requested quotas and report capacities and deficits; never silently rebalance the field.
+
 Do not claim success from Vision labels or metadata alone. The recursive loop requires actual preview inspection in the chat.
 
 ## Validate and commit
 
 1. Run `photo-fieldwork validate`. Save a PASS report.
-2. Generate test and production plans with `photo_archive_bridge.py snapshot-plans --evaluation-report ...`. The report must pass and match the exact master hash.
+2. Generate test and production plans with `photo_archive_bridge.py snapshot-plans --evaluation-report ... --source-membership-sha256 ...`, using the digest from the frozen inventory quality report. The report must pass and match the exact master and evaluation-sample hashes. Keep the release class `editor-field`; publication clearance remains false.
 3. Inspect the plans. Confirm the source count, target count, folder title, HOLD separation, and that operations are membership-only.
 4. Run the ten-item write test through the app. Independently verify it with `verify_photos_commit.py`.
 5. Run the production plan through the app. Rerun it once to confirm idempotence.
@@ -111,3 +114,7 @@ Return:
 - links to the run README, master manifest, evaluation report, app receipt, and independent verification.
 
 State clearly that this is an editor-ready field, not the final publication edit.
+
+## Maintain the skill
+
+Run `make evals` before and after changing the workflow. Use the adversarial prompt bank in `evals/evals.json` against both the candidate and the previous skill snapshot. Add every newly discovered regression as a permanent case; do not remove a difficult eval merely to improve the score.

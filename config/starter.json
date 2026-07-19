@@ -7,6 +7,8 @@
   "exploratory_fraction": 0.1,
   "minimum_eval_precision": 0.75,
   "minimum_eval_coverage": 0.8,
+  "minimum_view_eval_decisive_precision": 0.65,
+  "minimum_view_eval_decisive_count": 2,
   "maximum_eval_uncertainty": 0.25,
   "minimum_named_people_fraction": 0.35,
   "minimum_person_free_fraction": 0.2,

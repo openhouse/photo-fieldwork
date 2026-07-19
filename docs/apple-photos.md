@@ -53,6 +53,7 @@ After writing, compare planned and actual memberships through an independent rea
 - no members outside the source;
 - no HOLD overlap;
 - source count unchanged.
+- sorted source UUID membership SHA-256 unchanged; a matching count is not sufficient.
 
 Do not assume `immutable=1` can see uncheckpointed WAL rows in the live library. Use `snapshot_photos_verification.py` to open the live database with `mode=ro` and `query_only=ON`, copy the relevant committed rows into a separate compact database, and run the immutable verifier against that snapshot. The snapshot command must never request a live checkpoint.
 

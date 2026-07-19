@@ -41,9 +41,20 @@ def command_select(args: argparse.Namespace) -> int:
 
 def command_sample(args: argparse.Namespace) -> int:
     master = read_csv(args.master)
-    sample = make_sample(master, args.per_view, args.seed)
+    excluded_ids = set()
+    exclude_feedback = getattr(args, "exclude_feedback", None)
+    if exclude_feedback:
+        excluded_ids = {row["uuid"] for row in read_csv(exclude_feedback)}
+    sample = make_sample(
+        master,
+        args.per_view,
+        args.seed,
+        excluded_ids=excluded_ids,
+        novel_only=getattr(args, "novel_only", False),
+    )
     write_csv(args.output, sample)
-    print(f"wrote {len(sample)} evaluation rows to {args.output}")
+    overlap = sum(row.get("prior_review_overlap") == "true" for row in sample)
+    print(f"wrote {len(sample)} evaluation rows to {args.output}; prior UUID overlap={overlap}")
     return 0
 
 
@@ -194,6 +205,8 @@ def parser() -> argparse.ArgumentParser:
     sample.add_argument("--output", type=Path, required=True)
     sample.add_argument("--per-view", type=int, default=3)
     sample.add_argument("--seed", type=int, default=20260710)
+    sample.add_argument("--exclude-feedback", type=Path, help="prior evaluation CSV whose UUIDs should be tracked")
+    sample.add_argument("--novel-only", action="store_true", help="fail unless the sample has zero prior UUID overlap")
     sample.set_defaults(func=command_sample)
 
     evaluation = sub.add_parser("evaluate", help="measure labeled evaluation feedback")

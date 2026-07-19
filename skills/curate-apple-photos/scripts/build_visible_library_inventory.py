@@ -9,6 +9,7 @@ for retrieval; this script never writes to or checkpoints Photos.sqlite.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sqlite3
 from datetime import datetime
@@ -98,6 +99,14 @@ def copy_query(
             print(f"rows_copied={count}")
     output.commit()
     return count
+
+
+def membership_sha256(connection: sqlite3.Connection) -> str:
+    digest = hashlib.sha256()
+    for (uuid,) in connection.execute("SELECT uuid FROM asset ORDER BY uuid"):
+        digest.update(str(uuid).encode("utf-8"))
+        digest.update(b"\n")
+    return digest.hexdigest()
 
 
 def main() -> None:
@@ -229,9 +238,12 @@ def main() -> None:
         "INSERT OR IGNORE INTO asset_search(uuid, category, category_name, content_string, normalized_string, lookup_identifier) VALUES (?, ?, ?, ?, ?, ?)",
     )
 
+    source_membership_sha256 = membership_sha256(output)
+
     meta = {
         "source_identifier": SOURCE_IDENTIFIER,
         "source_count": str(asset_count),
+        "source_membership_sha256": source_membership_sha256,
         "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "photos_database": str(args.photos_db),
         "source_scope": "visible, non-hidden, non-trashed, primary-scope still photographs",
@@ -275,6 +287,7 @@ def main() -> None:
         "generated_at": meta["generated_at"],
         "asset_count": final_count,
         "unique_asset_count": unique_count,
+        "source_membership_sha256": source_membership_sha256,
         "signals": {
             "people": {"rows": people_count, "available": people_count > 0},
             "albums": {"rows": album_count, "available": album_count > 0},
@@ -289,6 +302,7 @@ def main() -> None:
     }
     print(f"source_identifier={SOURCE_IDENTIFIER}")
     print(f"visible_stills={final_count}")
+    print(f"source_membership_sha256={source_membership_sha256}")
     print(f"people_links={people_count}")
     print(f"album_links={album_count}")
     print(f"keyword_links={keyword_count}")

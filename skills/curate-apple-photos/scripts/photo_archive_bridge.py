@@ -239,6 +239,7 @@ def snapshot_plan(args: argparse.Namespace, plan_id: str, folders: list[dict], a
         "safety_mode": "create-folders-albums-and-add-membership-only",
         "source_album_identifier": args.source_id,
         "expected_source_count": args.source_count,
+        "source_membership_sha256": getattr(args, "source_membership_sha256", None),
         "batch_size": args.batch_size,
         "log_path": str(workspace / "logs" / "jamie-photo-archive-app.log"),
         "receipt_path": str(workspace / "manifests" / receipt),
@@ -257,6 +258,14 @@ def command_snapshot_plans(args: argparse.Namespace) -> int:
         raise ValueError("snapshot plans require a passing evaluation")
     if evaluation.get("master_sha256") != digest:
         raise ValueError("evaluation report does not match the proposed master")
+    if evaluation.get("release_class") != "editor-field":
+        raise ValueError("snapshot plans require editor-field evaluation release class")
+    if not evaluation.get("evaluation_sample_sha256"):
+        raise ValueError("snapshot plans require evaluation sample identity")
+    if len(args.source_membership_sha256) != 64 or any(
+        character not in "0123456789abcdef" for character in args.source_membership_sha256
+    ):
+        raise ValueError("source_membership_sha256 must be 64 lowercase hexadecimal characters")
     master_ids = [base_identifier(row["uuid"]) for row in master_rows]
     hold_ids = [base_identifier(row["uuid"]) for row in hold_rows]
     if len(master_ids) != args.target or len(set(master_ids)) != args.target:
@@ -303,6 +312,10 @@ def command_snapshot_plans(args: argparse.Namespace) -> int:
     )
     test["master_sha256"] = digest
     test["proposal_id"] = evaluation.get("proposal_id")
+    test["evaluation_sample_sha256"] = evaluation["evaluation_sample_sha256"]
+    test["release_class"] = "editor-field"
+    test["publication_clearance"] = False
+    test["evaluation_waivers"] = evaluation.get("waivers", [])
     production_albums = [album(f"00 MASTER — {args.target:,}", "version", master_ids)]
     for view, values in sorted(by_view.items()):
         label = view_labels.get(view, "EDITOR VIEW")
@@ -323,6 +336,10 @@ def command_snapshot_plans(args: argparse.Namespace) -> int:
     )
     production["master_sha256"] = digest
     production["proposal_id"] = evaluation.get("proposal_id")
+    production["evaluation_sample_sha256"] = evaluation["evaluation_sample_sha256"]
+    production["release_class"] = "editor-field"
+    production["publication_clearance"] = False
+    production["evaluation_waivers"] = evaluation.get("waivers", [])
     test_path = args.workspace / "manifests" / f"{args.version}-write-test-plan.json"
     production_path = args.workspace / "manifests" / f"{args.version}-production-plan.json"
     dump_json(test_path, test)
@@ -434,6 +451,7 @@ def parser() -> argparse.ArgumentParser:
     plans.add_argument("--evaluation-report", type=Path, required=True)
     plans.add_argument("--source-id", default=SOURCE_ID)
     plans.add_argument("--source-count", type=int, default=SOURCE_COUNT)
+    plans.add_argument("--source-membership-sha256", required=True)
     plans.add_argument("--batch-size", type=int, default=500)
     plans.set_defaults(func=command_snapshot_plans)
 

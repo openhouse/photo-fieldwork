@@ -28,10 +28,17 @@ class SkillBridgeTests(unittest.TestCase):
     def test_snapshot_plan_resolves_workspace_paths(self):
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory)
-            args = type("Args", (), {"workspace": workspace, "source_id": "SOURCE", "source_count": 2, "batch_size": 10})()
+            args = type("Args", (), {
+                "workspace": workspace,
+                "source_id": "SOURCE",
+                "source_count": 2,
+                "source_membership_sha256": "a" * 64,
+                "batch_size": 10,
+            })()
             plan = bridge.snapshot_plan(args, "test", [], [], "receipt.json")
             self.assertTrue(Path(plan["receipt_path"]).is_absolute())
             self.assertEqual(Path(plan["workspace_path"]), workspace.resolve())
+            self.assertEqual(plan["source_membership_sha256"], "a" * 64)
 
     def test_plan_paths_must_be_absolute_and_inside_workspace(self):
         with tempfile.TemporaryDirectory() as directory:
