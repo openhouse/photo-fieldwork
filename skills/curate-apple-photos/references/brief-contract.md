@@ -39,8 +39,13 @@ Follow `/Volumes/16TB_SSD/Sites/photo-fieldwork/schemas/config.schema.json`.
 - Preserve both a named-people field and a meaningful person-free field.
 - Project views should say `Editor Hypothesis` until validated.
 - Default evaluation minimums: 0.80 precision and 0.90 coverage.
+- Set `maximum_eval_uncertainty` explicitly for production work. The report names decisive precision separately because uncertainty is excluded from that denominator.
 - Default selection floors: `minimum_named_people_fraction` 0.35 and `minimum_person_free_fraction` 0.20, adjusted when the brief genuinely calls for a different balance.
 - Keep the random seed fixed for the run.
+
+## Retrieval data quality
+
+Set `strict_signal_coverage: true` when the brief depends on a specific inventory signal. Retrieval fails if a requested people, album, keyword, label, place, or search modality has zero rows. Use `excluded_album_terms` to prevent prior editor fields and HOLD albums from becoming self-reinforcing evidence. Whole-library expansion may set `prior_corpus_album_title` with `minimum_outside_prior_fraction`; the floor is enforced, not merely reported.
 
 ## Peer panel
 

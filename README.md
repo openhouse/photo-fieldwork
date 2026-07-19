@@ -8,6 +8,12 @@ It does not automate taste. It helps people automate retrieval, deduplication, b
 
 Requirements: Python 3.11 or newer. The practice workflow has no third-party dependencies and does not access Apple Photos.
 
+The Apple Photos preview and contact-sheet tools use the optional `apple-photos` extra:
+
+```bash
+python3 -m pip install -e '.[apple-photos]'
+```
+
 ```bash
 make demo
 ```
@@ -26,6 +32,7 @@ Run the tests:
 
 ```bash
 make check
+make evals
 ```
 
 ## Use it with your own inventory
@@ -49,6 +56,14 @@ make check
   --output runs/my-run/manifests/eval-sample.csv \
   --per-view 3
 
+# Later rounds must use newly inspected UUIDs.
+./bin/photo-fieldwork sample \
+  --master runs/my-run/manifests/proposed-master.csv \
+  --exclude-feedback runs/my-run/manifests/eval-sample.csv \
+  --novel-only \
+  --output runs/my-run/manifests/eval-round-02.csv \
+  --per-view 3
+
 ./bin/photo-fieldwork evaluate \
   --feedback runs/my-run/manifests/eval-sample.csv \
   --config path/to/config.json \
@@ -63,10 +78,27 @@ make check
 ./bin/photo-fieldwork plan \
   --master runs/my-run/manifests/proposed-master.csv \
   --config path/to/config.json \
+  --evaluation-report runs/my-run/reports/evaluation-report.json \
   --plan-id my-run-v01 \
   --source-title "Wide retrieval - do not edit" \
   --source-identifier SOURCE-ID \
   --output runs/my-run/manifests/catalog-plan.json
+
+./bin/photo-fieldwork ledger \
+  --master runs/my-run/manifests/proposed-master.csv \
+  --holds runs/my-run/manifests/hold-sensitive.csv \
+  --feedback runs/my-run/manifests/eval-sample.csv \
+  --output runs/my-run/manifests/decision-ledger.jsonl
+
+./bin/photo-fieldwork audit-holdout \
+  --tuning runs/my-run/manifests/all-tuning-feedback.csv \
+  --holdout runs/my-run/manifests/final-holdout.csv \
+  --output runs/my-run/reports/final-holdout-audit.json
+
+./bin/photo-fieldwork public-handoff \
+  --input runs/my-run/manifests/public-derivative-review.csv \
+  --output runs/my-run/public/public-handoff.json \
+  --report runs/my-run/reports/public-handoff-report.json
 ```
 
 ## The central distinction
@@ -81,14 +113,22 @@ Those are different questions. Photo Fieldwork keeps them different.
 
 ## What is included
 
-- A deterministic, configurable selection engine.
-- Safety holds that cannot enter the master.
+- A deterministic capacity network that jointly meets exact view quotas and people-diversity floors or reports deficits.
+- Fail-closed safety states with transitive duplicate, perceptual-cluster, and burst HOLD propagation.
 - Duplicate and burst controls.
 - Named-people and visible-apparatus signals.
 - An unclassified editor field for honest uncertainty.
-- Stratified evaluation samples and precision thresholds.
+- Hash-bound fresh samples, separately scored regression canaries, novel-only recursive rounds, and per-view precision thresholds.
+- Relationship-aware final-holdout audits that reject tuning leakage and internal duplicate evidence.
+- Explicit decisive-precision, fit-rate, uncertainty, and population-weighted evaluation measures.
+- Exact master and evaluation-sample hashes that bind editor-field evaluation to catalog plans.
+- A public-safe adversarial skill eval bank and recursive hill-climb record.
 - A fully synthetic practice run.
 - Apple Photos integration guidance and adapter contracts.
+- Whole-visible-library inventory, preview-integrity, and WAL-safe verification tools.
+- Append-only, artifact-hashed run state with revision conflicts, legal phase order, and deterministic recovery.
+- Nonce-bound Python/Swift helper receipts that identify the exact plan bytes, helper revision, and source membership executed.
+- An allowlisted public-derivative handoff with independent rights, consent, claim, safety, and publication gates.
 - A case study of how visual inspection changed a real workflow.
 
 ## What is not included
@@ -99,7 +139,13 @@ Those are different questions. Photo Fieldwork keeps them different.
 - Direct writes to Photos SQLite.
 - A claim that the generated corpus is the final edit.
 
-Read [the workflow](docs/workflow.md), [the architecture](docs/architecture.md), [the safety model](docs/safety.md), and [the Apple Photos guide](docs/apple-photos.md) before using a private archive.
+Read [the workflow](docs/workflow.md), [the architecture](docs/architecture.md), [the safety model](docs/safety.md), [the Apple Photos guide](docs/apple-photos.md), and [the editor handoff](docs/editor-handoff.md) before using a private archive. The [v04-N case study](docs/case-study-v04-n.md) records the failures that shaped the current gates, the [Revision N composite](docs/revision-composite-N.md) identifies the contracts adopted from A-N, and the [recursive eval hill climb](docs/eval-hill-climb.md) records how those gates were challenged.
+
+Before publishing changes to this public repository, run:
+
+```bash
+./bin/photo-fieldwork audit-public --root .
+```
 
 ## Use it as a Codex skill
 

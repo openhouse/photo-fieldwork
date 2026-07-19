@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Photo Fieldwork public derivative handoff",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "release_class", "publication_clearance", "items"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "release_class": {"const": "public-derivative"},
+    "publication_clearance": {"type": "boolean"},
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["public_id", "derivative", "alt_text", "caption", "credit", "view_id"],
+        "properties": {
+          "public_id": {"type": "string", "minLength": 1},
+          "derivative": {"type": "string", "pattern": "^(?!/)(?!.*\\.\\.).+"},
+          "alt_text": {"type": "string"},
+          "caption": {"type": "string"},
+          "credit": {"type": "string"},
+          "view_id": {"type": "string"}
+        }
+      }
+    }
+  }
+}

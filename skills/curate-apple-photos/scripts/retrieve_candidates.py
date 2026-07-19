@@ -36,6 +36,42 @@ def like_matches(conn: sqlite3.Connection, query: str, values: list[str]) -> set
     return matched
 
 
+def album_matches(conn: sqlite3.Connection, values: list[str], excluded_terms: list[str]) -> set[str]:
+    matched: set[str] = set()
+    exclusions = "".join(" AND lower(coalesce(album_title,'')) NOT LIKE ?" for _ in excluded_terms)
+    query = "SELECT uuid FROM asset_album WHERE lower(coalesce(album_title,'')) LIKE ?" + exclusions
+    for value in values:
+        params = [f"%{value.casefold()}%", *[f"%{term.casefold()}%" for term in excluded_terms]]
+        matched.update(row[0] for row in conn.execute(query, params))
+    return matched
+
+
+def signal_coverage(conn: sqlite3.Connection, views: list[dict]) -> dict[str, dict[str, int | bool]]:
+    requested = {
+        "people": any(view.get("people") for view in views),
+        "albums": any(view.get("albums") or view.get("terms") for view in views),
+        "keywords": any(view.get("terms") for view in views),
+        "labels": any(view.get("terms") for view in views),
+        "places": any(view.get("places") or view.get("terms") for view in views),
+        "search": any(view.get("search_terms") for view in views),
+    }
+    tables = {
+        "people": "asset_person",
+        "albums": "asset_album",
+        "keywords": "asset_keyword",
+        "labels": "asset_label",
+        "places": "asset_place",
+        "search": "asset_search",
+    }
+    return {
+        signal: {
+            "requested": requested[signal],
+            "rows": int(conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0]),
+        }
+        for signal, table in tables.items()
+    }
+
+
 def relation_values(conn: sqlite3.Connection, table: str, column: str, ids: list[str]) -> dict[str, list[str]]:
     values: dict[str, list[str]] = defaultdict(list)
     for start in range(0, len(ids), 700):
@@ -73,8 +109,17 @@ def main() -> None:
     if not views:
         raise SystemExit("retrieval.json requires at least one view")
     candidate_target = max(args.target, math.ceil(args.target * float(spec.get("candidate_multiplier", 1.75))))
+    excluded_album_terms = [
+        str(value).casefold() for value in spec.get("excluded_album_terms", []) if str(value).strip()
+    ]
     conn = connect(args.db)
     asset_count = conn.execute("SELECT count(*) FROM asset WHERE is_photo = 1 AND hidden = 0 AND trashed = 0").fetchone()[0]
+    coverage = signal_coverage(conn, views)
+    unavailable = [name for name, item in coverage.items() if item["requested"] and not item["rows"]]
+    if unavailable and spec.get("strict_signal_coverage", False):
+        raise SystemExit(f"requested retrieval signals have no inventory rows: {', '.join(unavailable)}")
+    if unavailable:
+        print(f"warning_unavailable_signals={','.join(unavailable)}")
 
     view_scores: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
     for view in views:
@@ -93,7 +138,6 @@ def main() -> None:
             ) LIKE ?
         """
         relation_queries = [
-            ("SELECT uuid FROM asset_album WHERE lower(coalesce(album_title,'')) LIKE ?", 7.0),
             ("SELECT uuid FROM asset_keyword WHERE lower(keyword) LIKE ?", 6.0),
             ("SELECT uuid FROM asset_label WHERE lower(label_normalized) LIKE ?", 4.0),
             ("SELECT uuid FROM asset_place WHERE lower(place) LIKE ?", 4.0),
@@ -101,12 +145,14 @@ def main() -> None:
         for term in terms:
             for uuid in like_matches(conn, base_query, [term]):
                 view_scores[view_id][uuid] += 7.0
+            for uuid in album_matches(conn, [term], excluded_album_terms):
+                view_scores[view_id][uuid] += 7.0
             for query, weight in relation_queries:
                 for uuid in like_matches(conn, query, [term]):
                     view_scores[view_id][uuid] += weight
         for uuid in like_matches(conn, "SELECT uuid FROM asset_person WHERE lower(person) LIKE ?", people):
             view_scores[view_id][uuid] += 8.0
-        for uuid in like_matches(conn, "SELECT uuid FROM asset_album WHERE lower(coalesce(album_title,'')) LIKE ?", albums):
+        for uuid in album_matches(conn, albums, excluded_album_terms):
             view_scores[view_id][uuid] += 10.0
         for uuid in like_matches(conn, "SELECT uuid FROM asset_place WHERE lower(place) LIKE ?", places):
             view_scores[view_id][uuid] += 5.0
@@ -163,10 +209,55 @@ def main() -> None:
                 if len(selected) == candidate_target:
                     break
     selected = selected[:candidate_target]
+    if len(selected) != candidate_target:
+        raise SystemExit(f"could only retrieve {len(selected)} of {candidate_target} required candidates")
+    selected_set = set(selected)
+
+    prior_title = str(spec.get("prior_corpus_album_title") or "").strip()
+    outside_fraction = float(spec.get("minimum_outside_prior_fraction", 0.0))
+    if prior_title and outside_fraction > 0:
+        prior_ids = {
+            row[0]
+            for row in conn.execute("SELECT uuid FROM asset_album WHERE album_title = ?", (prior_title,))
+        }
+        required_outside = math.ceil(candidate_target * outside_fraction)
+
+        def aggregate_score(uuid: str) -> float:
+            return max((scores.get(uuid, 0.0) for scores in view_scores.values()), default=0.0) + prior_attention(uuid)
+
+        current_outside = sum(uuid not in prior_ids for uuid in selected)
+        if current_outside < required_outside:
+            outside_pool = sorted(
+                (uuid for uuid in matched_ids if uuid not in prior_ids and uuid not in selected_set),
+                key=lambda uuid: (aggregate_score(uuid), uuid),
+                reverse=True,
+            )
+            removable = sorted(
+                (uuid for uuid in selected if uuid in prior_ids),
+                key=lambda uuid: (aggregate_score(uuid), uuid),
+            )
+            replacements = min(required_outside - current_outside, len(outside_pool), len(removable))
+            remove = set(removable[:replacements])
+            selected = [uuid for uuid in selected if uuid not in remove] + outside_pool[:replacements]
+            current_outside = sum(uuid not in prior_ids for uuid in selected)
+        if current_outside < required_outside:
+            raise SystemExit(
+                f"outside-prior floor unmet: {current_outside} of {required_outside} required"
+            )
+        print(f"outside_prior_candidates={current_outside}")
+        print(f"required_outside_prior_candidates={required_outside}")
 
     base_rows = asset_rows(conn, selected)
     people = relation_values(conn, "asset_person", "person", selected)
     albums = relation_values(conn, "asset_album", "album_title", selected)
+    if excluded_album_terms:
+        albums = {
+            uuid: [
+                title for title in titles
+                if not any(term in title.casefold() for term in excluded_album_terms)
+            ]
+            for uuid, titles in albums.items()
+        }
     labels = relation_values(conn, "asset_label", "label", selected)
     places = relation_values(conn, "asset_place", "place", selected)
     conn.close()
@@ -195,6 +286,7 @@ def main() -> None:
                 "favorite": str(bool(row.get("favorite"))).lower(),
                 "edited": str(bool(row.get("edited"))).lower(),
                 "safety_status": "clear",
+                "safety_state": "clear_for_editor_field",
                 "safety_reason": "",
                 "hidden": str(bool(row.get("hidden") or row.get("trashed"))).lower(),
                 "missing": str(bool(row.get("missing"))).lower(),
@@ -222,6 +314,7 @@ def main() -> None:
     print(f"matched_assets={len(matched_ids)}")
     print(f"candidate_target={candidate_target}")
     print(f"candidate_rows={len(output_rows)}")
+    print(f"signal_coverage={json.dumps(coverage, sort_keys=True)}")
     print(f"output={args.output}")
 
 

@@ -27,11 +27,19 @@ open -W -n "/Applications/Jamie Photo Archive.app" --args --plan /absolute/path/
 - Inventory contains existing people, albums, labels, places, search text, favorite/edit status, duplicate and burst data, and Apple aesthetic fields.
 - The shared inventory is a snapshot. Rebuild or reconcile it when source count or Photos metadata materially changes.
 
+## Whole visible still library
+
+- Source identifier: `visible-library-stills://v1`
+- Scope: visible, non-hidden, non-trashed, primary-scope still photographs.
+- Build a run-specific or shared inventory with `build_visible_library_inventory.py`.
+- Record the discovered count in the run. Use `--expected-count` only when reproducing a frozen audit; do not hard-code a changing library count in source code.
+- Inspect the generated quality report before retrieval. The builder currently records labels and places as unavailable rather than silently claiming coverage.
+
 ## Photos database
 
 - Library: `/Volumes/apple-photos-8tb-external-ssd/Photos Library.photoslibrary`
 - Database: `/Volumes/apple-photos-8tb-external-ssd/Photos Library.photoslibrary/database/Photos.sqlite`
-- Verification access must use SQLite URI `mode=ro&immutable=1` and `PRAGMA query_only=ON`.
+- Live snapshot access must use SQLite URI `mode=ro`, `PRAGMA query_only=ON`, and an explicit read transaction so committed WAL state is visible. Immutable access is reserved for the resulting compact snapshot.
 - Never issue `INSERT`, `UPDATE`, `DELETE`, schema changes, or a non-read-only connection.
 
 ## Existing protected folders

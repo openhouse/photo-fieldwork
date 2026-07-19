@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import hashlib
 import json
 import sqlite3
 from datetime import datetime
@@ -13,6 +15,16 @@ from pathlib import Path
 DEFAULT_DB = Path(
     "/Volumes/apple-photos-8tb-external-ssd/Photos Library.photoslibrary/database/Photos.sqlite"
 )
+VISIBLE_LIBRARY_STILLS = "visible-library-stills://v1"
+HELPER_REVISION = "photo-fieldwork-composite-v1"
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def base(value: str) -> str:
@@ -41,20 +53,67 @@ def members(conn: sqlite3.Connection, album_pk: int) -> set[str]:
     }
 
 
+def source_members(conn: sqlite3.Connection, identifier: str) -> tuple[set[str], str]:
+    if identifier == VISIBLE_LIBRARY_STILLS:
+        rows = conn.execute(
+            """
+            SELECT ZUUID FROM ZASSET
+            WHERE ZKIND = 0 AND ZTRASHEDSTATE = 0 AND ZHIDDEN = 0
+              AND ZVISIBILITYSTATE = 0 AND ZBUNDLESCOPE = 0
+            """
+        )
+        return {row[0] for row in rows}, "Visible Apple Photos library - still photographs"
+    source_pk, source_title = album_record(conn, identifier)
+    return members(conn, source_pk), source_title
+
+
+def membership_sha256(values: set[str]) -> str:
+    digest = hashlib.sha256()
+    for value in sorted(values):
+        digest.update(value.encode("utf-8"))
+        digest.update(b"\n")
+    return digest.hexdigest()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--plan", type=Path, required=True)
     parser.add_argument("--receipt", type=Path, required=True)
     parser.add_argument("--report", type=Path, required=True)
     parser.add_argument("--photos-db", type=Path, default=DEFAULT_DB)
+    parser.add_argument("--previous-receipt", type=Path)
     args = parser.parse_args()
+
+    live_wal = args.photos_db.with_name(f"{args.photos_db.name}-wal")
+    if args.photos_db == DEFAULT_DB and live_wal.exists() and live_wal.stat().st_size:
+        raise RuntimeError(
+            "live Photos WAL is non-empty; capture a query-only verification snapshot first"
+        )
 
     plan = json.loads(args.plan.read_text(encoding="utf-8"))
     receipt = json.loads(args.receipt.read_text(encoding="utf-8"))
+    if receipt.get("plan_file_sha256") != file_sha256(args.plan):
+        raise RuntimeError("receipt does not bind the exact plan bytes")
+    if receipt.get("helper_revision") != HELPER_REVISION:
+        raise RuntimeError("receipt helper revision does not match the independent verifier")
+    if not receipt.get("execution_nonce"):
+        raise RuntimeError("receipt lacks a helper execution nonce")
+    expected_receipt = {
+        "plan_id": plan.get("plan_id"),
+        "source_album_identifier": plan.get("source_album_identifier"),
+        "source_count": plan.get("expected_source_count"),
+        "source_membership_sha256": plan.get("source_membership_sha256"),
+        "safety_mode": plan.get("safety_mode"),
+    }
+    for key, expected_value in expected_receipt.items():
+        if receipt.get(key) != expected_value:
+            raise RuntimeError(f"receipt {key} does not match the exact plan")
     expected = {
         item["title"]: {base(identifier) for identifier in item["asset_identifiers"]}
         for item in plan["albums"]
     }
+    if len(expected) != len(plan["albums"]):
+        raise RuntimeError("plan contains duplicate album titles")
     receipt_titles = {item["title"] for item in receipt["albums"]}
     if set(expected) != receipt_titles:
         raise RuntimeError("plan and receipt album titles differ")
@@ -62,12 +121,20 @@ def main() -> None:
     uri = f"file:{args.photos_db}?mode=ro&immutable=1"
     conn = sqlite3.connect(uri, uri=True, timeout=30)
     conn.execute("PRAGMA query_only=ON")
-    source_pk, source_title = album_record(conn, plan["source_album_identifier"])
-    source = members(conn, source_pk)
+    source, source_title = source_members(conn, plan["source_album_identifier"])
     if len(source) != plan["expected_source_count"]:
         raise RuntimeError(f"source count changed: {len(source)} != {plan['expected_source_count']}")
+    source_digest = membership_sha256(source)
+    if source_digest != plan.get("source_membership_sha256"):
+        raise RuntimeError(
+            "source membership changed: "
+            f"{source_digest} != {plan.get('source_membership_sha256', '<missing>')}"
+        )
 
     verified = []
+    folder_receipts = {item["key"]: item for item in receipt.get("folders", [])}
+    planned_by_title = {item["title"]: item for item in plan["albums"]}
+    duplicate_titles = 0
     for received in receipt["albums"]:
         title = received["title"]
         album_pk, actual_title = album_record(conn, received["identifier"])
@@ -78,8 +145,33 @@ def main() -> None:
             raise RuntimeError(f"membership mismatch for {title}: expected {len(expected[title])}, got {len(actual)}")
         if not actual <= source:
             raise RuntimeError(f"{title} contains assets outside source")
+        parent_key = planned_by_title[title]["parent_folder_key"]
+        if parent_key not in folder_receipts:
+            raise RuntimeError(f"receipt lacks parent folder {parent_key} for {title}")
+        parent_pk, _ = album_record(conn, folder_receipts[parent_key]["identifier"])
+        same_title_count = conn.execute(
+            """
+            SELECT count(*) FROM ZGENERICALBUM
+            WHERE ZTITLE = ? AND ZPARENTFOLDER = ? AND coalesce(ZTRASHEDSTATE, 0) = 0
+            """,
+            (title, parent_pk),
+        ).fetchone()[0]
+        if same_title_count != 1:
+            duplicate_titles += max(0, same_title_count - 1)
+            raise RuntimeError(f"expected one {title} inside parent folder; found {same_title_count}")
         verified.append((title, len(actual), received["identifier"]))
     conn.close()
+
+    rerun_identical = None
+    if args.previous_receipt:
+        previous = json.loads(args.previous_receipt.read_text(encoding="utf-8"))
+        previous_folders = {(item["key"], item["identifier"]) for item in previous.get("folders", [])}
+        current_folders = {(item["key"], item["identifier"]) for item in receipt.get("folders", [])}
+        previous_albums = {(item["title"], item["identifier"], item["count"]) for item in previous["albums"]}
+        current_albums = {(item["title"], item["identifier"], item["count"]) for item in receipt["albums"]}
+        rerun_identical = previous_folders == current_folders and previous_albums == current_albums
+        if not rerun_identical:
+            raise RuntimeError("production rerun changed folder or album identifiers/counts")
 
     lines = [
         "# Apple Photos commit verification",
@@ -89,10 +181,13 @@ def main() -> None:
         f"- Plan: `{plan['plan_id']}`",
         f"- Source: `{source_title}`",
         f"- Source membership: {len(source):,}",
+        f"- Source membership SHA-256: `{source_digest}`",
         f"- Albums exactly verified: {len(verified)}",
         "- Unexpected memberships: 0",
         "- Missing memberships: 0",
         "- Members outside source corpus: 0",
+        f"- Duplicate album titles within intended parent folders: {duplicate_titles}",
+        *([f"- Previous and current receipts identical: {rerun_identical}"] if rerun_identical is not None else []),
         "",
         "## Albums",
         "",
@@ -108,4 +203,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

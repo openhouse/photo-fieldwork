@@ -16,7 +16,9 @@ Store only generalized flags. Keep raw OCR ephemeral.
 
 ## Human-sensitive review
 
-Use `needs-review` for minors, intimate domestic scenes, vulnerable people, private homes, grief, health context, protest risk, or images whose publication could change someone's safety or dignity. Do not automatically include these in an editor-facing master.
+Use `review_required` for minors, intimate domestic scenes, vulnerable people, private homes, grief, health context, protest risk, or images whose publication could change someone's safety or dignity. The selector fails closed: only `clear_for_editor_field` or the legacy `clear` state may enter the master automatically.
+
+`editor_only` may preserve valuable relational or atmospheric material for a trusted review room. It is not selectable into the general editor field. Publication consent remains a separate decision and is never inferred from a safety state.
 
 ## Public meaning
 
@@ -38,4 +40,3 @@ Prohibited:
 - direct Photos database writes;
 - cloud analysis or external upload;
 - replacing or renaming prior versions.
-
