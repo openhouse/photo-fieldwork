@@ -81,7 +81,10 @@ photo-fieldwork select \
    deterministic score-stratified sample from every view. For the first round,
    inspect at least 3 per view and at least 36 overall. Later rounds should
    normally inspect 60-100 images across low, middle, and high scores.
-3. Build contact sheets with `make_contact_sheets.py`. Use `view_image` to inspect every page. Open individual previews when context or safety is unclear.
+3. Build contact sheets with `make_contact_sheets.py`, or build the private
+   dependency-free workbench with `photo-fieldwork build-review` and serve it
+   only through `photo-fieldwork serve-review`. Use `view_image` to inspect
+   every contact-sheet page. Open individual previews when context or safety is unclear.
 4. Speak briefly as the requested peers. If Jamie cannot review, role-play Jamie using the supplied brief and voice references, while marking the judgment as delegated editorial inference rather than eyewitness fact.
 5. Record `fit`, `reject`, or `uncertain`, one visible reason, a safety state, and an error category in the evaluation CSV.
 6. Run `photo-fieldwork evaluate`. Read all rejections and a stratified uncertainty sample.
@@ -94,6 +97,11 @@ photo-fieldwork select \
    - people and collective context remain meaningfully represented;
    - uncertainty is explicit;
    - the exact requested target is met with unique still-photo IDs.
+
+9. Before holdout results support release, run `photo-fieldwork audit-holdout`
+   across tuning, canary, and holdout manifests. Require zero canonical UUID,
+   perceptual-cluster, duplicate-group, and burst-group leakage. Keep
+   identifier-level remediation output private.
 
 Do not claim success from Vision labels or metadata alone. The recursive loop requires actual preview inspection in the chat.
 
@@ -135,6 +143,12 @@ Return:
 
 State clearly that this is an editor-ready field, not the final publication edit.
 
+If the user explicitly requests a public-use package, treat it as a separate
+human-governed release. Run `photo-fieldwork public-handoff` only from a
+publication-review manifest with destination-specific positive rights, consent,
+claim, safety, and editorial states. Keep the salt and blocked-row report
+private; inspect both outputs before publication.
+
 ## Maintain the contract
 
 When changing this skill, run the synthetic regression bank in
@@ -143,3 +157,8 @@ When changing this skill, run the synthetic regression bank in
 the oracle more discriminating, add the smallest adversarial case that captures
 the failure, and rerun every critical safety canary. Never improve a benchmark
 by weakening source, human-review, privacy, publication, or verification gates.
+
+Also run the cross-boundary bank in
+[`evals/composite-evals.json`](evals/composite-evals.json) through
+`make composite-evals`. Its contract must retain both positive controls and
+fail-closed cases; a refusal-only or permissive-only bank is invalid.

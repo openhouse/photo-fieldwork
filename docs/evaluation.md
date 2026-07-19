@@ -79,3 +79,17 @@ rights clearance, consent, or publication approval.
 Use the recursive protocol in the eval README when changing the skill. Grade
 from artifacts and refusal behavior, inspect false passes first, and rerun every
 critical safety canary after each revision.
+
+The cross-boundary bank at
+`skills/curate-apple-photos/evals/composite-evals.json` is governed by
+`eval-contract.json`. It adds positive production and publication controls,
+holdout independence, offline review, publication minimization, and explicit
+counterfactual pass conditions. Run it with:
+
+```bash
+make composite-evals
+```
+
+The meta-tests deliberately remove cases, weaken expectations, erase
+counterfactuals, and mutate all decisions toward refusal or permissiveness. A
+bank that cannot detect those mutations is not accepted as discriminating.

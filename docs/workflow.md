@@ -47,6 +47,14 @@ the assignment reason, and preserves unclassified as a real destination.
 
 Sample low, middle, and high-scoring images from each view. Measure coverage and precision. Read the rejected examples. Revise retrieval, scoring, holds, or labels, then rerun with the same seed. A metric without inspected failure cases is not enough.
 
+Use the private offline workbench when individual review is more ergonomic than
+contact sheets. It preserves sampling context and makes unavailable previews
+HOLD-only. Serve it on loopback; it is not a public gallery.
+
+Before treating a holdout as independent release evidence, audit canonical
+UUIDs plus perceptual, duplicate, and burst clusters against tuning and canary
+manifests. A clean row split with related visual scenes is still leakage.
+
 ## 9. Plan before writing
 
 Produce proposed-master, hold, membership, and decision manifests before touching the catalog. Every selected stable ID needs a reason. The plan must be idempotent.
@@ -71,3 +79,8 @@ second execution.
 ## 12. Hand off honestly
 
 Tell editors what the system did and did not do. The result is a contact field for human editing, not the final visual narrative.
+
+Public use is another release boundary. Build a destination-scoped allowlisted
+package only after authorized humans positively resolve rights, consent, claim
+support, visible safety, editorial approval, alt text, and credit. Keep source
+identifiers and blocked-row reasons in the private remediation report.

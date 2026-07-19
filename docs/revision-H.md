@@ -1,38 +1,56 @@
-# Revision H implementation note
+# Revision H composite
 
-Revision H turns lessons from a whole-library production run into reusable protocol guarantees.
+Revision H is a selective composite of the `feature/revision-*` family. It uses
+Revision M as the production spine and adds only contracts that strengthen a
+distinct boundary. It does not combine competing run ledgers, selectors, or
+Photos writers.
 
-## Implemented
+## Production spine
 
-- Versioned source profiles and source fingerprints.
-- Whole visible-library inventory, PhotoKit fetch, and independent verification support.
-- View-order-independent candidate reservation before global truncation.
-- Outside-prior floors with deterministic feasibility failure.
-- Typed retrieval index, visible evidence, source provenance, and editor hypothesis fields.
-- Canonical UUID and boolean normalization.
-- Separate source, inspected, and conservative known face counts.
-- Declarative relational safety propagation with generalized append-only decisions.
-- Policy-fingerprinted inspection ledgers and indexed preview paths.
-- Preview decode verification and corrupt-preview contact-sheet handling.
-- Overall and per-view evaluation release gates.
-- Required visible reasons, safety states, error categories, round IDs, and reviewer lenses.
-- Deterministic feedback application with cascading replacement review.
-- Cross-UUID duplicate review using exact preview hashes, adapter-provided perceptual hashes, or complete file signatures.
-- Exact quota, still-only, pixel-availability, HOLD-disjointness, replacement, and duplicate validation gates.
-- Membership-plan linting and deterministic plan digests.
-- Bridge refusal of unlinted, unsealed, or modified plans.
-- Append-only run-state transitions and next-phase reporting.
-- Preserved rerun receipts and explicit idempotence comparison.
-- Human-readable and JSON independent-verification reports.
-- Artifact-derived completion reporting.
-- Public-safe whole-library benchmark documentation.
-- Expanded regression coverage and JSON schema contracts.
+Revision M supplies the candidate-bound operating chain:
+
+- exact source and proposal identities;
+- actual local inspection artifact digests;
+- deterministic selection and per-view evaluation;
+- fail-closed safety and relation propagation;
+- ordered, evidence-backed run phases;
+- sealed membership-only plans;
+- test-write and production receipts with distinct execution nonces;
+- WAL-aware, read-only independent verification;
+- 24 structural scenarios and executable production canaries.
+
+## Composite additions
+
+- **Private review workbench:** A static, dependency-free surface copies only
+  local previews into a mode-`0700` workspace, makes no network requests, binds
+  only to loopback, preserves sampling context, and makes unavailable previews
+  HOLD-only.
+- **Holdout independence:** `audit-holdout` checks canonical UUIDs plus
+  perceptual, duplicate, and burst relations across tuning, canary, and holdout
+  manifests. Default reports expose counts and set digests, not identifiers.
+- **Public handoff:** `public-handoff` requires destination-scoped rights,
+  consent, claim, safety, and editorial gates. Its public JSON is an allowlist
+  under salted opaque IDs; blocked reasons and source IDs remain private.
+- **Evaluation of the evaluation:** A separate 12-case composite bank requires
+  positive production and publication controls, adversarial blocking cases,
+  concrete counterfactuals, anti-shortcuts, complete dimension coverage, and
+  executable canaries.
 
 ## Deliberate boundaries
 
-- Photo Fieldwork still does not automate taste, consent, provenance research, or publication clearance.
-- Perceptual hashing remains an adapter input so the standard-library core does not acquire an image dependency. Exact local preview hashing is built in.
-- The editor experience remains contact-sheet and manifest based. A later local review interface should consume these same artifacts rather than introduce another data model.
-- The permissioned Apple Photos bridge remains a named integration; the package core and source-profile contracts are portable.
+- The production pipeline does not automate taste, provenance research,
+  consent, rights, or public meaning.
+- The review workbench is private operational infrastructure, not a public
+  gallery or a publication preview.
+- A holdout audit establishes split independence only for the identifiers and
+  relation fields supplied to it.
+- A public handoff records completed human gates; it does not determine those
+  gates.
+- Passing automated checks does not substitute for actual visual inspection,
+  permissioned Photos access, authorized publication review, or final human
+  approval.
 
-These boundaries are product decisions, not missing claims. Revision H concentrates automation around evidence, safety, reproducibility, and release integrity while keeping editorial authority human.
+Read [the composite design](composite.md),
+[the recorded eval hill climb](composite-eval-hill-climb.md),
+[the operator runbook](operator-runbook.md), and
+[the production protocol](production-protocol.md) before a live run.

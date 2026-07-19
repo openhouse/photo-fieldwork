@@ -9,6 +9,10 @@ catalog plans to one hashed proposal. It also adds whole-visible-library source
 support, private run workspaces, WAL-aware read-only Photos verification, and a
 resumable phase and artifact ledger.
 
+The Revision H composite adds an offline human-review workbench, holdout leakage
+auditing, a destination-scoped public handoff, and a mutation-resistant
+evaluation-of-evaluation contract around that production spine.
+
 ## Try it in two minutes
 
 Requirements: Python 3.11 or newer. The practice workflow has no third-party dependencies and does not access Apple Photos.
@@ -40,8 +44,10 @@ make check
 3. Run the selection and create an evaluation sample.
 4. Inspect sampled images locally and record `fit`, `reject`, or `uncertain`.
 5. Evaluate, revise, and repeat until the agreed criteria pass.
-6. Generate a catalog write plan. Test ten items before any production write.
-7. Verify the committed album membership independently and read-only.
+6. Audit holdout independence before using holdout results as release evidence.
+7. Generate a catalog write plan. Test ten items before any production write.
+8. Verify the committed album membership independently and read-only.
+9. Treat any public-use handoff as a separate human-governed release.
 
 ```bash
 ./bin/photo-fieldwork select \
@@ -82,6 +88,25 @@ make check
   --output runs/my-run/manifests/catalog-plan.json
 ```
 
+Build a private offline review surface and audit the evaluation split:
+
+```bash
+./bin/photo-fieldwork build-review \
+  --sample runs/my-run/manifests/eval-sample.csv \
+  --previews runs/my-run/previews/evaluation \
+  --output runs/my-run/review/index.html
+
+./bin/photo-fieldwork audit-holdout \
+  --tuning runs/my-run/manifests/tuning.csv \
+  --canary runs/my-run/manifests/canaries.csv \
+  --holdout runs/my-run/manifests/holdout.csv \
+  --output runs/my-run/reports/holdout-audit.json
+```
+
+The optional `public-handoff` command emits only positively cleared,
+destination-matching rows under salted opaque IDs. Its salt and blocked-row
+report stay private. See [the operator runbook](docs/operator-runbook.md).
+
 ## The central distinction
 
 Metadata answers: "Why might this photograph be relevant?"
@@ -103,6 +128,9 @@ Those are different questions. Photo Fieldwork keeps them different.
 - Per-view evaluation gates and Wilson interval reporting.
 - Proposal hashes that bind assignments, evaluation, and catalog plans.
 - Private-by-default run artifacts and a resumable checksum ledger.
+- A loopback-only, network-blocked review workbench.
+- Direct and relation-level holdout leakage auditing.
+- A public allowlist separated from private remediation evidence.
 - A fully synthetic practice run.
 - Album and whole-library Apple Photos source profiles.
 - WAL-aware read-only inventory and verification adapters.
@@ -116,7 +144,10 @@ Those are different questions. Photo Fieldwork keeps them different.
 - Direct writes to Photos SQLite.
 - A claim that the generated corpus is the final edit.
 
-Read [the workflow](docs/workflow.md), [the architecture](docs/architecture.md), [the safety model](docs/safety.md), and [the Apple Photos guide](docs/apple-photos.md) before using a private archive.
+Read [the workflow](docs/workflow.md), [the architecture](docs/architecture.md),
+[the safety model](docs/safety.md), [the composite design](docs/composite.md),
+[the operator runbook](docs/operator-runbook.md), and
+[the Apple Photos guide](docs/apple-photos.md) before using a private archive.
 
 ## Use it as a Codex skill
 
@@ -157,3 +188,5 @@ configuration default.
 
 Read [the revision M implementation note](docs/revision-M.md) and
 [the recovery guide](docs/recovery.md) before running the Apple Photos adapter.
+Revision H's selective integration is documented in
+[the composite implementation note](docs/revision-H.md).

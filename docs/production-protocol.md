@@ -1,45 +1,59 @@
 # Production protocol
 
-This protocol turns a curatorial brief into a resumable, auditable editor field while preserving human authority over taste, consent, and public meaning.
+This protocol turns a curatorial brief into a resumable, auditable editor field
+while preserving human authority over taste, safety, consent, rights, and
+public meaning.
 
-## Artifact chain
+## Evidence chain
 
-1. `brief.md` preserves editorial authority verbatim.
-2. `source-profile.json` freezes source identity, count, predicate, and permissions.
-3. `retrieval.json` defines view hypotheses and balanced candidate reserves.
-4. `candidate-pool.csv` records retrieval traces and provisional assignments.
-5. `inspection-ledger.jsonl` records policy-fingerprinted local inspection without raw OCR.
-6. `safety-decisions.jsonl` records generalized relational safety decisions.
-7. `proposed-master.csv` and `hold-sensitive.csv` remain disjoint.
-8. `round-NN.csv` records visible judgments and error categories.
-9. `decision-ledger.jsonl` and `replacement-review.csv` close the feedback loop.
-10. `duplicate-review.csv` surfaces unresolved cross-UUID matches.
-11. `catalog-plan.json` is linted, membership-only, and digest-sealed.
-12. Writer receipts preserve exact catalog objects and counts.
-13. Independent verification compares actual membership read-only.
-14. `completion-report.md` is derived from the artifacts above.
+1. Preserve the brief and freeze the exact source count and membership digest.
+2. Record retrieval hypotheses separately from editorial assignments.
+3. Export and independently decode local previews; unavailable evidence enters
+   HOLD before ranking.
+4. Select a deterministic proposed master and preserve the disjoint HOLD set.
+5. Generate the score-stratified review sample from the exact candidate.
+6. Inspect locally, preserving visible reasons, safety states, error categories,
+   reviewer lens, sampling role, and inspection artifact digests.
+7. Evaluate overall and material views; revise and repeat without lowering
+   gates to fit available evidence.
+8. Audit tuning, canary, and holdout manifests for direct and relation leakage.
+9. Validate exact quotas, safety closure, still-photo membership, duplicate
+   closure, assignments, and replacement closure.
+10. Generate and seal membership-only test and production plans from the same
+    source, config, master, feedback, evaluation, and validation identities.
+11. Verify the test write; execute production twice under distinct launch
+    nonces; preserve every receipt.
+12. Independently compare exact catalog membership from fresh WAL-aware,
+    read-only snapshots.
+13. Derive completion from the unchanged artifact chain.
 
-## Quality boundary
+## Release blockers
 
-A release is blocked by any of the following:
+- source count or exact membership disagreement;
+- candidate, policy, sample, feedback, evaluation, validation, or plan drift;
+- missing, corrupt, symlinked, stale, or unbound inspection evidence;
+- HOLD, hidden, unavailable, or review-pending rows in the master;
+- unresolved duplicate, burst, relation, replacement, or assignment review;
+- a failed overall or material-view quality gate;
+- holdout UUID or relation-cluster leakage;
+- destructive or unsealed catalog operations;
+- a missing test verification, incomplete receipt, reused execution nonce, or
+  stale or self-attested independent verification;
+- mutation of the candidate after evidence was generated.
 
-- source identifier, fingerprint, or count disagreement;
-- missing or stale required inspection;
-- raw OCR in a durable artifact;
-- master and HOLD overlap;
-- movie rows in a still-photo field;
-- duplicate UUIDs or unresolved duplicate review;
-- unmet exact target or view quota without a waiver;
-- a failed material-view evaluation gate;
-- a known safety regression;
-- a pending cascading replacement review;
-- an unlinted, unsealed, or modified catalog plan;
-- write-test, idempotence, or independent-verification mismatch.
+## Public-use boundary
+
+Production completion creates an editor-ready field. It does not grant public
+use. A public package is a separate allowlisted export and requires positive,
+destination-specific human review for rights, participant consent, factual
+claims, visible safety, editorial approval, alt text, and credit. Rows without
+positive publication status remain closed. Rows claiming clearance while a gate
+is unresolved fail the handoff and remain in a private remediation report.
 
 ## Resumption
 
-Use `photo-fieldwork state` to append evidence-backed phase transitions. Use the bridge `release-status` command to report the first incomplete phase. Completed phases cannot move backward. Repeating a catalog plan preserves the previous receipt and must reproduce stable folder identifiers, album identifiers, and counts.
-
-## Privacy boundary
-
-Pixels and metadata stay local. Raw OCR is ephemeral. Reports contain generalized safety reasons, coarsened context, and aggregate counts. Named People associations remain private archive structure. An editor-field album is not publication permission.
+Preserve failed and partial attempts. Resume only through the evidence-backed
+run ledger and stable plan bindings. A retry adds missing memberships without
+creating duplicate folders or albums. It receives a new execution nonce and a
+new immutable receipt. Final state is established from a fresh read-only
+snapshot, not from writer testimony.

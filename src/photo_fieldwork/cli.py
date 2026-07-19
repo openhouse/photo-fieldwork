@@ -6,6 +6,7 @@ import shutil
 import sys
 from pathlib import Path
 
+from .holdout import audit_holdout_split, read_manifest_rows
 from .pipeline import (
     build_catalog_plan,
     ensure_private_directory,
@@ -19,6 +20,13 @@ from .pipeline import (
     write_private_text,
 )
 from .practice import create_demo_inventory, practice_feedback, write_demo_readme
+from .publication import (
+    build_public_handoff,
+    read_publication_rows,
+    write_private_report,
+    write_public_package,
+)
+from .review import build_review_workbench, read_review_sample, serve_review
 
 
 def markdown_report(title: str, data: dict) -> str:
@@ -111,6 +119,52 @@ def command_plan(args: argparse.Namespace) -> int:
     write_private_text(args.output, json.dumps(plan, indent=2) + "\n")
     print(f"wrote membership-only catalog plan to {args.output}")
     return 0
+
+
+def command_audit_holdout(args: argparse.Namespace) -> int:
+    report = audit_holdout_split(
+        read_manifest_rows(args.tuning),
+        read_manifest_rows([args.holdout]),
+        read_manifest_rows(args.canary),
+        include_identifiers=args.include_identifiers,
+    )
+    write_private_text(args.output, json.dumps(report, indent=2) + "\n")
+    print(f"holdout audit {report['status']}: {args.output}")
+    return 0 if report["status"] == "PASS" else 2
+
+
+def command_build_review(args: argparse.Namespace) -> int:
+    report = build_review_workbench(read_review_sample(args.sample), args.previews, args.output)
+    print(
+        f"review workbench rows={report['rows']} available={report['available']} "
+        f"unavailable={report['unavailable']}: {args.output}"
+    )
+    return 0
+
+
+def command_serve_review(args: argparse.Namespace) -> int:
+    serve_review(args.directory, args.host, args.port)
+    return 0
+
+
+def command_public_handoff(args: argparse.Namespace) -> int:
+    if args.salt_file.is_symlink() or not args.salt_file.is_file():
+        raise ValueError("publication salt must be a regular private file")
+    if args.salt_file.stat().st_mode & 0o077:
+        raise ValueError("publication salt file permissions must be 0600 or stricter")
+    if args.output.resolve() == args.blocked_report.resolve():
+        raise ValueError("public package and private blocked report must use different paths")
+    salt = args.salt_file.read_text(encoding="utf-8").strip()
+    package, report = build_public_handoff(
+        read_publication_rows(args.input), salt, args.destination
+    )
+    write_public_package(args.output, package)
+    write_private_report(args.blocked_report, report)
+    print(
+        f"public handoff {report['status']}: exported={report['exported_rows']} "
+        f"blocked={len(report['blocked_rows'])} closed={report['closed_rows']}"
+    )
+    return 0 if report["status"] == "PASS" else 2
 
 
 def command_demo(args: argparse.Namespace) -> int:
@@ -219,6 +273,34 @@ def parser() -> argparse.ArgumentParser:
     plan.add_argument("--validation-report", type=Path, required=True)
     plan.add_argument("--output", type=Path, required=True)
     plan.set_defaults(func=command_plan)
+
+    holdout = sub.add_parser("audit-holdout", help="audit tuning, canary, and holdout split leakage")
+    holdout.add_argument("--tuning", type=Path, action="append", required=True)
+    holdout.add_argument("--holdout", type=Path, required=True)
+    holdout.add_argument("--canary", type=Path, action="append", default=[])
+    holdout.add_argument("--output", type=Path, required=True)
+    holdout.add_argument("--include-identifiers", action="store_true")
+    holdout.set_defaults(func=command_audit_holdout)
+
+    review = sub.add_parser("build-review", help="build a private offline review workbench")
+    review.add_argument("--sample", type=Path, required=True)
+    review.add_argument("--previews", type=Path, required=True)
+    review.add_argument("--output", type=Path, required=True)
+    review.set_defaults(func=command_build_review)
+
+    serve = sub.add_parser("serve-review", help="serve a private review workbench on loopback")
+    serve.add_argument("--directory", type=Path, required=True)
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8765)
+    serve.set_defaults(func=command_serve_review)
+
+    handoff = sub.add_parser("public-handoff", help="build an allowlisted public package")
+    handoff.add_argument("--input", type=Path, required=True)
+    handoff.add_argument("--destination", required=True)
+    handoff.add_argument("--salt-file", type=Path, required=True)
+    handoff.add_argument("--output", type=Path, required=True)
+    handoff.add_argument("--blocked-report", type=Path, required=True)
+    handoff.set_defaults(func=command_public_handoff)
     return root
 
 

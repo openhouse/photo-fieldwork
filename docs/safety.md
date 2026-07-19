@@ -33,6 +33,15 @@ detectors did not place the item in HOLD. It is never publication permission.
 Every selected row defaults to `publication-review-required`. Selection into a
 master or Photos album cannot change that state.
 
+## Public handoff contract
+
+Public export is destination-specific and allowlist-only. A cleared row needs
+positive rights, consent, claim, human safety, and editorial states plus an
+authorized reviewer, date, alt text, and credit. The exported package uses a
+salted opaque ID and omits source UUIDs, filenames, paths, People associations,
+coordinates, raw OCR, and private review actors. Claimed clearances with an
+unresolved gate fail closed into a private remediation report.
+
 ## Catalog adapter contract
 
 A production adapter must:

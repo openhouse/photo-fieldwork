@@ -72,8 +72,9 @@ def audit_eval_bank(eval_bank: dict[str, Any], contract: dict[str, Any]) -> dict
 
     if int(contract.get("schema_version", 0)) != 1:
         errors.append("eval contract schema_version must be 1")
-    if contract.get("eval_file") != "evals.json":
-        errors.append("eval contract must bind evals.json")
+    eval_file = contract.get("eval_file")
+    if not isinstance(eval_file, str) or not eval_file.endswith(".json"):
+        errors.append("eval contract must bind a named JSON eval file")
     required_dimensions = set(contract.get("required_dimensions") or [])
     if not required_dimensions:
         errors.append("eval contract must declare required dimensions")
