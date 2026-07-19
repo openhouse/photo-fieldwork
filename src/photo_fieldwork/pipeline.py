@@ -611,6 +611,7 @@ def make_sample(
             picks = [ordered[index] for index in sorted(positions)[:per_view]]
         for row in picks:
             item = dict(row)
+            item["sample_role"] = "fresh"
             item["view_selected_count"] = str(len(rows))
             item["sampling_reason"] = (
                 "full sparse view" if len(ordered) <= per_view else "score quantiles and deterministic random stratum sample"
@@ -622,16 +623,16 @@ def make_sample(
     existing = {(canonical_id(row["uuid"]), row.get("primary_view", "")) for row in sample}
     for regression in known_regressions or []:
         key = (canonical_id(regression["uuid"]), regression.get("primary_view", ""))
-        if novel_only and key[0] in excluded:
-            raise ValueError("known-regression injection cannot reuse an ID in a --novel-only sample")
         if key in existing:
             continue
         item = dict(regression)
+        item["sample_role"] = "regression-canary"
         item["sampling_reason"] = "known regression injection"
         item["prior_review_overlap"] = "true" if key[0] in excluded else "false"
         item["judgment"] = ""
         item["evaluation_note"] = ""
         sample.append(item)
+        existing.add(key)
     return sample
 
 
@@ -651,7 +652,49 @@ def evaluate(feedback: list[dict[str, str]], config: dict) -> tuple[dict, bool]:
     )
     if unknown:
         raise ValueError(f"unknown evaluation judgments: {', '.join(unknown)}")
-    judged = [row for row in feedback if row.get("judgment", "").strip().lower() in JUDGMENTS]
+    seen_edges: set[tuple[str, str]] = set()
+    duplicate_edges = set()
+    for row in feedback:
+        key = (canonical_id(row.get("uuid")), str(row.get("primary_view", "")).strip())
+        if key in seen_edges:
+            duplicate_edges.add(key)
+        seen_edges.add(key)
+    if duplicate_edges:
+        raise ValueError(
+            "evaluation contains duplicate image-view rows: "
+            + ", ".join(f"{uuid}:{view or '<no-view>'}" for uuid, view in sorted(duplicate_edges))
+        )
+    invalid_roles = sorted(
+        {
+            str(row.get("sample_role", "fresh")).strip().lower() or "fresh"
+            for row in feedback
+            if (str(row.get("sample_role", "fresh")).strip().lower() or "fresh")
+            not in {"fresh", "regression-canary"}
+        }
+    )
+    if invalid_roles:
+        raise ValueError(f"unknown evaluation sample roles: {', '.join(invalid_roles)}")
+    judged_without_reason = [
+        canonical_id(row.get("uuid"))
+        for row in feedback
+        if row.get("judgment", "").strip().lower() in JUDGMENTS
+        and not str(row.get("visible_reason") or row.get("evaluation_note") or "").strip()
+    ]
+    if judged_without_reason:
+        raise ValueError(
+            "every evaluation judgment requires a visible reason: "
+            + ", ".join(sorted(judged_without_reason))
+        )
+    canaries = [
+        row for row in feedback
+        if (str(row.get("sample_role", "fresh")).strip().lower() or "fresh") == "regression-canary"
+    ]
+    fresh = [
+        row for row in feedback
+        if (str(row.get("sample_role", "fresh")).strip().lower() or "fresh") == "fresh"
+    ]
+    judged = [row for row in fresh if row.get("judgment", "").strip().lower() in JUDGMENTS]
+    all_judged = [row for row in feedback if row.get("judgment", "").strip().lower() in JUDGMENTS]
     fit = sum(row["judgment"].strip().lower() == "fit" for row in judged)
     reject = sum(row["judgment"].strip().lower() == "reject" for row in judged)
     uncertain = sum(row["judgment"].strip().lower() == "uncertain" for row in judged)
@@ -659,7 +702,12 @@ def evaluate(feedback: list[dict[str, str]], config: dict) -> tuple[dict, bool]:
         str(row.get("safety_status", "clear")).strip().lower() in {"needs-review", "hold"}
         for row in feedback
     )
-    coverage = len(judged) / len(feedback) if feedback else 0.0
+    canary_regressions = sum(
+        row.get("judgment", "").strip().lower() != "fit"
+        or str(row.get("safety_status", "clear")).strip().lower() != "clear"
+        for row in canaries
+    )
+    coverage = len(judged) / len(fresh) if fresh else 0.0
     precision = fit / (fit + reject) if fit + reject else 0.0
     by_view = {}
     minimum_view_precision = float(config.get("minimum_view_eval_precision", 0.65))
@@ -668,7 +716,7 @@ def evaluate(feedback: list[dict[str, str]], config: dict) -> tuple[dict, bool]:
     minimum_coverage = float(config.get("minimum_eval_coverage", 0.8))
     views_by_id = {str(view["id"]): view for view in config["views"] if int(view["quota"]) > 0}
     for view_id, view in sorted(views_by_id.items()):
-        sampled = [row for row in feedback if row.get("primary_view", "unknown") == view_id]
+        sampled = [row for row in fresh if row.get("primary_view", "unknown") == view_id]
         rows = [row for row in judged if row.get("primary_view", "unknown") == view_id]
         decisive = [row for row in rows if row["judgment"].strip().lower() in {"fit", "reject"}]
         view_precision = (
@@ -717,6 +765,7 @@ def evaluate(feedback: list[dict[str, str]], config: dict) -> tuple[dict, bool]:
         coverage >= minimum_coverage
         and precision >= float(config.get("minimum_eval_precision", 0.75))
         and safety_regressions == 0
+        and canary_regressions == 0
         and all(result["passed"] for result in by_view.values())
     )
     report = {
@@ -724,7 +773,10 @@ def evaluate(feedback: list[dict[str, str]], config: dict) -> tuple[dict, bool]:
         "proposal_id": next(iter(proposal_ids)),
         "master_sha256": next(iter(master_hashes)),
         "sample_count": len(feedback),
+        "fresh_sample_count": len(fresh),
+        "canary_count": len(canaries),
         "judged_count": len(judged),
+        "total_judged_count": len(all_judged),
         "fit": fit,
         "reject": reject,
         "uncertain": uncertain,
@@ -736,6 +788,7 @@ def evaluate(feedback: list[dict[str, str]], config: dict) -> tuple[dict, bool]:
         "minimum_view_sample": minimum_view_sample,
         "maximum_uncertainty": maximum_uncertainty,
         "safety_regressions": safety_regressions,
+        "canary_regressions": canary_regressions,
         "failure_categories": dict(
             sorted(Counter(row.get("error_category", "unclassified") or "unclassified" for row in judged).items())
         ),

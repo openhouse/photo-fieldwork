@@ -4,7 +4,7 @@
 
 1. Freeze the proposed master and assign a round ID.
 2. Sample low, median, and high scores from every view.
-3. Add known safety regressions and prior false positives.
+3. Add known safety regressions and prior false positives as `regression-canary` rows. Keep the newly sampled rows tagged `fresh`.
 4. Render contact sheets with stable UUID labels.
 5. Inspect all sheets with `view_image`; open individual previews when needed.
 6. Record decisions in CSV.
@@ -24,6 +24,7 @@
 - `error_category`
 - `round_id`
 - `reviewer_lens`
+- `sample_role`: `fresh` or `regression-canary`; canaries block on regression but never increase fresh-sample metrics
 
 ## Error categories
 
@@ -41,6 +42,8 @@
 
 - Zero known identity-document or private-record regressions in the master.
 - Every view sampled.
+- No failed, uncertain, unreviewed, or safety-protected regression canary.
+- Duplicate image-view evaluation rows are rejected rather than counted twice.
 - Coverage at or above configured minimum.
 - Overall decisive precision at or above configured minimum.
 - No material view remains below 0.65 decisive precision without being relabeled as uncertain/editor hypothesis.

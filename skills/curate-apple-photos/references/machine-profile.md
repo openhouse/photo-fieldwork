@@ -7,7 +7,7 @@ Use these as defaults, then verify them live.
 - App: `/Applications/Jamie Photo Archive.app`
 - Executable: `/Applications/Jamie Photo Archive.app/Contents/MacOS/JamiePhotoArchive`
 - Bundle identifier: `art.jamieburkart.jamiephotoarchive`
-- Installed app version reported on 2026-07-10: 1.0. Capabilities and stable bundle identifier are authoritative; do not replace the app merely for a version-label mismatch.
+- Revision G production plans require the reviewed 3.0 digest-receipt contract. Preserve the stable bundle identity, but let `doctor` block an older installed build until the reviewed helper is rebuilt and installed deliberately.
 - Supported operations:
   - `inspect-local-images`: local PhotoKit image retrieval, Vision labels, face counts, ephemeral OCR-based safety flags, optional private previews;
   - snapshot plans: create folders/albums and add existing asset membership only.
@@ -25,7 +25,7 @@ open -W -n "/Applications/Jamie Photo Archive.app" --args --plan /absolute/path/
 - Verified 2026-07-10 count: 124,484 unique still photographs
 - Shared compact inventory: `/Users/jburkart/Documents/Jamie-Photo-Archive-2026/shared/wide-corpus.sqlite`
 - Inventory contains existing people, albums, labels, places, search text, favorite/edit status, duplicate and burst data, and Apple aesthetic fields.
-- The shared inventory is a snapshot. Rebuild or reconcile it when source count or Photos metadata materially changes.
+- The shared inventory is a snapshot. Rebuild or reconcile it when source membership or Photos metadata materially changes; an equal count is insufficient unless the sorted-membership SHA-256 also matches.
 
 ## Photos database
 

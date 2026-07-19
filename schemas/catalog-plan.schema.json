@@ -12,6 +12,16 @@
     "safety_mode": {"const": "create-folders-albums-and-add-membership-only"},
     "source_album_identifier": {"type": "string"},
     "expected_source_count": {"type": "integer", "minimum": 1},
+    "source_membership_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "evaluation": {
+      "type": "object",
+      "required": ["proposal_id", "master_sha256", "passed"],
+      "properties": {
+        "proposal_id": {"type": "string", "minLength": 1},
+        "master_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "passed": {"const": true}
+      }
+    },
     "source": {
       "type": "object",
       "properties": {

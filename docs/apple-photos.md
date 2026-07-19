@@ -1,6 +1,6 @@
 # Apple Photos integration
 
-The included practice CLI does not read or write Apple Photos. Production integration is an adapter around the same manifests and invariants. Keep machine paths, protected collection identifiers, and mutable source counts in an untracked local profile based on `config/source-profile.example.json`.
+The included practice CLI does not read or write Apple Photos. Production integration is an adapter around the same manifests and invariants. Keep machine paths, protected collection identifiers, mutable source counts, and source membership digests in an untracked local profile based on `config/source-profile.example.json`.
 
 ## Recommended read path
 
@@ -37,11 +37,11 @@ The only default writes are:
 - create named albums;
 - add existing stable IDs to those albums.
 
-Keep the selected source and every earlier version unchanged. Supported source contracts include `album://LOCAL_IDENTIFIER` and `visible-library-stills://v1`; freeze the observed source count into each run rather than treating a historical count as permanent.
+Keep the selected source and every earlier version unchanged. Supported source contracts include `album://LOCAL_IDENTIFIER` and `visible-library-stills://v1`; freeze both the observed source count and canonical sorted-membership SHA-256 into each run rather than treating a historical count as permanent.
 
 ## Reusable permission helper
 
-For repeated local work, a small signed macOS application with a stable bundle identifier can request Photos permission once and execute reviewed album-membership plans. Renaming or changing the bundle identifier creates a new permission identity. The helper must display the plan ID, source count, intended mutations, and final receipt. The Python launcher verifies the plan digest before launch and requires the same digest in the app receipt.
+For repeated local work, a small signed macOS application with a stable bundle identifier can request Photos permission once and execute reviewed album-membership plans. Renaming or changing the bundle identifier creates a new permission identity. The helper must display the plan ID, source count and membership digest, intended mutations, and final receipt. The Python launcher verifies the plan digest before launch and requires both the plan and source membership digests in the app receipt.
 
 Plan schema v2 and digest-bearing receipts require Jamie Photo Archive 3.0. `photo_archive_bridge.py doctor` refuses production work when the installed helper does not meet that contract. Rebuilding or replacing the stable permissioned app remains an explicit local installation step.
 
@@ -54,4 +54,4 @@ After writing, compare planned and actual memberships through an independent rea
 - no unexpected IDs;
 - no members outside the source;
 - no HOLD overlap;
-- source count unchanged.
+- source count and sorted-membership SHA-256 unchanged.

@@ -44,13 +44,13 @@ Run exact constrained assignment over eligible image-view edges. Each asset may 
 
 Sample low, middle, and high-scoring images from each view. Measure coverage and precision. Read the rejected examples. Revise retrieval, scoring, holds, or labels, then rerun with the same seed. A metric without inspected failure cases is not enough.
 
-Keep feedback append-only and edge-specific. Exclude prior reviewed IDs when a round is declared novel. A rejection removes only the reviewed edge; `needs-review` or `hold` quarantines the asset. Uncertainty remains explicit in the master and review album.
+Keep feedback append-only and edge-specific. Exclude prior reviewed IDs when a round is declared novel. Tag intentionally reused regression canaries separately so they can block release without increasing fresh-sample metrics. A rejection removes only the reviewed edge; `needs-review` or `hold` quarantines the asset. Uncertainty remains explicit in the master and review album.
 
 ## 9. Plan before writing
 
 Produce proposed-master, hold, membership, and decision manifests before touching the catalog. Every selected stable ID needs a reason. The plan must be idempotent.
 
-Bind the plan to a passing evaluation report whose proposal ID and master hash match. Seal source identity, source count, manifests, plans, and writer identity before launch.
+Bind the plan to a passing evaluation report whose proposal ID and master hash match. Seal source identity, source count, sorted-membership SHA-256, manifests, plans, and writer identity before launch.
 
 ## 10. Commit narrowly
 

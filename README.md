@@ -111,7 +111,7 @@ Those are different questions. Photo Fieldwork keeps them different.
 - Duplicate and burst controls.
 - Named-people and visible-apparatus signals.
 - An unclassified editor field for honest uncertainty.
-- Novel, stratified evaluation samples with overall and per-view release gates.
+- Novel, stratified evaluation samples with separately reported regression canaries and overall and per-view release gates.
 - Content-hashed plans, durable run state, and release seals.
 - A generated local-only editor review surface with shortlist, caption, rights, consent, and public-safety fields.
 - A fully synthetic practice run.
@@ -126,9 +126,9 @@ Those are different questions. Photo Fieldwork keeps them different.
 - Direct writes to Photos SQLite.
 - A claim that the generated corpus is the final edit.
 
-Read [the workflow](docs/workflow.md), [the architecture](docs/architecture.md), [the safety model](docs/safety.md), and [the Apple Photos guide](docs/apple-photos.md) before using a private archive.
+Read [the workflow](docs/workflow.md), [the architecture](docs/architecture.md), [the safety model](docs/safety.md), [the evaluation bank](docs/evals.md), and [the Apple Photos guide](docs/apple-photos.md) before using a private archive.
 
-For Apple Photos, copy `config/source-profile.example.json` to an untracked local location and pass it with `photo_archive_bridge.py --profile ...`. Machine paths, collection identifiers, and source counts belong in that local profile, not in shared workflow data.
+For Apple Photos, copy `config/source-profile.example.json` to an untracked local location and pass it with `photo_archive_bridge.py --profile ...`. Machine paths, collection identifiers, source counts, and source membership digests belong in that local profile, not in shared workflow data.
 
 ## Use it as a Codex skill
 

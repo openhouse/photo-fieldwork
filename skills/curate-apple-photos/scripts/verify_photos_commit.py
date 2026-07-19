@@ -28,6 +28,14 @@ def content_sha256(value: dict, digest_field: str = "plan_sha256") -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def membership_sha256(identifiers: set[str]) -> str:
+    digest = hashlib.sha256()
+    for identifier in sorted(base(value) for value in identifiers):
+        digest.update(identifier.encode("utf-8"))
+        digest.update(b"\n")
+    return digest.hexdigest()
+
+
 def album_record(conn: sqlite3.Connection, identifier: str) -> tuple[int, str]:
     rows = conn.execute("SELECT Z_PK, ZTITLE FROM ZGENERICALBUM WHERE ZUUID = ?", (base(identifier),)).fetchall()
     if len(rows) != 1:
@@ -87,6 +95,8 @@ def main() -> None:
         raise RuntimeError("plan_sha256 is missing or does not match plan content")
     if receipt.get("plan_sha256") != digest:
         raise RuntimeError("receipt plan_sha256 does not match plan")
+    if receipt.get("source_membership_sha256") != plan.get("source_membership_sha256"):
+        raise RuntimeError("receipt source membership digest does not match plan")
     expected = {
         item["title"]: {base(identifier) for identifier in item["asset_identifiers"]}
         for item in plan["albums"]
@@ -105,6 +115,9 @@ def main() -> None:
     source, source_title = source_members(conn, plan["source_album_identifier"])
     if len(source) != plan["expected_source_count"]:
         raise RuntimeError(f"source count changed: {len(source)} != {plan['expected_source_count']}")
+    source_digest = membership_sha256(source)
+    if source_digest != plan.get("source_membership_sha256"):
+        raise RuntimeError("source membership changed even though the observed count may match")
 
     verified = []
     for received in receipt["albums"]:
@@ -130,6 +143,7 @@ def main() -> None:
         f"- Writer: `{receipt.get('writer_bundle_id', 'unknown')}` `{receipt.get('writer_build_version', 'unknown')}`",
         f"- Source: `{source_title}`",
         f"- Source membership: {len(source):,}",
+        f"- Source membership SHA-256: `{source_digest}`",
         f"- Albums exactly verified: {len(verified)}",
         "- Unexpected memberships: 0",
         "- Missing memberships: 0",
@@ -151,6 +165,7 @@ def main() -> None:
             "writer_build_version": receipt.get("writer_build_version"),
             "source_title": source_title,
             "source_count": len(source),
+            "source_membership_sha256": source_digest,
             "verified_albums": [
                 {"title": title, "count": count, "identifier": identifier}
                 for title, count, identifier in verified

@@ -29,6 +29,7 @@ PHOTOS_DB = Path(
 )
 SOURCE_ID = "360ED78F-FB05-490A-8FFD-F3CB951D0D0A/L0/040"
 SOURCE_COUNT = 124_484
+SOURCE_MEMBERSHIP_SHA256 = ""
 ROOT_FOLDER_ID = "92BBCF49-B077-478D-B9EE-DD94FAAFEAB5/L0/020"
 PRIVATE_FOLDER_ID = "1095845F-B6FA-41D0-8A22-D156C3071631/L0/020"
 AUDIT_FOLDER_ID = "7F9EB400-C06D-412C-9443-300A2C47CCE7/L0/020"
@@ -50,7 +51,8 @@ def apply_profile(path: Path | None) -> None:
         return
     profile = json.loads(path.expanduser().read_text(encoding="utf-8"))
     global APP, APP_EXECUTABLE, APP_PLIST, BUNDLE_ID, WORKSPACE_ROOT, INVENTORY_DB
-    global PHOTOS_DB, SOURCE_ID, SOURCE_COUNT, ROOT_FOLDER_ID, PRIVATE_FOLDER_ID, AUDIT_FOLDER_ID
+    global PHOTOS_DB, SOURCE_ID, SOURCE_COUNT, SOURCE_MEMBERSHIP_SHA256
+    global ROOT_FOLDER_ID, PRIVATE_FOLDER_ID, AUDIT_FOLDER_ID
     APP = Path(profile["app_path"]).expanduser()
     APP_EXECUTABLE = APP / "Contents/MacOS" / profile.get("app_executable", "JamiePhotoArchive")
     APP_PLIST = APP / "Contents/Info.plist"
@@ -60,6 +62,7 @@ def apply_profile(path: Path | None) -> None:
     PHOTOS_DB = Path(profile["photos_db"]).expanduser()
     SOURCE_ID = str(profile["source_identifier"])
     SOURCE_COUNT = int(profile["source_count"])
+    SOURCE_MEMBERSHIP_SHA256 = str(profile.get("source_membership_sha256", "")).strip().lower()
     ROOT_FOLDER_ID = str(profile["root_folder_identifier"])
     PRIVATE_FOLDER_ID = str(profile["private_folder_identifier"])
     AUDIT_FOLDER_ID = str(profile["audit_folder_identifier"])
@@ -110,6 +113,26 @@ def base_identifier(value: str) -> str:
     return value.split("/", 1)[0]
 
 
+def require_sha256(value: str, label: str) -> str:
+    digest = str(value or "").strip().lower()
+    if not re.fullmatch(r"[a-f0-9]{64}", digest):
+        raise ValueError(f"{label} must be a 64-character lowercase SHA-256 digest")
+    return digest
+
+
+def master_membership_sha256(rows: list[dict[str, str]], view_column: str = "primary_view") -> str:
+    payload = [
+        {
+            "uuid": base_identifier(row["uuid"]),
+            "assigned_view": str(row.get("assigned_view") or row.get(view_column) or ""),
+        }
+        for row in rows
+    ]
+    payload.sort(key=lambda row: (row["assigned_view"], row["uuid"]))
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def read_csv(path: Path, allow_empty: bool = False) -> list[dict[str, str]]:
     with path.open(newline="", encoding="utf-8-sig") as handle:
         reader = csv.DictReader(handle)
@@ -153,6 +176,7 @@ def command_doctor(_: argparse.Namespace) -> int:
         conn.close()
         observed_identifier = inventory_meta.get("source_identifier") or inventory_meta.get("source_album_uuid")
         observed_count = inventory_meta.get("source_count") or inventory_meta.get("source_album_count", 0)
+        observed_digest = str(inventory_meta.get("source_membership_sha256", "")).strip().lower()
         expected_identifier = (
             SOURCE_ID
             if SOURCE_ID.startswith("visible-library-stills://")
@@ -160,6 +184,9 @@ def command_doctor(_: argparse.Namespace) -> int:
         )
         checks["inventory_source_identifier"] = observed_identifier == expected_identifier
         checks["inventory_source_count"] = int(observed_count) == SOURCE_COUNT
+        checks["inventory_source_membership"] = bool(SOURCE_MEMBERSHIP_SHA256) and (
+            observed_digest == SOURCE_MEMBERSHIP_SHA256
+        )
     report = {
         "status": "PASS" if all(checks.values()) else "FAIL",
         "checks": checks,
@@ -167,12 +194,16 @@ def command_doctor(_: argparse.Namespace) -> int:
         "version": version,
         "inventory_generated_at": inventory_meta.get("generated_at"),
         "inventory_source_count": inventory_meta.get("source_count") or inventory_meta.get("source_album_count"),
+        "inventory_source_membership_sha256": inventory_meta.get("source_membership_sha256"),
     }
     print(json.dumps(report, indent=2))
     return 0 if report["status"] == "PASS" else 2
 
 
 def command_init(args: argparse.Namespace) -> int:
+    source_membership_sha256 = require_sha256(
+        args.source_membership_sha256, "source_membership_sha256"
+    )
     stamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
     root = (args.workspace_root / f"{args.version}-{safe_slug(args.slug)}-{stamp}").resolve()
     if root.exists():
@@ -188,6 +219,7 @@ def command_init(args: argparse.Namespace) -> int:
         "target_count": args.target,
         "source_album_identifier": args.source_id,
         "expected_source_count": args.source_count,
+        "source_membership_sha256": source_membership_sha256,
         "phases": {
             "brief": "pending",
             "retrieval": "pending",
@@ -205,6 +237,7 @@ def command_init(args: argparse.Namespace) -> int:
         f"- Target: {args.target:,} unique still photographs\n"
         f"- Immutable source identifier: `{args.source_id}`\n"
         f"- Expected source count: {args.source_count:,}\n"
+        f"- Source membership SHA-256: `{source_membership_sha256}`\n"
         "- Final publication edit performed: no\n"
         "- External image or metadata upload permitted: no\n",
         encoding="utf-8",
@@ -287,6 +320,9 @@ def command_seal(args: argparse.Namespace) -> int:
         "sealed_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "source_album_identifier": state["source_album_identifier"],
         "expected_source_count": state["expected_source_count"],
+        "source_membership_sha256": require_sha256(
+            state.get("source_membership_sha256", ""), "source_membership_sha256"
+        ),
         "target_count": state["target_count"],
         "writer_bundle_id": app_bundle,
         "writer_build_version": app_version,
@@ -318,6 +354,9 @@ def command_inspection_plan(args: argparse.Namespace) -> int:
         "safety_mode": "read-only-local-inspection-and-preview-export",
         "source_album_identifier": args.source_id,
         "expected_source_count": args.source_count,
+        "source_membership_sha256": require_sha256(
+            args.source_membership_sha256, "source_membership_sha256"
+        ),
         "asset_identifiers": identifiers,
         "output_jsonl_path": str(root / "manifests" / f"{args.plan_id}-inspection.jsonl"),
         "receipt_path": str(root / "manifests" / f"{args.plan_id}-receipt.json"),
@@ -381,7 +420,14 @@ def album(title: str, parent: str, uuids: list[str]) -> dict:
     }
 
 
-def snapshot_plan(args: argparse.Namespace, plan_id: str, folders: list[dict], albums: list[dict], receipt: str) -> dict:
+def snapshot_plan(
+    args: argparse.Namespace,
+    plan_id: str,
+    folders: list[dict],
+    albums: list[dict],
+    receipt: str,
+    evaluation: dict | None = None,
+) -> dict:
     plan = {
         "operation": "snapshot-membership",
         "schema_version": 2,
@@ -390,12 +436,23 @@ def snapshot_plan(args: argparse.Namespace, plan_id: str, folders: list[dict], a
         "adapter": {"name": "apple-photos-photokit", "contract_version": 1},
         "source_album_identifier": args.source_id,
         "expected_source_count": args.source_count,
+        "source_membership_sha256": require_sha256(
+            args.source_membership_sha256, "source_membership_sha256"
+        ),
         "batch_size": args.batch_size,
         "log_path": str(args.workspace / "logs" / "jamie-photo-archive-app.log"),
         "receipt_path": str(args.workspace / "manifests" / receipt),
         "folders": folders,
         "albums": albums,
     }
+    if evaluation is not None:
+        plan["proposal_id"] = evaluation["proposal_id"]
+        plan["master_sha256"] = evaluation["master_sha256"]
+        plan["evaluation"] = {
+            "proposal_id": evaluation["proposal_id"],
+            "master_sha256": evaluation["master_sha256"],
+            "passed": True,
+        }
     plan["plan_sha256"] = content_sha256(plan)
     return plan
 
@@ -412,6 +469,21 @@ def command_snapshot_plans(args: argparse.Namespace) -> int:
         raise ValueError(f"master overlaps HOLD by {len(overlap)} IDs")
     if not all(row.get("selection_reason") or row.get("selection_reasons") or row.get("editorial_reasons") for row in master_rows):
         raise ValueError("every master row must have a selection reason")
+    master_digest = master_membership_sha256(master_rows, args.view_column)
+    proposal_id = f"pfp-{master_digest[:16]}"
+    embedded_digests = {row.get("master_sha256", "").strip() for row in master_rows}
+    embedded_proposals = {row.get("proposal_id", "").strip() for row in master_rows}
+    if embedded_digests != {master_digest}:
+        raise ValueError("master rows are not bound to their exact membership and assignments")
+    if embedded_proposals != {proposal_id}:
+        raise ValueError("master rows have a missing or mismatched proposal_id")
+    evaluation = json.loads(args.evaluation_report.read_text(encoding="utf-8"))
+    if not evaluation.get("passed"):
+        raise ValueError("snapshot plans require a passing final evaluation")
+    if evaluation.get("master_sha256") != master_digest:
+        raise ValueError("final evaluation master_sha256 does not match the proposed master")
+    if evaluation.get("proposal_id") != proposal_id:
+        raise ValueError("final evaluation proposal_id does not match the proposed master")
 
     by_view: dict[str, list[str]] = {}
     view_labels = {}
@@ -446,6 +518,7 @@ def command_snapshot_plans(args: argparse.Namespace) -> int:
         folder_specs(args.folder_title, include_version=False),
         [album(test_title, "audit", test_ids)],
         f"{args.version}-write-test-receipt.json",
+        evaluation,
     )
     production_albums = [album(f"00 MASTER — {args.target:,}", "version", master_ids)]
     for view, values in sorted(by_view.items()):
@@ -464,6 +537,7 @@ def command_snapshot_plans(args: argparse.Namespace) -> int:
         folder_specs(args.folder_title, include_version=True),
         production_albums,
         f"{args.version}-photo-archive-receipt.json",
+        evaluation,
     )
     test_path = args.workspace / "manifests" / f"{args.version}-write-test-plan.json"
     production_path = args.workspace / "manifests" / f"{args.version}-production-plan.json"
@@ -489,6 +563,12 @@ def command_run_plan(args: argparse.Namespace) -> int:
         if not state_path.is_file():
             raise ValueError(f"snapshot plan is outside a versioned run: {state_path}")
         state = json.loads(state_path.read_text(encoding="utf-8"))
+        if plan.get("source_album_identifier") != state.get("source_album_identifier"):
+            raise ValueError("snapshot plan source identifier does not match the versioned run")
+        if int(plan.get("expected_source_count", -1)) != int(state.get("expected_source_count", -2)):
+            raise ValueError("snapshot plan source count does not match the versioned run")
+        if plan.get("source_membership_sha256") != state.get("source_membership_sha256"):
+            raise ValueError("snapshot plan source membership digest does not match the versioned run")
         if state.get("status") not in {"sealed", "test-written", "production-written", "independently-verified"}:
             raise ValueError(f"run must be sealed before Photos writing; status={state.get('status')}")
         seal_path = Path(state.get("seal_path", ""))
@@ -516,6 +596,8 @@ def command_run_plan(args: argparse.Namespace) -> int:
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     if receipt.get("plan_sha256") != expected_digest:
         raise ValueError("receipt plan_sha256 does not match the executed plan")
+    if receipt.get("source_membership_sha256") != plan.get("source_membership_sha256"):
+        raise ValueError("receipt source membership digest does not match the executed plan")
     if state is not None:
         production = "production" in str(plan.get("plan_id", ""))
         if production:
@@ -549,6 +631,7 @@ def parser() -> argparse.ArgumentParser:
     init.add_argument("--workspace-root", type=Path, default=WORKSPACE_ROOT)
     init.add_argument("--source-id", default=SOURCE_ID)
     init.add_argument("--source-count", type=int, default=SOURCE_COUNT)
+    init.add_argument("--source-membership-sha256", default=SOURCE_MEMBERSHIP_SHA256)
     init.set_defaults(func=command_init)
 
     status = sub.add_parser("status", help="print durable run state")
@@ -578,6 +661,7 @@ def parser() -> argparse.ArgumentParser:
     inspect.add_argument("--plan-id", required=True)
     inspect.add_argument("--source-id", default=SOURCE_ID)
     inspect.add_argument("--source-count", type=int, default=SOURCE_COUNT)
+    inspect.add_argument("--source-membership-sha256", default=SOURCE_MEMBERSHIP_SHA256)
     inspect.add_argument("--target-long-edge", type=int, default=1280)
     inspect.add_argument("--limit", type=int)
     inspect.add_argument("--no-previews", action="store_true")
@@ -595,8 +679,10 @@ def parser() -> argparse.ArgumentParser:
     plans.add_argument("--folder-title", required=True)
     plans.add_argument("--view-column", default="primary_view")
     plans.add_argument("--config", type=Path)
+    plans.add_argument("--evaluation-report", type=Path, required=True)
     plans.add_argument("--source-id", default=SOURCE_ID)
     plans.add_argument("--source-count", type=int, default=SOURCE_COUNT)
+    plans.add_argument("--source-membership-sha256", default=SOURCE_MEMBERSHIP_SHA256)
     plans.add_argument("--batch-size", type=int, default=500)
     plans.set_defaults(func=command_snapshot_plans)
 

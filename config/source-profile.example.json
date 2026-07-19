@@ -7,6 +7,7 @@
   "photos_db": "/path/to/Photos Library.photoslibrary/database/Photos.sqlite",
   "source_identifier": "visible-library-stills://v1",
   "source_count": 100000,
+  "source_membership_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   "root_folder_identifier": "ROOT-COLLECTION-ID/L0/020",
   "private_folder_identifier": "PRIVATE-COLLECTION-ID/L0/020",
   "audit_folder_identifier": "AUDIT-COLLECTION-ID/L0/020"

@@ -10,6 +10,8 @@ from types import SimpleNamespace
 
 SCRIPT = Path(__file__).resolve().parents[1] / "skills" / "curate-apple-photos" / "scripts" / "photo_archive_bridge.py"
 SPEC = importlib.util.spec_from_file_location("photo_archive_bridge", SCRIPT)
+if SPEC is None or SPEC.loader is None:
+    raise RuntimeError(f"cannot load {SCRIPT}")
 bridge = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(bridge)
 
@@ -37,6 +39,7 @@ class SkillBridgeTests(unittest.TestCase):
             args = SimpleNamespace(
                 source_id="visible-library-stills://v1",
                 source_count=42,
+                source_membership_sha256="a" * 64,
                 batch_size=10,
                 workspace=Path(directory),
             )
@@ -49,6 +52,7 @@ class SkillBridgeTests(unittest.TestCase):
             )
             self.assertEqual(plan["schema_version"], 2)
             self.assertEqual(plan["adapter"]["name"], "apple-photos-photokit")
+            self.assertEqual(plan["source_membership_sha256"], "a" * 64)
             self.assertEqual(plan["plan_sha256"], bridge.content_sha256(plan))
             plan["batch_size"] = 11
             self.assertNotEqual(plan["plan_sha256"], bridge.content_sha256(plan))
@@ -64,6 +68,7 @@ class SkillBridgeTests(unittest.TestCase):
                 "status": "validation",
                 "source_album_identifier": "visible-library-stills://v1",
                 "expected_source_count": 42,
+                "source_membership_sha256": "a" * 64,
                 "target_count": 1,
                 "phases": phases,
             }
@@ -85,6 +90,58 @@ class SkillBridgeTests(unittest.TestCase):
             updated = json.loads((workspace / "run-state.json").read_text())
             self.assertEqual(seal["seal_sha256"], bridge.content_sha256(seal, "seal_sha256"))
             self.assertEqual(updated["status"], "sealed")
+
+    def test_snapshot_plans_require_matching_passing_evaluation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            manifests = workspace / "manifests"
+            manifests.mkdir()
+            row = {
+                "uuid": "ABC",
+                "primary_view": "A",
+                "assigned_view": "A",
+                "selection_reason": "visible evidence",
+            }
+            digest = bridge.master_membership_sha256([row])
+            proposal_id = f"pfp-{digest[:16]}"
+            row["master_sha256"] = digest
+            row["proposal_id"] = proposal_id
+            master = manifests / "master.csv"
+            master.write_text(
+                "uuid,primary_view,assigned_view,selection_reason,master_sha256,proposal_id\n"
+                f"ABC,A,A,visible evidence,{digest},{proposal_id}\n",
+                encoding="utf-8",
+            )
+            holds = manifests / "holds.csv"
+            holds.write_text("uuid\n", encoding="utf-8")
+            evaluation_path = workspace / "evaluation.json"
+            evaluation = {"passed": True, "master_sha256": digest, "proposal_id": proposal_id}
+            evaluation_path.write_text(json.dumps(evaluation), encoding="utf-8")
+            args = SimpleNamespace(
+                workspace=workspace,
+                master=master,
+                holds=holds,
+                target=1,
+                version="v99",
+                folder_title="v99 test",
+                view_column="primary_view",
+                config=None,
+                evaluation_report=evaluation_path,
+                source_id="visible-library-stills://v1",
+                source_count=42,
+                source_membership_sha256="b" * 64,
+                batch_size=10,
+            )
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(bridge.command_snapshot_plans(args), 0)
+            plan = json.loads((manifests / "v99-production-plan.json").read_text())
+            self.assertEqual(plan["master_sha256"], digest)
+            self.assertEqual(plan["proposal_id"], proposal_id)
+            self.assertTrue(plan["evaluation"]["passed"])
+            evaluation["master_sha256"] = "c" * 64
+            evaluation_path.write_text(json.dumps(evaluation), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "does not match"):
+                bridge.command_snapshot_plans(args)
 
 
 if __name__ == "__main__":

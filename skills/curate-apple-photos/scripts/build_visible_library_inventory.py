@@ -8,6 +8,7 @@ SQLite database used for retrieval; this script never writes to Photos.sqlite.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sqlite3
 from datetime import datetime
@@ -96,6 +97,15 @@ def copy_query(
             print(f"rows_copied={count}")
     output.commit()
     return count
+
+
+def membership_sha256(connection: sqlite3.Connection) -> str:
+    """Fingerprint exact source membership independent of query insertion order."""
+    digest = hashlib.sha256()
+    for (uuid,) in connection.execute("SELECT uuid FROM asset ORDER BY uuid"):
+        digest.update(str(uuid).split("/", 1)[0].encode("utf-8"))
+        digest.update(b"\n")
+    return digest.hexdigest()
 
 
 def main() -> None:
@@ -245,9 +255,11 @@ def main() -> None:
         if "fts5" not in str(error).lower():
             raise
 
+    source_digest = membership_sha256(output)
     meta = {
         "source_identifier": SOURCE_IDENTIFIER,
         "source_count": str(asset_count),
+        "source_membership_sha256": source_digest,
         "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "photos_database": str(photos_db),
         "source_scope": "visible, non-hidden, non-trashed, primary-scope still photographs",
@@ -285,6 +297,7 @@ def main() -> None:
         )
     print(f"source_identifier={SOURCE_IDENTIFIER}")
     print(f"visible_stills={final_count}")
+    print(f"source_membership_sha256={source_digest}")
     print(f"people_links={people_count}")
     print(f"album_links={album_count}")
     print(f"keyword_links={keyword_count}")

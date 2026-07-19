@@ -24,7 +24,7 @@ python3 scripts/photo_archive_bridge.py doctor
 
 ## Governing invariants
 
-- Select a source profile deliberately: `album://LOCAL_IDENTIFIER` or `visible-library-stills://v1`. Read its current count from inventory metadata and freeze that count into the run.
+- Select a source profile deliberately: `album://LOCAL_IDENTIFIER` or `visible-library-stills://v1`. Freeze both its current count and sorted-membership SHA-256 into the run; equal counts do not prove equal membership.
 - Do not alter source albums, originals, metadata, faces, favorite status, dates, locations, or prior versions.
 - Never write Photos SQLite. The permissioned app may only inspect locally or create folders/albums and add existing membership.
 - Do not upload pixels, previews, OCR, faces, coordinates, or manifests.
@@ -71,8 +71,8 @@ Read [evaluation-loop.md](references/evaluation-loop.md) before the first visual
   --output RUN
 ```
 
-2. Create a score-stratified sample from every view. For the first round, inspect at least 3 per view and at least 36 overall. Later rounds should normally inspect 60-100 images across low, middle, and high scores.
-   After round one, pass every prior ledger with `--exclude-feedback --novel-only`; zero reused IDs is a release fact, not an intention.
+2. Create a score-stratified sample from every view. For the first round, inspect at least 3 per view and at least 36 overall. Later rounds should normally inspect 60-100 fresh images across low, middle, and high scores, plus stable regression canaries.
+   After round one, pass every prior ledger with `--exclude-feedback --novel-only`. Tag reused canaries separately: they may block release but cannot inflate fresh coverage, precision, or per-view sample size.
 3. Build contact sheets from the verified preview index with `make_contact_sheets.py`. Use `view_image` to inspect every page. Open individual previews when context or safety is unclear.
    For a human editor handoff, generate the local-only `build_review_surface.py` interface. Keep it in the private run workspace and export decisions back to the feedback ledger.
 4. Speak briefly as the requested peers. If Jamie cannot review, role-play Jamie using the supplied brief and voice references, while marking the judgment as delegated editorial inference rather than eyewitness fact.
@@ -93,13 +93,14 @@ Do not claim success from Vision labels or metadata alone. The recursive loop re
 ## Validate and commit
 
 1. Run `photo-fieldwork validate`. Save a PASS report.
-2. Generate test and production plans with `photo_archive_bridge.py snapshot-plans`.
+2. Generate test and production plans with `photo_archive_bridge.py snapshot-plans --evaluation-report FINAL-EVALUATION.json`. Plan generation must fail unless the report is passing and its proposal and master hashes match the exact master.
 3. Inspect the plans. Confirm the source count, target count, folder title, HOLD separation, and that operations are membership-only.
 4. Mark completed phases with `photo_archive_bridge.py set-phase`, then seal the master, HOLD, uncertainty, feedback, config, evaluation, and both plans with `photo_archive_bridge.py seal`.
 5. Run the ten-item write test through the app. Independently verify it with `verify_photos_commit.py`.
 6. Run the production plan through the app. Rerun it once to confirm idempotence.
 7. Independently verify every album against the plan using read-only, immutable SQLite access. The verifier must match the plan digest recorded by the app receipt.
 8. Read `photo_archive_bridge.py status` and write a completion report containing exact counts, identifiers, evaluation results, privacy facts, and unresolved uncertainty.
+9. Before sharing any report publicly, run `lint_public_report.py`. Treat a lint PASS as a data-minimization check, not publication permission; rights, consent, claims, and final publication clearance remain human decisions.
 
 The helper invocation may require a Codex permission approval for `open -W`; request a reusable approval scoped to `/Applications/Jamie Photo Archive.app`. The app's Photos permission itself should persist under its stable bundle identity.
 

@@ -67,16 +67,26 @@ def command_select(args: argparse.Namespace) -> int:
 
 def command_sample(args: argparse.Namespace) -> int:
     master = read_csv(args.master)
-    excluded = set()
+    excluded: set[str] = set()
     for path in args.exclude_feedback or []:
         excluded.update(canonical_id(row["uuid"]) for row in read_csv(path, {"uuid"}))
     regressions = read_csv(args.known_regressions, {"uuid", "primary_view"}) if args.known_regressions else []
     sample = make_sample(master, args.per_view, args.seed, excluded, args.novel_only, regressions)
     write_csv(args.output, sample)
+    fresh = [row for row in sample if row.get("sample_role") == "fresh"]
+    canaries = [row for row in sample if row.get("sample_role") == "regression-canary"]
     report = {
         "sample_count": len(sample),
+        "fresh_sample_count": len(fresh),
+        "regression_canary_count": len(canaries),
         "prior_reviewed_id_count": len(excluded),
         "prior_review_overlap_count": sum(row.get("prior_review_overlap") == "true" for row in sample),
+        "fresh_prior_review_overlap_count": sum(
+            row.get("prior_review_overlap") == "true" for row in fresh
+        ),
+        "canary_prior_review_overlap_count": sum(
+            row.get("prior_review_overlap") == "true" for row in canaries
+        ),
         "novel_only": args.novel_only,
         "by_view": dict(sorted(Counter(row.get("primary_view", "") for row in sample).items())),
     }

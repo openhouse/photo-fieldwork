@@ -38,6 +38,7 @@ class PipelineTests(unittest.TestCase):
         for row in sample:
             row["judgment"] = "fit"
             row["safety_status"] = "clear"
+            row["visible_reason"] = "synthetic visible fit"
         report, passed = evaluate(sample, self.config)
         self.assertTrue(passed)
         return report
@@ -148,12 +149,14 @@ class PipelineTests(unittest.TestCase):
         for row in sample:
             row["judgment"] = "fit"
             row["safety_status"] = "clear"
+            row["visible_reason"] = "synthetic visible fit"
         sample[0]["judgment"] = "reject"
         sample[1]["judgment"] = "reject"
         _, passed = evaluate(sample, self.config)
         self.assertFalse(passed)
         for row in sample:
             row["judgment"] = "fit"
+            row["visible_reason"] = "synthetic visible fit"
         sample[0]["safety_status"] = "needs-review"
         report, passed = evaluate(sample, self.config)
         self.assertFalse(passed)
@@ -176,6 +179,74 @@ class PipelineTests(unittest.TestCase):
         summary = validate_feedback(rows)
         self.assertEqual(summary["unique_edge_count"], 2)
         self.assertEqual(summary["unique_uuid_count"], 1)
+
+    def test_evaluation_rejects_duplicate_edges_and_missing_visible_reasons(self):
+        master, _, _ = select(self.inventory, self.config)
+        sample = make_sample(master, 3, 20260710)
+        for row in sample:
+            row["judgment"] = "fit"
+            row["safety_status"] = "clear"
+            row["visible_reason"] = "synthetic visible fit"
+        with self.assertRaisesRegex(ValueError, "duplicate image-view"):
+            evaluate(sample + [copy.deepcopy(sample[0])], self.config)
+        sample[0]["visible_reason"] = ""
+        with self.assertRaisesRegex(ValueError, "visible reason"):
+            evaluate(sample, self.config)
+
+    def test_regression_canaries_block_without_inflating_fresh_metrics(self):
+        config = {
+            "seed": 1,
+            "target_count": 3,
+            "unclassified_view": "A",
+            "minimum_eval_coverage": 1,
+            "minimum_eval_precision": 1,
+            "minimum_view_eval_precision": 1,
+            "minimum_view_eval_sample": 2,
+            "maximum_eval_uncertainty": 0,
+            "views": [{"id": "A", "label": "A", "quota": 3}],
+        }
+        base = {
+            "primary_view": "A",
+            "proposal_id": "p",
+            "master_sha256": "h",
+            "judgment": "fit",
+            "safety_status": "clear",
+            "visible_reason": "visible fit",
+            "view_selected_count": "3",
+        }
+        feedback = [
+            dict(base, uuid="1", sample_role="fresh"),
+            dict(base, uuid="2", sample_role="fresh"),
+            dict(base, uuid="3", sample_role="regression-canary", prior_review_overlap="true"),
+        ]
+        report, passed = evaluate(feedback, config)
+        self.assertTrue(passed)
+        self.assertEqual(report["fresh_sample_count"], 2)
+        self.assertEqual(report["canary_count"], 1)
+        self.assertEqual(report["fit"], 2)
+        feedback[2]["judgment"] = "reject"
+        feedback[2]["visible_reason"] = "known false positive returned"
+        report, passed = evaluate(feedback, config)
+        self.assertFalse(passed)
+        self.assertEqual(report["precision"], 1.0)
+        self.assertEqual(report["canary_regressions"], 1)
+
+    def test_novel_sample_keeps_reused_canaries_separate(self):
+        master, _, _ = select(self.inventory, self.config)
+        prior = make_sample(master, 1, 20260710)[0]
+        sample = make_sample(
+            master,
+            1,
+            20260711,
+            {prior["uuid"]},
+            novel_only=True,
+            known_regressions=[prior, copy.deepcopy(prior)],
+        )
+        canaries = [row for row in sample if row["sample_role"] == "regression-canary"]
+        fresh = [row for row in sample if row["sample_role"] == "fresh"]
+        self.assertEqual(len(canaries), 1)
+        self.assertEqual(canaries[0]["prior_review_overlap"], "true")
+        self.assertTrue(all(row["prior_review_overlap"] == "false" for row in fresh))
 
     def test_catalog_plan_requires_evaluation_and_is_content_hashed(self):
         master, _, _ = select(self.inventory, self.config)

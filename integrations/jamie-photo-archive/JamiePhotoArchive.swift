@@ -1,9 +1,20 @@
 import Foundation
 import AppKit
+import CryptoKit
 import Photos
 import Vision
 
 let visibleLibraryStillsSourceIdentifier = "visible-library-stills://v1"
+
+func sourceMembershipSHA256(_ fetch: PHFetchResult<PHAsset>) -> String {
+    var identifiers: [String] = []
+    identifiers.reserveCapacity(fetch.count)
+    fetch.enumerateObjects { asset, _, _ in
+        identifiers.append(asset.localIdentifier.components(separatedBy: "/").first ?? asset.localIdentifier)
+    }
+    let payload = identifiers.sorted().joined(separator: "\n") + "\n"
+    return SHA256.hash(data: Data(payload.utf8)).map { String(format: "%02x", $0) }.joined()
+}
 
 func fetchSourceAssets(identifier: String) throws -> (PHFetchResult<PHAsset>, String) {
     if identifier == visibleLibraryStillsSourceIdentifier {
@@ -51,6 +62,7 @@ struct SnapshotPlan: Codable {
     let safety_mode: String
     let source_album_identifier: String
     let expected_source_count: Int
+    let source_membership_sha256: String
     let batch_size: Int
     let log_path: String
     let receipt_path: String
@@ -66,6 +78,7 @@ struct InspectionPlan: Codable {
     let safety_mode: String
     let source_album_identifier: String
     let expected_source_count: Int
+    let source_membership_sha256: String
     let asset_identifiers: [String]
     let output_jsonl_path: String
     let receipt_path: String
@@ -106,6 +119,7 @@ struct InspectionReceipt: Codable {
     let writer_build_version: String
     let source_album_identifier: String
     let source_count: Int
+    let source_membership_sha256: String
     let requested_count: Int
     let completed_count: Int
     let pixel_available_count: Int
@@ -137,6 +151,7 @@ struct SnapshotReceipt: Codable {
     let writer_build_version: String
     let source_album_identifier: String
     let source_count: Int
+    let source_membership_sha256: String
     let safety_mode: String
     let folders: [FolderReceipt]
     let albums: [AlbumReceipt]
@@ -239,6 +254,10 @@ final class InspectionRunner {
                 sourceFetch.count
             )
         }
+        let sourceDigest = sourceMembershipSHA256(sourceFetch)
+        guard sourceDigest == plan.source_membership_sha256 else {
+            throw ArchiveError.invalidPlan("source membership SHA-256 does not match inspection plan")
+        }
         var sourceIdentifiers = Set<String>()
         sourceFetch.enumerateObjects { asset, _, _ in
             sourceIdentifiers.insert(asset.localIdentifier)
@@ -312,6 +331,7 @@ final class InspectionRunner {
             writer_build_version: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown",
             source_album_identifier: plan.source_album_identifier,
             source_count: sourceFetch.count,
+            source_membership_sha256: sourceDigest,
             requested_count: plan.asset_identifiers.count,
             completed_count: completedCount,
             pixel_available_count: pixelAvailableCount,
@@ -563,6 +583,10 @@ final class ArchiveRunner {
                 sourceCount
             )
         }
+        let sourceDigest = sourceMembershipSHA256(sourceFetch)
+        guard sourceDigest == plan.source_membership_sha256 else {
+            throw ArchiveError.invalidPlan("source membership SHA-256 does not match snapshot plan")
+        }
         log("verified_source count=\(sourceCount)")
 
         var folderReceipts: [FolderReceipt] = []
@@ -606,6 +630,7 @@ final class ArchiveRunner {
             writer_build_version: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown",
             source_album_identifier: plan.source_album_identifier,
             source_count: sourceCount,
+            source_membership_sha256: sourceDigest,
             safety_mode: plan.safety_mode,
             folders: folderReceipts,
             albums: albumReceipts

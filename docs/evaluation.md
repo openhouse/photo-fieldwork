@@ -28,10 +28,11 @@ The goal is not to prove the selector is intelligent. The goal is to discover wh
 - Evaluation coverage meets the configured threshold.
 - Overall precision meets the configured threshold.
 - No known safety regression appears in the master.
+- Stable regression canaries all pass, and none contributes to fresh coverage, precision, or per-view sample sufficiency.
+- Every counted judgment has one visible reason and one unique image-view key.
 - Every view has been sampled.
 - Every selected row has a reason.
 - Uncertainty is represented explicitly.
 - A human editor is told that project views remain hypotheses where provenance is incomplete.
 
 Passing the gate means the corpus is ready for editors. It does not mean every category assignment is factually proven.
-
