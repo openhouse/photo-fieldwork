@@ -4,7 +4,7 @@ Photo Fieldwork welcomes improvements to selection logic, evaluation design, pri
 
 Before opening a change:
 
-1. Run `make demo` and `make check`.
+1. Run `make demo`, `make evals`, and `make check`.
 2. Explain which workflow phase the change affects.
 3. Add or update a test for behavioral changes.
 4. State whether the change touches pixels, OCR, faces, locations, or catalog writes.

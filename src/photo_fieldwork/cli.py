@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from .contracts import load_source_profile, read_json, write_json
+from .evals import audit_eval_bank
 from .pipeline import build_catalog_plan, evaluate, make_sample, read_config, read_csv, select, validate, write_csv
 from .practice import create_demo_inventory, practice_feedback, write_demo_readme
 from .safety import apply_safety_policy
@@ -129,6 +130,12 @@ def command_source_check(args: argparse.Namespace) -> int:
     profile = load_source_profile(args.source_profile)
     emit(args, profile, f"source profile PASS: {profile['id']} ({profile['expected_count']})")
     return 0
+
+
+def command_evals_check(args: argparse.Namespace) -> int:
+    report = audit_eval_bank(read_json(args.evals), read_json(args.contract))
+    emit(args, report, f"eval bank {report['status']}: {len(report['errors'])} errors")
+    return 0 if report["status"] == "PASS" else 2
 
 
 def command_safety(args: argparse.Namespace) -> int:
@@ -322,6 +329,11 @@ def parser() -> argparse.ArgumentParser:
     source = sub.add_parser("source-check", help="validate and fingerprint an active source profile")
     source.add_argument("--source-profile", type=Path, required=True)
     source.set_defaults(func=command_source_check)
+
+    evals_check = sub.add_parser("evals-check", help="audit behavioral eval coverage and discrimination")
+    evals_check.add_argument("--evals", type=Path, required=True)
+    evals_check.add_argument("--contract", type=Path, required=True)
+    evals_check.set_defaults(func=command_evals_check)
 
     safety = sub.add_parser("safety", help="propagate declarative relational safety rules")
     safety.add_argument("--inventory", type=Path, required=True)

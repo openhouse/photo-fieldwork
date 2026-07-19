@@ -36,6 +36,27 @@ The goal is not to prove the selector is intelligent. The goal is to discover wh
 
 Passing the gate means the corpus is ready for editors. It does not mean every category assignment is factually proven.
 
+## Skill behavior evals
+
+The skill eval bank lives in `skills/curate-apple-photos/evals/evals.json`. It tests the production failures that can survive a superficially successful run: equal-count source drift, reused evidence presented as fresh, corrupt previews, aggregate metrics masking a weak view, unsafe clearance, cascading replacements, cross-UUID duplicates, candidate drift after evaluation, interrupted writes, publication-boundary leakage, private-data offloading, identity inference, destructive catalog plans, and prior-version overwrite. A positive control requires the skill to proceed when every production-write gate is actually closed.
+
+`eval-contract.json` maps every case to a decision oracle, required dimensions, anti-shortcuts, and a counterfactual pass condition. Audit the bank with:
+
+```bash
+make evals
+```
+
+Hill-climb the bank recursively:
+
+1. Run the same prompt against the current skill and the previous revision.
+2. Grade each expectation from artifact or transcript evidence, not from tone or stated confidence.
+3. Remove or weaken one case and confirm the meta-evaluation fails.
+4. Flip every oracle to `BLOCK` and confirm the positive control detects refusal-only behavior.
+5. Add newly observed field failures without deleting protected prior regressions.
+6. Re-run the whole bank after any source, safety, evaluation, planning, writing, verification, or publication-contract change.
+
+The deterministic audit checks eval design. Model runs and human review still establish whether the skill satisfies the cases.
+
 ## Closing a round
 
 Evaluation is not complete when a report is written. Apply explicit feedback to the full candidate pool, rebuild deterministically, and review every newly admitted or reassigned asset. A rejected sampled item often causes an unreviewed lower-ranked item to enter the master; the replacement manifest makes that consequence visible.
