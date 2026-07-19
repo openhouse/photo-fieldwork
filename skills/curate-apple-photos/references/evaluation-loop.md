@@ -19,7 +19,8 @@
 - `primary_view`
 - `judgment`: `fit`, `reject`, or `uncertain`
 - `visible_reason`
-- `safety_status`: `clear`, `hold`, or `needs-review`
+- `safety_status`: `clear`, `clear-automated`, `clear-human-reviewed`, `hold`,
+  `needs-review`, or `unavailable`; only recognized clear states are eligible
 - `error_category`
 - `round_id`
 - `reviewer_lens`
@@ -47,7 +48,18 @@
 - Generic social scenes do not dominate work evidence.
 - Named relationships and person-free material context both remain visible.
 
+## Sample roles and metric integrity
+
+- Tuning rows may guide retrieval and scoring changes but can never enter the
+  final holdout. Freeze and hash every sample by stable UUID before review.
+- A canary checks whether a known failure regressed. Report it separately; it
+  does not increase fresh decisive precision.
+- A targeted per-view supplement diagnoses a named view. Keep it out of the
+  primary aggregate estimate and label its denominator separately.
+- Reject duplicate UUID rows, sample-hash drift, and any final row previously
+  used for tuning. Report decisive precision, uncertainty, sample size, and
+  threshold per material view; an aggregate score cannot waive a failing view.
+
 ## Stop conditions
 
 Run up to five substantial rounds. Stop earlier when all gates pass and failure review reveals no new systematic issue. Do not lower thresholds merely to finish. If the same genuine blocker recurs, preserve the run and explain exactly what input or permission is missing.
-

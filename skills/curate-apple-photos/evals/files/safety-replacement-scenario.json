@@ -1,0 +1,34 @@
+{
+  "round": "round-02",
+  "actor": "editor-17",
+  "master": [
+    {"uuid": "SELECTED-A", "view": "view-01", "safety_status": "clear"},
+    {"uuid": "SELECTED-B", "view": "view-02", "safety_status": "clear"}
+  ],
+  "feedback": [
+    {"uuid": "SELECTED-A", "view": "view-01", "judgment": "reject", "reason": "visible mismatch"},
+    {
+      "uuid": "FALSE-POSITIVE",
+      "prior_signal": "possible private document",
+      "new_state": "clear-human-reviewed",
+      "actor": "editor-17",
+      "reason": "no legible private information"
+    }
+  ],
+  "candidates": [
+    {"uuid": "NEEDS-REVIEW-HIGH", "view": "view-01", "score": 12, "safety_status": "needs-review", "pixels": true, "preview": true},
+    {"uuid": "CLEAR-LOWER", "view": "view-01", "score": 7, "safety_status": "clear", "pixels": true, "preview": true},
+    {"uuid": "UNKNOWN-STATE", "view": "view-01", "score": 11, "safety_status": "mystery", "pixels": true, "preview": true},
+    {"uuid": "DUP-HOLD", "duplicate_group": "D-HOLD", "safety_status": "hold"},
+    {"uuid": "DUP-MATE", "duplicate_group": "D-HOLD", "safety_status": "clear"}
+  ],
+  "prior_events": [],
+  "rejected_edges": [{"uuid": "SELECTED-A", "view": "view-01"}],
+  "next_round": {
+    "feedback": [{"uuid": "CLEAR-LOWER", "view": "view-01", "judgment": "reject", "reason": "second visible mismatch"}],
+    "fallback_candidates": [
+      {"uuid": "SELECTED-A", "view": "view-01", "score": 99, "safety_status": "clear", "pixels": true, "preview": true},
+      {"uuid": "CLEAR-NEXT", "view": "view-01", "score": 6, "safety_status": "clear", "pixels": true, "preview": true}
+    ]
+  }
+}

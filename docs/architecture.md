@@ -6,10 +6,12 @@ Photo Fieldwork keeps archive-specific access separate from archive-independent 
 Catalog reader or filesystem scanner
               |
               v
-       inventory.csv
+ inventory.csv + source profile
               |
               v
  deterministic selector ---> hold-sensitive.csv
+              |                       |
+              +------> decision ledger <----- visual review rounds
               |
               v
    proposed-master.csv
@@ -21,7 +23,10 @@ Catalog reader or filesystem scanner
                  catalog writer adapter
                          |
                          v
-                  independent verifier
+             WAL-aware snapshot builder
+                         |
+                         v
+                immutable verifier
 ```
 
 ## Core
@@ -29,6 +34,20 @@ Catalog reader or filesystem scanner
 The standard-library Python core reads a normalized CSV, applies immutable safety exclusions, reduces duplicate and burst clusters, assigns editor views, creates selection reasons, samples evaluations, measures results, validates invariants, and emits an adapter-neutral catalog plan.
 
 The core does not read a Photos database, open images, call a model, or mutate a catalog.
+
+## Decision ledger
+
+The append-only SQLite ledger records retrieval, inspection, review, HOLD,
+replacement, selection, commit, and verification events. Database triggers
+reject updates and deletes. CSV manifests remain ordinary, inspectable editor
+handoffs generated from the run, while the event history preserves how those
+manifests changed.
+
+## Run lifecycle
+
+Run state is reconciled from receipts and content-addressed artifacts. A run can
+be finalized only when all required phases are complete. This keeps operational
+state from drifting behind the evidence on disk.
 
 ## Reader adapters
 
@@ -53,6 +72,11 @@ A writer consumes `catalog-plan.json`. It may create version folders, create alb
 ## Verifier adapters
 
 A verifier independently compares plan and catalog. It should be read-only and should not share mutation code with the writer.
+
+For Apple Photos, a live `immutable=1` connection may ignore uncheckpointed WAL
+state. The supported verifier first copies the minimum necessary rows through a
+WAL-aware read-only connection, closes that compact snapshot, and then reopens
+the snapshot immutably.
 
 ## Extension points
 

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openhouse.github.io/photo-fieldwork/schemas/verification-report.schema.json",
+  "title": "Photo Fieldwork verification report",
+  "type": "object",
+  "required": ["schema_version", "status", "plan_id", "source_count", "albums_verified", "missing_memberships", "unexpected_memberships", "outside_source", "folder_topology_errors"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "status": {"enum": ["PASS", "FAIL"]},
+    "plan_id": {"type": "string"},
+    "source_count": {"type": "integer", "minimum": 0},
+    "albums_verified": {"type": "integer", "minimum": 0},
+    "missing_memberships": {"type": "integer", "minimum": 0},
+    "unexpected_memberships": {"type": "integer", "minimum": 0},
+    "outside_source": {"type": "integer", "minimum": 0},
+    "folder_topology_errors": {"type": "integer", "minimum": 0}
+  }
+}

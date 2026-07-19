@@ -31,7 +31,9 @@ open -W -n "/Applications/Jamie Photo Archive.app" --args --plan /absolute/path/
 
 - Library: `/Volumes/apple-photos-8tb-external-ssd/Photos Library.photoslibrary`
 - Database: `/Volumes/apple-photos-8tb-external-ssd/Photos Library.photoslibrary/database/Photos.sqlite`
-- Verification access must use SQLite URI `mode=ro&immutable=1` and `PRAGMA query_only=ON`.
+- Build verification snapshots from the live database with SQLite URI `mode=ro`
+  and `PRAGMA query_only=ON` so committed WAL state remains visible. Verify only
+  the closed compact snapshot with `mode=ro&immutable=1` and `query_only`.
 - Never issue `INSERT`, `UPDATE`, `DELETE`, schema changes, or a non-read-only connection.
 
 ## Existing protected folders

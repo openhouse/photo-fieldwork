@@ -1,0 +1,20 @@
+{
+  "headline_aggregate_precision": 0.92,
+  "sample_hash_serialization": "utf8-lines-final-lf",
+  "recorded_sample_sha256": "8e609f41d7d91a3d72d1ce06aa63d022f42142354f791d931ecf191f716dbd52",
+  "tuning_uuids": ["TUNING-01"],
+  "final_sample_ids": ["TUNING-01", "FINAL-02", "FINAL-02", "CANARY-01", "SUPPLEMENT-01"],
+  "final_rows": [
+    {"uuid": "TUNING-01", "view": "community", "kind": "fresh", "judgment": "fit"},
+    {"uuid": "FINAL-02", "view": "community", "kind": "fresh", "judgment": "reject"},
+    {"uuid": "FINAL-02", "view": "community", "kind": "fresh", "judgment": "fit"},
+    {"uuid": "CANARY-01", "view": "work", "kind": "canary", "judgment": "fit"},
+    {"uuid": "SUPPLEMENT-01", "view": "community", "kind": "targeted-supplement", "judgment": "reject"}
+  ],
+  "community_view_rows": {
+    "fit": ["CF01", "CF02", "CF03", "CF04", "CF05", "CF06", "CF07", "CF08"],
+    "reject": ["CR01", "CR02", "CR03", "CR04", "CR05", "CR06", "CR07", "CR08", "CR09", "CR10", "CR11"],
+    "uncertain": ["CU01", "CU02", "CU03", "CU04", "CU05", "CU06", "CU07", "CU08", "CU09", "CU10", "CU11"]
+  },
+  "community_minimum_precision": 0.70
+}

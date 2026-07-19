@@ -1,0 +1,14 @@
+{
+  "quota_mode": "exact",
+  "views": {
+    "project": {"target": 2, "material": true, "minimum_evidence": "high"},
+    "unclassified": {"target": 2, "material": false}
+  },
+  "candidates": [
+    {"uuid": "PROJECT-PROVEN", "requested_view": "project", "visible_fit": true, "provenance": "high"},
+    {"uuid": "GENERIC-SOCIAL-1", "requested_view": "project", "visible_fit": false, "provenance": "none", "date_near_project": true},
+    {"uuid": "GENERIC-SOCIAL-2", "requested_view": "project", "visible_fit": false, "provenance": "none", "date_near_project": true},
+    {"uuid": "UNCLASSIFIED-1", "requested_view": "unclassified", "visible_fit": true, "provenance": "unknown"},
+    {"uuid": "UNCLASSIFIED-2", "requested_view": "unclassified", "visible_fit": true, "provenance": "unknown"}
+  ]
+}

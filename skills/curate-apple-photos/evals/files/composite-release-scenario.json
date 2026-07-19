@@ -1,0 +1,130 @@
+{
+  "schema_version": 1,
+  "assignment": {
+    "config": {
+      "seed": 7,
+      "target_count": 2,
+      "unclassified_view": "A",
+      "quota_mode": "exact",
+      "views": [
+        {"id": "A", "label": "Archive", "quota": 1},
+        {"id": "B", "label": "Backstage", "quota": 1}
+      ]
+    },
+    "inventory": [
+      {
+        "uuid": "FLEX",
+        "filename": "flex.jpg",
+        "candidate_views": "A;B",
+        "favorite": "true",
+        "safety_status": "clear"
+      },
+      {
+        "uuid": "A-ONLY",
+        "filename": "a-only.jpg",
+        "candidate_views": "A",
+        "safety_status": "clear"
+      }
+    ],
+    "expected_assignments": {
+      "A-ONLY": "A",
+      "FLEX": "B"
+    }
+  },
+  "feedback": {
+    "master": [
+      {
+        "uuid": "OUT",
+        "filename": "out.jpg",
+        "primary_view": "A",
+        "score_total": "10",
+        "selection_reason": "selected"
+      }
+    ],
+    "inventory": [
+      {
+        "uuid": "OUT",
+        "filename": "out.jpg",
+        "primary_view": "A",
+        "score_total": "10",
+        "selection_reason": "selected"
+      },
+      {
+        "uuid": "REJECTED-EDGE",
+        "filename": "rejected.jpg",
+        "primary_view": "A",
+        "candidate_views": "A;B",
+        "score_total": "100",
+        "selection_reason": "eligible",
+        "safety_status": "clear",
+        "pixel_available": "true",
+        "preview_exported": "true"
+      },
+      {
+        "uuid": "CLEAR-NEXT",
+        "filename": "next.jpg",
+        "primary_view": "A",
+        "candidate_views": "A",
+        "score_total": "9",
+        "selection_reason": "eligible",
+        "safety_status": "clear",
+        "pixel_available": "true",
+        "preview_exported": "true"
+      }
+    ],
+    "current_feedback": [
+      {"uuid": "OUT", "primary_view": "A", "judgment": "reject"}
+    ],
+    "prior_feedback": [
+      {"uuid": "REJECTED-EDGE", "primary_view": "A", "judgment": "reject"}
+    ],
+    "expected_master": ["CLEAR-NEXT"]
+  },
+  "diversity_floor": {
+    "required_exploratory_count": 1,
+    "config": {
+      "seed": 7,
+      "target_count": 2,
+      "unclassified_view": "A",
+      "quota_mode": "exact",
+      "exploratory_fraction": 0.5,
+      "views": [
+        {"id": "A", "label": "Archive", "quota": 1},
+        {"id": "B", "label": "Backstage", "quota": 1}
+      ]
+    },
+    "inventory": [
+      {"uuid": "A-HIGH", "filename": "a1.jpg", "candidate_views": "A", "favorite": "true", "edited": "true", "evidence_confidence": "high", "persons": "P", "visible_context": "material", "safety_status": "clear"},
+      {"uuid": "A-LOW", "filename": "a2.jpg", "candidate_views": "A", "favorite": "true", "edited": "true", "evidence_confidence": "unknown", "visible_context": "material", "safety_status": "clear"},
+      {"uuid": "B-HIGH", "filename": "b1.jpg", "candidate_views": "B", "evidence_confidence": "high", "safety_status": "clear"},
+      {"uuid": "B-LOW", "filename": "b2.jpg", "candidate_views": "B", "evidence_confidence": "unknown", "persons": "P", "visible_context": "material", "safety_status": "clear"}
+    ],
+    "naive_swap_result": ["A-LOW", "B-HIGH"],
+    "score_preserving_result": ["A-HIGH", "B-LOW"]
+  },
+  "evaluation_binding": {
+    "mutation": "change-nonsampled-master-row-after-sample-manifest",
+    "expected_result": "evaluation sample manifest does not bind the current master"
+  },
+  "transaction": {
+    "initial_revision": 1,
+    "first_reconcile_revision": 2,
+    "stale_expected_revision": 1,
+    "expected_result": "revision conflict"
+  },
+  "release_mutation": {
+    "release_class": "editor-field",
+    "publication_clearance": false,
+    "mutations": [
+      "change-master-view-assignment-after-evaluation",
+      "change-completed-artifact-bytes",
+      "change-frozen-source-membership",
+      "change-evaluation-report",
+      "change-validation-report",
+      "change-sealed-writer-plan",
+      "self-rehash-writer-plan-with-outside-asset",
+      "supersede-completed-phase-without-explicit-cas-update"
+    ],
+    "expected_writer_invocations": 0
+  }
+}

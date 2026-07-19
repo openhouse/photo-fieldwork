@@ -36,6 +36,16 @@ def like_matches(conn: sqlite3.Connection, query: str, values: list[str]) -> set
     return matched
 
 
+def album_matches(conn: sqlite3.Connection, values: list[str], excluded_terms: list[str]) -> set[str]:
+    matched: set[str] = set()
+    exclusions = "".join(" AND lower(coalesce(album_title,'')) NOT LIKE ?" for _ in excluded_terms)
+    query = "SELECT uuid FROM asset_album WHERE lower(coalesce(album_title,'')) LIKE ?" + exclusions
+    for value in values:
+        params = [f"%{value.casefold()}%", *[f"%{term.casefold()}%" for term in excluded_terms]]
+        matched.update(row[0] for row in conn.execute(query, params))
+    return matched
+
+
 def relation_values(conn: sqlite3.Connection, table: str, column: str, ids: list[str]) -> dict[str, list[str]]:
     values: dict[str, list[str]] = defaultdict(list)
     for start in range(0, len(ids), 700):
@@ -66,6 +76,7 @@ def main() -> None:
     parser.add_argument("--retrieval", type=Path, required=True)
     parser.add_argument("--target", type=int, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--summary", type=Path)
     args = parser.parse_args()
 
     spec = json.loads(args.retrieval.read_text(encoding="utf-8"))
@@ -73,8 +84,22 @@ def main() -> None:
     if not views:
         raise SystemExit("retrieval.json requires at least one view")
     candidate_target = max(args.target, math.ceil(args.target * float(spec.get("candidate_multiplier", 1.75))))
+    excluded_album_terms = [
+        str(value).casefold()
+        for value in spec.get("excluded_album_terms", [])
+        if str(value).strip()
+    ]
     conn = connect(args.db)
     asset_count = conn.execute("SELECT count(*) FROM asset WHERE is_photo = 1 AND hidden = 0 AND trashed = 0").fetchone()[0]
+    excluded_ids: set[str] = set()
+    for term in excluded_album_terms:
+        excluded_ids.update(
+            row[0]
+            for row in conn.execute(
+                "SELECT uuid FROM asset_album WHERE lower(coalesce(album_title,'')) LIKE ?",
+                (f"%{term}%",),
+            )
+        )
 
     view_scores: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
     for view in views:
@@ -93,7 +118,6 @@ def main() -> None:
             ) LIKE ?
         """
         relation_queries = [
-            ("SELECT uuid FROM asset_album WHERE lower(coalesce(album_title,'')) LIKE ?", 7.0),
             ("SELECT uuid FROM asset_keyword WHERE lower(keyword) LIKE ?", 6.0),
             ("SELECT uuid FROM asset_label WHERE lower(label_normalized) LIKE ?", 4.0),
             ("SELECT uuid FROM asset_place WHERE lower(place) LIKE ?", 4.0),
@@ -101,12 +125,14 @@ def main() -> None:
         for term in terms:
             for uuid in like_matches(conn, base_query, [term]):
                 view_scores[view_id][uuid] += 7.0
+            for uuid in album_matches(conn, [term], excluded_album_terms):
+                view_scores[view_id][uuid] += 7.0
             for query, weight in relation_queries:
                 for uuid in like_matches(conn, query, [term]):
                     view_scores[view_id][uuid] += weight
         for uuid in like_matches(conn, "SELECT uuid FROM asset_person WHERE lower(person) LIKE ?", people):
             view_scores[view_id][uuid] += 8.0
-        for uuid in like_matches(conn, "SELECT uuid FROM asset_album WHERE lower(coalesce(album_title,'')) LIKE ?", albums):
+        for uuid in album_matches(conn, albums, excluded_album_terms):
             view_scores[view_id][uuid] += 10.0
         for uuid in like_matches(conn, "SELECT uuid FROM asset_place WHERE lower(place) LIKE ?", places):
             view_scores[view_id][uuid] += 5.0
@@ -123,6 +149,9 @@ def main() -> None:
                 if year and year[0] is not None and low <= int(year[0]) <= high:
                     view_scores[view_id][uuid] += 2.0
 
+    for scores in view_scores.values():
+        for uuid in excluded_ids & scores.keys():
+            del scores[uuid]
     matched_ids = {uuid for scores in view_scores.values() for uuid in scores}
     base_rows = asset_rows(conn, list(matched_ids)) if matched_ids else {}
 
@@ -140,33 +169,86 @@ def main() -> None:
         limit = max(1, math.ceil(int(view.get("quota", 0)) * multiplier))
         ranked = sorted(view_scores[view_id], key=lambda uuid: (view_scores[view_id][uuid] + prior_attention(uuid), uuid), reverse=True)
         for uuid in ranked[:limit]:
-            if uuid not in selected_set:
+            if uuid not in selected_set and uuid not in excluded_ids:
                 selected.append(uuid)
                 selected_set.add(uuid)
 
     if len(selected) < candidate_target:
-        needed = candidate_target - len(selected)
         fallback = conn.execute(
             """
             SELECT uuid FROM asset
             WHERE is_photo = 1 AND hidden = 0 AND trashed = 0
               AND (favorite = 1 OR edited = 1 OR face_count > 0)
             ORDER BY (favorite + edited) DESC, face_count DESC, uuid
-            LIMIT ?
-            """,
-            (needed * 4,),
+            """
         )
         for (uuid,) in fallback:
-            if uuid not in selected_set:
+            if uuid not in selected_set and uuid not in excluded_ids:
                 selected.append(uuid)
                 selected_set.add(uuid)
                 if len(selected) == candidate_target:
                     break
     selected = selected[:candidate_target]
+    if len(selected) < candidate_target:
+        raise ValueError(
+            f"retrieval produced {len(selected)} candidates; required {candidate_target}"
+        )
+    selected_set = set(selected)
+
+    prior_album_title = str(spec.get("prior_corpus_album_title") or "").strip()
+    outside_prior_fraction = float(spec.get("minimum_outside_prior_fraction", 0.0))
+    outside_prior_count = None
+    if prior_album_title and outside_prior_fraction > 0:
+        prior_ids = {
+            row[0]
+            for row in conn.execute(
+                "SELECT uuid FROM asset_album WHERE album_title = ?",
+                (prior_album_title,),
+            )
+        }
+        required_outside = math.ceil(candidate_target * outside_prior_fraction)
+        current_outside = sum(uuid not in prior_ids for uuid in selected)
+
+        def aggregate_score(uuid: str) -> float:
+            return max(
+                (scores.get(uuid, 0.0) for scores in view_scores.values()),
+                default=0.0,
+            ) + prior_attention(uuid)
+
+        if current_outside < required_outside:
+            outside_pool = sorted(
+                (uuid for uuid in matched_ids if uuid not in prior_ids and uuid not in selected_set),
+                key=lambda uuid: (aggregate_score(uuid), uuid),
+                reverse=True,
+            )
+            removable = sorted(
+                (uuid for uuid in selected if uuid in prior_ids),
+                key=lambda uuid: (aggregate_score(uuid), uuid),
+            )
+            replacements_needed = required_outside - current_outside
+            replacements = min(replacements_needed, len(outside_pool), len(removable))
+            remove_set = set(removable[:replacements])
+            selected = [uuid for uuid in selected if uuid not in remove_set]
+            selected.extend(outside_pool[:replacements])
+            current_outside = sum(uuid not in prior_ids for uuid in selected)
+        if current_outside < required_outside:
+            raise ValueError(
+                "candidate field cannot satisfy minimum_outside_prior_fraction: "
+                f"{current_outside} < {required_outside}"
+            )
+        outside_prior_count = current_outside
 
     base_rows = asset_rows(conn, selected)
     people = relation_values(conn, "asset_person", "person", selected)
     albums = relation_values(conn, "asset_album", "album_title", selected)
+    if excluded_album_terms:
+        albums = {
+            uuid: [
+                title for title in titles
+                if not any(term in title.casefold() for term in excluded_album_terms)
+            ]
+            for uuid, titles in albums.items()
+        }
     labels = relation_values(conn, "asset_label", "label", selected)
     places = relation_values(conn, "asset_place", "place", selected)
     conn.close()
@@ -222,7 +304,29 @@ def main() -> None:
     print(f"matched_assets={len(matched_ids)}")
     print(f"candidate_target={candidate_target}")
     print(f"candidate_rows={len(output_rows)}")
+    if outside_prior_count is not None:
+        print(f"outside_prior_candidates={outside_prior_count}")
+        print(f"outside_prior_fraction={outside_prior_count / len(selected):.6f}")
     print(f"output={args.output}")
+    if args.summary:
+        summary = {
+            "schema_version": 1,
+            "source_count": asset_count,
+            "matched_assets": len(matched_ids),
+            "excluded_assets": len(excluded_ids),
+            "candidate_target": candidate_target,
+            "candidate_count": len(output_rows),
+            "prior_corpus_album_title": prior_album_title or None,
+            "outside_prior_count": outside_prior_count,
+            "outside_prior_fraction": (
+                outside_prior_count / len(selected)
+                if outside_prior_count is not None
+                else None
+            ),
+        }
+        args.summary.parent.mkdir(parents=True, exist_ok=True)
+        args.summary.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+        print(f"summary={args.summary}")
 
 
 if __name__ == "__main__":

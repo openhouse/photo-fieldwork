@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import os
 import plistlib
@@ -14,6 +15,11 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(REPO_ROOT / "src"))
+
+from photo_fieldwork.run_state import initialize as initialize_run
 
 
 APP = Path("/Applications/Jamie Photo Archive.app")
@@ -27,6 +33,7 @@ PHOTOS_DB = Path(
 )
 SOURCE_ID = "360ED78F-FB05-490A-8FFD-F3CB951D0D0A/L0/040"
 SOURCE_COUNT = 124_484
+VISIBLE_LIBRARY_STILLS = "visible-library-stills://v1"
 ROOT_FOLDER_ID = "92BBCF49-B077-478D-B9EE-DD94FAAFEAB5/L0/020"
 PRIVATE_FOLDER_ID = "1095845F-B6FA-41D0-8A22-D156C3071631/L0/020"
 AUDIT_FOLDER_ID = "7F9EB400-C06D-412C-9443-300A2C47CCE7/L0/020"
@@ -35,6 +42,71 @@ AUDIT_FOLDER_ID = "7F9EB400-C06D-412C-9443-300A2C47CCE7/L0/020"
 def dump_json(path: Path, value: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def file_hash(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def canonical_json_sha256(value: object) -> str:
+    payload = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def semantic_rows_sha256(rows: list[dict[str, str]], *, view_order: bool = False) -> str:
+    payload = [
+        {
+            str(key): str(value)
+            for key, value in sorted(row.items())
+            if str(value) != ""
+        }
+        for row in rows
+    ]
+    if view_order:
+        payload.sort(key=lambda row: (row.get("primary_view", ""), row["uuid"]))
+    else:
+        payload.sort(key=lambda row: row["uuid"])
+    return canonical_json_sha256(payload)
+
+
+def membership_sha256(rows: list[dict[str, str]]) -> str:
+    payload = "".join(f"{uuid}\n" for uuid in sorted({str(row["uuid"]) for row in rows}))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def verify_plan_sha256(plan: dict) -> None:
+    recorded = str(plan.get("plan_sha256", ""))
+    unsigned = {key: value for key, value in plan.items() if key != "plan_sha256"}
+    if not recorded or canonical_json_sha256(unsigned) != recorded:
+        raise ValueError("plan SHA-256 is missing or does not match its exact contents")
+
+
+def resolve_source(args: argparse.Namespace) -> tuple[str, int]:
+    profile_path = getattr(args, "source_profile", None)
+    if not profile_path:
+        return args.source_id, args.source_count
+    profile = json.loads(profile_path.read_text(encoding="utf-8"))
+    if profile.get("schema_version") != 1:
+        raise ValueError("source profile requires schema_version 1")
+    source_id = str(profile.get("id") or "").strip()
+    source_count = profile.get("expected_count")
+    if source_count is None and profile.get("inventory"):
+        inventory_path = Path(profile["inventory"]).expanduser()
+        conn = sqlite3.connect(f"file:{inventory_path}?mode=ro&immutable=1", uri=True)
+        try:
+            inventory_meta = dict(conn.execute("SELECT key, value FROM meta"))
+            source_count = inventory_meta.get("source_count") or inventory_meta.get(
+                "source_album_count"
+            )
+        finally:
+            conn.close()
+    if not source_id or source_count is None:
+        raise ValueError("source profile requires id and expected_count or inventory metadata")
+    return source_id, int(source_count)
 
 
 def local_identifier(value: str) -> str:
@@ -61,12 +133,18 @@ def safe_slug(value: str) -> str:
     return slug[:48] or "photo-field"
 
 
-def command_doctor(_: argparse.Namespace) -> int:
+def command_doctor(args: argparse.Namespace) -> int:
+    source_id, source_count = resolve_source(args)
+    inventory_db = INVENTORY_DB
+    if args.source_profile:
+        profile = json.loads(args.source_profile.read_text(encoding="utf-8"))
+        if profile.get("inventory"):
+            inventory_db = Path(profile["inventory"]).expanduser()
     checks = {
         "permissioned_app": APP.is_dir(),
         "app_executable": APP_EXECUTABLE.is_file() and os.access(APP_EXECUTABLE, os.X_OK),
         "app_plist": APP_PLIST.is_file(),
-        "shared_inventory": INVENTORY_DB.exists(),
+        "shared_inventory": inventory_db.exists(),
         "photos_database": PHOTOS_DB.exists(),
         "workspace_root": WORKSPACE_ROOT.is_dir(),
         "photo_fieldwork_cli": Path(
@@ -82,57 +160,50 @@ def command_doctor(_: argparse.Namespace) -> int:
         bundle = plist.get("CFBundleIdentifier")
         version = plist.get("CFBundleShortVersionString")
         checks["stable_bundle_identifier"] = bundle == BUNDLE_ID
-    if INVENTORY_DB.exists():
-        conn = sqlite3.connect(f"file:{INVENTORY_DB}?mode=ro&immutable=1", uri=True)
-        inventory_meta = {key: json.loads(value) for key, value in conn.execute("SELECT key, value FROM meta")}
+    if inventory_db.exists():
+        conn = sqlite3.connect(f"file:{inventory_db}?mode=ro&immutable=1", uri=True)
+        inventory_meta = {}
+        for key, value in conn.execute("SELECT key, value FROM meta"):
+            try:
+                inventory_meta[key] = json.loads(value)
+            except json.JSONDecodeError:
+                inventory_meta[key] = value
         conn.close()
-        checks["inventory_source_identifier"] = inventory_meta.get("source_album_uuid") == base_identifier(SOURCE_ID)
-        checks["inventory_source_count"] = int(inventory_meta.get("source_album_count", 0)) == SOURCE_COUNT
+        observed_id = inventory_meta.get("source_identifier") or inventory_meta.get("source_album_uuid")
+        observed_count = inventory_meta.get("source_count") or inventory_meta.get("source_album_count")
+        checks["inventory_source_identifier"] = str(observed_id) in {source_id, base_identifier(source_id)}
+        checks["inventory_source_count"] = int(observed_count or 0) == source_count
     report = {
         "status": "PASS" if all(checks.values()) else "FAIL",
         "checks": checks,
         "bundle_id": bundle,
         "version": version,
         "inventory_generated_at": inventory_meta.get("generated_at"),
-        "inventory_source_count": inventory_meta.get("source_album_count"),
+        "inventory_source_count": inventory_meta.get("source_count") or inventory_meta.get("source_album_count"),
     }
     print(json.dumps(report, indent=2))
     return 0 if report["status"] == "PASS" else 2
 
 
 def command_init(args: argparse.Namespace) -> int:
+    source_id, source_count = resolve_source(args)
     stamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
     root = (args.workspace_root / f"{args.version}-{safe_slug(args.slug)}-{stamp}").resolve()
     if root.exists():
         raise ValueError(f"workspace already exists: {root}")
-    for name in ("inventory", "manifests", "reports", "logs", "previews", "contact-sheets", "scripts"):
-        (root / name).mkdir(parents=True, exist_ok=False)
-    state = {
-        "schema_version": 1,
-        "run_id": root.name,
-        "status": "initialized",
-        "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-        "version": args.version,
-        "target_count": args.target,
-        "source_album_identifier": args.source_id,
-        "expected_source_count": args.source_count,
-        "phases": {
-            "brief": "pending",
-            "retrieval": "pending",
-            "local_inspection": "pending",
-            "recursive_evaluation": "pending",
-            "validation": "pending",
-            "write_test": "pending",
-            "production_commit": "pending",
-            "independent_verification": "pending",
-        },
-    }
-    dump_json(root / "run-state.json", state)
+    initialize_run(
+        root,
+        run_id=root.name,
+        version=args.version,
+        target_count=args.target,
+        source_identifier=source_id,
+        expected_source_count=source_count,
+    )
     (root / "README.md").write_text(
         f"# {args.version}: {args.slug}\n\n"
         f"- Target: {args.target:,} unique still photographs\n"
-        f"- Immutable source identifier: `{args.source_id}`\n"
-        f"- Expected source count: {args.source_count:,}\n"
+        f"- Immutable source identifier: `{source_id}`\n"
+        f"- Expected source count: {source_count:,}\n"
         "- Final publication edit performed: no\n"
         "- External image or metadata upload permitted: no\n",
         encoding="utf-8",
@@ -147,13 +218,14 @@ def command_inspection_plan(args: argparse.Namespace) -> int:
     if args.limit:
         identifiers = identifiers[: args.limit]
     root = args.workspace.resolve()
+    source_id, source_count = resolve_source(args)
     plan = {
         "operation": "inspect-local-images",
         "schema_version": 1,
         "plan_id": args.plan_id,
         "safety_mode": "read-only-local-inspection-and-preview-export",
-        "source_album_identifier": args.source_id,
-        "expected_source_count": args.source_count,
+        "source_album_identifier": source_id,
+        "expected_source_count": source_count,
         "asset_identifiers": identifiers,
         "output_jsonl_path": str(root / "manifests" / f"{args.plan_id}-inspection.jsonl"),
         "receipt_path": str(root / "manifests" / f"{args.plan_id}-receipt.json"),
@@ -162,6 +234,8 @@ def command_inspection_plan(args: argparse.Namespace) -> int:
         "target_long_edge": args.target_long_edge,
         "export_previews": not args.no_previews,
         "ocr_all": not args.no_ocr,
+        "classify_all": not args.no_classify,
+        "detect_faces": not args.no_face_detection,
         "network_access_allowed": False,
     }
     dump_json(args.output, plan)
@@ -215,19 +289,98 @@ def album(title: str, parent: str, uuids: list[str]) -> dict:
 
 
 def snapshot_plan(args: argparse.Namespace, plan_id: str, folders: list[dict], albums: list[dict], receipt: str) -> dict:
-    return {
+    source_id, source_count = resolve_source(args)
+    plan = {
         "operation": "snapshot-membership",
         "schema_version": 1,
         "plan_id": plan_id,
         "safety_mode": "create-folders-albums-and-add-membership-only",
-        "source_album_identifier": args.source_id,
-        "expected_source_count": args.source_count,
+        "source_album_identifier": source_id,
+        "expected_source_count": source_count,
         "batch_size": args.batch_size,
         "log_path": str(args.workspace / "logs" / "jamie-photo-archive-app.log"),
         "receipt_path": str(args.workspace / "manifests" / receipt),
         "folders": folders,
         "albums": albums,
+        "manifest_hashes": args.manifest_hashes,
+        "authorization": args.authorization,
     }
+    plan["plan_sha256"] = canonical_json_sha256(plan)
+    return plan
+
+
+def release_authorization(args: argparse.Namespace, master_rows: list[dict[str, str]], hold_rows: list[dict[str, str]]) -> dict:
+    if not args.config:
+        raise ValueError("candidate-bound snapshot plans require a config")
+    release_plan = json.loads(args.release_plan.read_text(encoding="utf-8"))
+    verify_plan_sha256(release_plan)
+    evaluation_report = json.loads(args.evaluation_report.read_text(encoding="utf-8"))
+    validation_report = json.loads(args.validation_report.read_text(encoding="utf-8"))
+    config = json.loads(args.config.read_text(encoding="utf-8"))
+    source_rows = read_csv(args.source_membership)
+    source_ids = [base_identifier(row["uuid"]) for row in source_rows]
+    if len(source_ids) != len(set(source_ids)):
+        raise ValueError("release authorization source membership contains duplicate UUIDs")
+    source_id, source_count = resolve_source(args)
+    identity = release_plan.get("release_identity", {})
+    expected = {
+        "master_sha256": semantic_rows_sha256(master_rows, view_order=True),
+        "holds_sha256": semantic_rows_sha256(hold_rows),
+        "config_sha256": canonical_json_sha256(config),
+        "evaluation_report_sha256": canonical_json_sha256(evaluation_report),
+        "validation_report_sha256": canonical_json_sha256(validation_report),
+    }
+    for key, observed in expected.items():
+        if identity.get(key) != observed:
+            raise ValueError(f"release authorization {key} does not match supplied artifacts")
+    source = release_plan.get("source", {})
+    if source.get("identifier") != source_id:
+        raise ValueError("release authorization source identifier does not match writer source")
+    if source.get("expected_count") != source_count or len(source_rows) != source_count:
+        raise ValueError("release authorization source count does not match frozen membership")
+    if source.get("membership_sha256") != membership_sha256(source_rows):
+        raise ValueError("release authorization source membership SHA-256 does not match")
+    if not evaluation_report.get("passed") or validation_report.get("status") != "PASS":
+        raise ValueError("release authorization requires passing evaluation and validation")
+    if release_plan.get("release_class") != "editor-field":
+        raise ValueError("release authorization must be class editor-field")
+    if release_plan.get("publication_clearance") is not False:
+        raise ValueError("editor-field release must not claim publication clearance")
+    planned_master = next(
+        (album.get("asset_ids", []) for album in release_plan.get("albums", []) if album.get("key") == "master"),
+        None,
+    )
+    if planned_master != [row["uuid"] for row in master_rows]:
+        raise ValueError("release authorization master membership or ordering does not match")
+    return {
+        "release_plan_sha256": release_plan["plan_sha256"],
+        "proposal_id": release_plan.get("proposal_id"),
+        "release_class": "editor-field",
+        "publication_clearance": False,
+        "release_identity": identity,
+        "source": source,
+    }
+
+
+def verify_snapshot_membership_scope(
+    plan: dict,
+    master_rows: list[dict[str, str]],
+    hold_rows: list[dict[str, str]],
+) -> None:
+    master_ids = {base_identifier(row["uuid"]) for row in master_rows}
+    hold_ids = {base_identifier(row["uuid"]) for row in hold_rows}
+    for item in plan.get("albums", []):
+        asset_ids = {base_identifier(value) for value in item.get("asset_identifiers", [])}
+        outside = asset_ids - master_ids - hold_ids
+        if outside:
+            raise ValueError("snapshot writer plan contains assets outside the authorized master/HOLD set")
+        held = asset_ids & hold_ids
+        if held and (
+            item.get("parent_folder_key") != "private"
+            or "HOLD" not in str(item.get("title", "")).upper()
+            or not asset_ids <= hold_ids
+        ):
+            raise ValueError("snapshot writer plan may place HOLD assets only in the private HOLD album")
 
 
 def command_snapshot_plans(args: argparse.Namespace) -> int:
@@ -242,6 +395,13 @@ def command_snapshot_plans(args: argparse.Namespace) -> int:
         raise ValueError(f"master overlaps HOLD by {len(overlap)} IDs")
     if not all(row.get("selection_reason") or row.get("selection_reasons") or row.get("editorial_reasons") for row in master_rows):
         raise ValueError("every master row must have a selection reason")
+    args.authorization = release_authorization(args, master_rows, hold_rows)
+    args.manifest_hashes = {
+        "master_sha256": file_hash(args.master),
+        "holds_sha256": file_hash(args.holds),
+    }
+    if args.config:
+        args.manifest_hashes["config_sha256"] = file_hash(args.config)
 
     by_view: dict[str, list[str]] = {}
     view_labels = {}
@@ -286,7 +446,7 @@ def command_snapshot_plans(args: argparse.Namespace) -> int:
     if uncertain:
         production_albums.append(album(f"91 CONTEXT UNCERTAIN — EDITOR REVIEW — {len(uncertain):,}", "version", uncertain))
     if hold_ids:
-        production_albums.append(album(f"{args.version} — AUTOMATED SAFETY HOLD — {len(hold_ids):,}", "private", hold_ids))
+        production_albums.append(album(f"{args.version} — SAFETY / HUMAN REVIEW HOLD — {len(hold_ids):,}", "private", hold_ids))
     production_albums.append(album(test_title, "audit", test_ids))
     production = snapshot_plan(
         args,
@@ -309,6 +469,45 @@ def command_snapshot_plans(args: argparse.Namespace) -> int:
 def command_run_plan(args: argparse.Namespace) -> int:
     plan_path = args.plan.resolve()
     plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    operation = plan.get("operation")
+    if operation not in {"inspect-local-images", "snapshot-membership"}:
+        raise ValueError(f"unrecognized helper plan operation: {operation}")
+    if operation == "snapshot-membership":
+        verify_plan_sha256(plan)
+        required_evidence = (
+            "master",
+            "holds",
+            "config",
+            "release_plan",
+            "evaluation_report",
+            "validation_report",
+            "source_membership",
+        )
+        missing = [name for name in required_evidence if not getattr(args, name, None)]
+        if missing:
+            raise ValueError(
+                "snapshot writer launch requires current release evidence: "
+                + ", ".join(missing)
+            )
+        master_rows = read_csv(args.master)
+        hold_rows = read_csv(args.holds)
+        authorization = release_authorization(args, master_rows, hold_rows)
+        if plan.get("authorization") != authorization:
+            raise ValueError("snapshot writer plan authorization does not match current release evidence")
+        expected_manifest_hashes = {
+            "master_sha256": file_hash(args.master),
+            "holds_sha256": file_hash(args.holds),
+            "config_sha256": file_hash(args.config),
+        }
+        if plan.get("manifest_hashes") != expected_manifest_hashes:
+            raise ValueError("snapshot writer plan manifest hashes do not match current files")
+        source_id, source_count = resolve_source(args)
+        if (
+            plan.get("source_album_identifier") != source_id
+            or plan.get("expected_source_count") != source_count
+        ):
+            raise ValueError("snapshot writer plan source does not match current release evidence")
+        verify_snapshot_membership_scope(plan, master_rows, hold_rows)
     receipt_path = Path(plan["receipt_path"])
     if not APP.is_dir():
         raise ValueError(f"permissioned app not found: {APP}")
@@ -333,6 +532,9 @@ def parser() -> argparse.ArgumentParser:
     sub = root.add_subparsers(dest="command", required=True)
 
     doctor = sub.add_parser("doctor", help="check the local integration without mutating Photos")
+    doctor.add_argument("--source-id", default=SOURCE_ID)
+    doctor.add_argument("--source-count", type=int, default=SOURCE_COUNT)
+    doctor.add_argument("--source-profile", type=Path)
     doctor.set_defaults(func=command_doctor)
 
     init = sub.add_parser("init-run", help="create a durable versioned run workspace")
@@ -342,6 +544,7 @@ def parser() -> argparse.ArgumentParser:
     init.add_argument("--workspace-root", type=Path, default=WORKSPACE_ROOT)
     init.add_argument("--source-id", default=SOURCE_ID)
     init.add_argument("--source-count", type=int, default=SOURCE_COUNT)
+    init.add_argument("--source-profile", type=Path)
     init.set_defaults(func=command_init)
 
     inspect = sub.add_parser("inspection-plan", help="build an exact plan for local PhotoKit inspection")
@@ -351,10 +554,13 @@ def parser() -> argparse.ArgumentParser:
     inspect.add_argument("--plan-id", required=True)
     inspect.add_argument("--source-id", default=SOURCE_ID)
     inspect.add_argument("--source-count", type=int, default=SOURCE_COUNT)
+    inspect.add_argument("--source-profile", type=Path)
     inspect.add_argument("--target-long-edge", type=int, default=1280)
     inspect.add_argument("--limit", type=int)
     inspect.add_argument("--no-previews", action="store_true")
     inspect.add_argument("--no-ocr", action="store_true")
+    inspect.add_argument("--no-classify", action="store_true")
+    inspect.add_argument("--no-face-detection", action="store_true")
     inspect.set_defaults(func=command_inspection_plan)
 
     plans = sub.add_parser("snapshot-plans", help="build test-first app plans from a validated master")
@@ -366,13 +572,28 @@ def parser() -> argparse.ArgumentParser:
     plans.add_argument("--folder-title", required=True)
     plans.add_argument("--view-column", default="primary_view")
     plans.add_argument("--config", type=Path)
+    plans.add_argument("--release-plan", type=Path, required=True)
+    plans.add_argument("--evaluation-report", type=Path, required=True)
+    plans.add_argument("--validation-report", type=Path, required=True)
+    plans.add_argument("--source-membership", type=Path, required=True)
     plans.add_argument("--source-id", default=SOURCE_ID)
     plans.add_argument("--source-count", type=int, default=SOURCE_COUNT)
+    plans.add_argument("--source-profile", type=Path)
     plans.add_argument("--batch-size", type=int, default=500)
     plans.set_defaults(func=command_snapshot_plans)
 
     run = sub.add_parser("run-plan", help="launch a plan through the stable permissioned app bundle")
     run.add_argument("--plan", type=Path, required=True)
+    run.add_argument("--master", type=Path)
+    run.add_argument("--holds", type=Path)
+    run.add_argument("--config", type=Path)
+    run.add_argument("--release-plan", type=Path)
+    run.add_argument("--evaluation-report", type=Path)
+    run.add_argument("--validation-report", type=Path)
+    run.add_argument("--source-membership", type=Path)
+    run.add_argument("--source-id", default=SOURCE_ID)
+    run.add_argument("--source-count", type=int, default=SOURCE_COUNT)
+    run.add_argument("--source-profile", type=Path)
     run.set_defaults(func=command_run_plan)
     return root
 

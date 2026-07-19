@@ -19,7 +19,7 @@ The selector accepts UTF-8 CSV. Unknown columns are preserved. Boolean values ma
 | `persons` | Semicolon-separated pre-existing person names. Never infer unnamed identities. |
 | `favorite` | Prior human attention signal. |
 | `edited` | Prior human attention signal. |
-| `safety_status` | `clear` or `hold`. Holds can never enter the master. |
+| `safety_status` | `clear`, `clear-automated`, `clear-human-reviewed`, `needs-review`, `unavailable`, or `hold`. Every unrecognized or unresolved state is excluded from selection and replacement. |
 | `safety_reason` | Generalized reason. Do not store sensitive OCR text. |
 | `hidden` | Excludes the item when true. |
 | `missing` | Excludes the item when true. |
@@ -32,4 +32,3 @@ The selector accepts UTF-8 CSV. Unknown columns are preserved. Boolean values ma
 | `local_path` | Local preview or original path. Do not publish private paths. |
 
 The selector writes `primary_view`, `score_total`, `selection_tier`, and `selection_reason` into the proposed master.
-

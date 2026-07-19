@@ -1,0 +1,13 @@
+{
+  "saved_source": {"identifier": "synthetic://visible-stills-v1", "count": 5, "membership_sha256": "old-digest", "members": ["SCORED-SAFE", "EXCLUDED-SCORED", "FALLBACK-SAFE", "EXCLUDED-FALLBACK", "OLD-ONLY"]},
+  "observed_source": {"identifier": "synthetic://visible-stills-v1", "count": 5, "membership_sha256": "new-digest", "members": ["SCORED-SAFE", "EXCLUDED-SCORED", "FALLBACK-SAFE", "EXCLUDED-FALLBACK", "GENERATED-CIRCULAR"]},
+  "excluded_album_lineages": ["private", "do-not-share", "generated-field"],
+  "candidates": [
+    {"uuid": "SCORED-SAFE", "channel": "scored", "album_lineages": ["source"]},
+    {"uuid": "EXCLUDED-SCORED", "channel": "scored", "album_lineages": ["source", "private"]},
+    {"uuid": "FALLBACK-SAFE", "channel": "fallback", "album_lineages": ["source"]},
+    {"uuid": "EXCLUDED-FALLBACK", "channel": "fallback", "album_lineages": ["source", "do-not-share"]},
+    {"uuid": "GENERATED-CIRCULAR", "channel": "exploratory", "album_lineages": ["source", "generated-field"]}
+  ],
+  "target": 2
+}

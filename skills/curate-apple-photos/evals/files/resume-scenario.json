@@ -1,0 +1,26 @@
+{
+  "run_id": "synthetic-resume-v1",
+  "phases": {
+    "brief": {"status": "complete", "artifact": "resume-brief.json", "recorded_sha256": "e09d9d11135844cba27f72eb827b3d88c2586d827afa01b1193af7abd8922926"},
+    "retrieval": {"status": "complete", "artifact": "resume-retrieval.json", "recorded_sha256": "db396ee00d437a1928f97f06914626b39fbcad3a67f7e115d96a8ff46bf883dc"},
+    "local_inspection": {
+      "status": "complete",
+      "attempts": [
+        {"attempt": 1, "status": "interrupted", "requested_ids": ["A", "B", "C", "D", "E", "F", "G", "H"], "completed_ids": ["A", "B", "C", "D", "E"]},
+        {"attempt": 2, "status": "complete", "requested_ids": ["F", "G", "H"], "completed_ids": ["F", "G", "H"]}
+      ]
+    },
+    "recursive_evaluation": {
+      "status": "complete",
+      "artifact": "resume-evaluation-report.json",
+      "recorded_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "validation": {"status": "pending"},
+    "write_test": {"status": "pending"},
+    "production_commit": {"status": "pending"},
+    "independent_verification": {"status": "pending"}
+  },
+  "ledger_head_before_reconciliation": "event-0007",
+  "markdown_summary": "Evaluation PASS; production ready",
+  "allowed_writer_invocations": 0
+}
