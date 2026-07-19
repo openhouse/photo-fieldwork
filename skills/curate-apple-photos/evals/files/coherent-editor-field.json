@@ -1,0 +1,26 @@
+{
+  "release_class": "editor-field",
+  "source": {
+    "identifier": "synthetic-source://green-v1",
+    "expected_count": 12,
+    "membership_sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "proposal_id": "pfp-synthetic-green",
+  "master_count": 12,
+  "master_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+  "config_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+  "evaluation": {
+    "status": "PASS",
+    "candidate_identities_match": true,
+    "all_material_views_pass": true,
+    "canary_failures": []
+  },
+  "validation": {
+    "status": "PASS",
+    "candidate_identities_match": true,
+    "hold_overlap": 0
+  },
+  "next_phase": "write_test",
+  "write_test_count": 10,
+  "publication_clearance": false
+}

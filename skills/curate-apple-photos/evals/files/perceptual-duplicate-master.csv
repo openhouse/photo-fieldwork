@@ -1,0 +1,4 @@
+uuid,filename,assigned_view,perceptual_cluster_id,selection_status,proposal_id
+IMG-001,room-sequence.jpg,01,phash-same-frame,selected,pfp-before-dedup
+IMG-002,room-sequence.png,02,phash-same-frame,selected,pfp-before-dedup
+IMG-003,different-room.jpg,01,phash-other-frame,selected,pfp-before-dedup

@@ -1,0 +1,24 @@
+{
+  "run_id": "synthetic-interrupted",
+  "state_revision": 7,
+  "phases": {
+    "local_inspection": "completed",
+    "recursive_evaluation": "completed",
+    "validation": "completed",
+    "write_test": "pending",
+    "production_commit": "pending",
+    "independent_verification": "pending"
+  },
+  "receipts": [
+    {
+      "attempt_id": "write-test-attempt-1",
+      "plan_id": "synthetic-write-test",
+      "operation": "snapshot-membership",
+      "completed_at": "2026-07-18T23:59:00-04:00",
+      "album_count": 1,
+      "membership_count": 10,
+      "independently_verified": false
+    }
+  ],
+  "production_receipt": null
+}

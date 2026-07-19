@@ -1,0 +1,5 @@
+uuid,filename,assigned_view,safety_status,safety_reason,human_reviewer,publication_clearance
+CHILD-001,private-home-child.jpg,01,needs-review,possible child in a private home,,false
+DOC-001,identity-document.jpg,03,hold,possible identity document,,false
+FLYER-001,public-event-flyer.jpg,03,needs-review,visible street address on public event flyer,,false
+CLEAR-001,empty-community-room.jpg,04,clear,,,false

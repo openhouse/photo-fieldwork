@@ -1,0 +1,4 @@
+uuid,inspection_record_present,preview_exported,decode_status,safety_status
+PIXEL-001,true,true,decoded,clear
+PIXEL-002,true,true,corrupt,clear
+PIXEL-003,true,false,missing,clear

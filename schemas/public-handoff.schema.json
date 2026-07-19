@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://photo-fieldwork.local/schemas/public-handoff.schema.json",
+  "title": "Photo Fieldwork public handoff",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "public_id",
+      "primary_view",
+      "page_slot",
+      "publication_status",
+      "publication_destination",
+      "rights_status",
+      "consent_status",
+      "claim_status",
+      "alt_text",
+      "caption",
+      "credit",
+      "crop",
+      "focal_point"
+    ],
+    "properties": {
+      "public_id": { "type": "string", "pattern": "^[0-9a-f]{20}$" },
+      "primary_view": { "type": "string" },
+      "page_slot": { "type": "string" },
+      "publication_status": {
+        "enum": ["cleared-for-specific-use", "published"]
+      },
+      "publication_destination": { "type": "string", "minLength": 1 },
+      "rights_status": {
+        "enum": ["owner-verified", "licensed-for-specific-use"]
+      },
+      "consent_status": {
+        "enum": ["cleared-for-use", "not-applicable"]
+      },
+      "claim_status": {
+        "enum": ["visible-only", "provenance-backed", "caption-review"]
+      },
+      "alt_text": { "type": "string" },
+      "caption": { "type": "string" },
+      "credit": { "type": "string" },
+      "crop": { "type": "string" },
+      "focal_point": { "type": "string" }
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "round_id": "synthetic-round-04",
+  "excluded_ids": ["SYNTHETIC-PRIOR-001", "SYNTHETIC-PRIOR-002"],
+  "canary_ids": ["SYNTHETIC-CANARY-001"],
+  "fresh_ids": ["SYNTHETIC-FRESH-001", "SYNTHETIC-FRESH-002"],
+  "judgments": {
+    "SYNTHETIC-CANARY-001": "reject",
+    "SYNTHETIC-FRESH-001": "fit",
+    "SYNTHETIC-FRESH-002": "fit"
+  },
+  "claimed_decision": "PASS"
+}

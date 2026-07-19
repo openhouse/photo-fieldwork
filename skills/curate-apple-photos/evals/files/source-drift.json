@@ -1,0 +1,16 @@
+{
+  "run_id": "synthetic-v04",
+  "accepted_source": {
+    "identifier": "visible-library-stills://v1",
+    "observed_count": 603137,
+    "membership_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "accepted_at": "2026-07-10T12:00:00-04:00"
+  },
+  "live_source": {
+    "identifier": "visible-library-stills://v1",
+    "observed_count": 603214,
+    "membership_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "observed_at": "2026-07-13T12:00:00-04:00"
+  },
+  "next_phase_in_state": "retrieval"
+}

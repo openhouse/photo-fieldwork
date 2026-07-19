@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "kind": "visible-library-stills",
+  "identifier": "visible-library-stills://v1",
+  "expected_count": 4,
+  "identifier_sha256": "0c1d40c49ab55b69d06226bfd3064ae80fcf8f7beb4cffadc72ff25dd31b13c1",
+  "synthetic_member_ids": ["SYNTHETIC-A", "SYNTHETIC-B", "SYNTHETIC-C", "SYNTHETIC-E"]
+}

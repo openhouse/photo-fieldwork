@@ -1,0 +1,5 @@
+uuid,prior_round_status,proposed_round_role,preview_reviewed
+A,inspected,canary,true
+B,inspected,fresh-candidate,true
+C,inspected,excluded,true
+D,never-inspected,fresh-candidate,false
