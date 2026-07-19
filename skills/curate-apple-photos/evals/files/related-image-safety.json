@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "assets": [
+    {"uuid": "LETTER", "duplicate_group": "DUP-1", "burst_group": "", "safety_status": "hold"},
+    {"uuid": "LETTER-CROP", "duplicate_group_id": "DUP-1", "burst_group": "BURST-1", "safety_status": "clear-automated"},
+    {"uuid": "LETTER-EDIT", "duplicate_group": "", "burst_group": "BURST-1", "safety_status": "clear-automated"},
+    {"uuid": "EVENT-NEIGHBOR", "event_cluster": "EVENT-1", "safety_status": "clear-automated"}
+  ],
+  "expected": {
+    "held": ["LETTER", "LETTER-CROP", "LETTER-EDIT"],
+    "review_leads_only": ["EVENT-NEIGHBOR"]
+  }
+}

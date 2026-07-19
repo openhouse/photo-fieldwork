@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "first": {
+    "plan_id": "SYNTHETIC-PLAN",
+    "source_album_identifier": "SYNTHETIC-SOURCE",
+    "source_count": 4,
+    "source_identifier_sha256": "source-digest",
+    "safety_mode": "membership-only",
+    "folders": [],
+    "albums": [],
+    "execution_fingerprint": {}
+  },
+  "second": {
+    "plan_id": "SYNTHETIC-PLAN",
+    "source_album_identifier": "SYNTHETIC-SOURCE",
+    "source_count": 4,
+    "source_identifier_sha256": "source-digest",
+    "safety_mode": "membership-only",
+    "folders": [],
+    "albums": [],
+    "execution_fingerprint": {}
+  },
+  "expected": "FAIL"
+}

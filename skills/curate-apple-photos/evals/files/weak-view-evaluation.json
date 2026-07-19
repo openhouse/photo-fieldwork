@@ -1,15 +1,17 @@
 {
   "schema_version": 2,
-  "proposal_id": "pfp-synthetic-weak-view",
-  "master_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-  "sample_count": 50,
+  "proposal_id": "pfp-syntheticweak01",
+  "master_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "sample_count": 40,
+  "judged_count": 40,
   "coverage": 1.0,
-  "precision": 0.84,
-  "minimum_precision": 0.75,
-  "passed": true,
+  "precision": 0.9,
+  "minimum_coverage": 0.9,
+  "minimum_precision": 0.8,
+  "passed": false,
   "by_view": {
-    "00": {"evaluation_mode": "material", "precision": 0.9, "minimum_precision": 0.65, "passed": true},
-    "01": {"evaluation_mode": "material", "precision": 0.4, "minimum_precision": 0.65, "passed": false},
-    "02": {"evaluation_mode": "material", "precision": 0.9, "minimum_precision": 0.65, "passed": true}
+    "community": {"evaluation_mode": "material", "sampled": 20, "judged": 20, "decisive": 20, "fit": 20, "reject": 0, "required_decisive": 5, "precision": 1.0, "wilson_95_low": 0.8389, "uncertainty_rate": 0.0, "passed": true, "failure_reasons": []},
+    "project-proof": {"evaluation_mode": "material", "sampled": 4, "judged": 4, "decisive": 4, "fit": 1, "reject": 3, "required_decisive": 4, "precision": 0.25, "wilson_95_low": 0.0456, "minimum_precision": 0.75, "uncertainty_rate": 0.0, "passed": false, "failure_reasons": ["precision below minimum"]},
+    "unclassified": {"evaluation_mode": "material", "sampled": 16, "judged": 16, "decisive": 16, "fit": 15, "reject": 1, "required_decisive": 5, "precision": 0.9375, "wilson_95_low": 0.7167, "uncertainty_rate": 0.0, "passed": true, "failure_reasons": []}
   }
 }

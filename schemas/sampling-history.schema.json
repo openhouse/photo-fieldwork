@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://photo-fieldwork.local/schemas/sampling-history.schema.json",
+  "title": "Photo Fieldwork sampling history",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "excluded_ids": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true,
+      "default": []
+    },
+    "canary_ids": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true,
+      "default": []
+    }
+  }
+}

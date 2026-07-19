@@ -89,8 +89,20 @@ def main() -> None:
     views = spec.get("views") or []
     if not views:
         raise SystemExit("retrieval.json requires at least one view")
-    unclassified_view = str(spec.get("unclassified_view", "00"))
-    candidate_target = max(args.target, math.ceil(args.target * float(spec.get("candidate_multiplier", 1.75))))
+    view_ids = [str(view.get("id", "")) for view in views]
+    if any(not view_id for view_id in view_ids) or len(view_ids) != len(set(view_ids)):
+        raise SystemExit("retrieval view IDs must be non-empty and unique")
+    if sum(int(view.get("quota", 0)) for view in views) != args.target:
+        raise SystemExit("retrieval view quotas must sum to --target")
+    multiplier = float(spec.get("candidate_multiplier", 1.75))
+    if multiplier < 1:
+        raise SystemExit("candidate_multiplier must be at least 1")
+    outside_prior_fraction = float(spec.get("minimum_outside_prior_fraction", 0.0))
+    if not 0 <= outside_prior_fraction <= 1:
+        raise SystemExit("minimum_outside_prior_fraction must be between 0 and 1")
+    if outside_prior_fraction and not str(spec.get("prior_corpus_album_title") or "").strip():
+        raise SystemExit("minimum_outside_prior_fraction requires prior_corpus_album_title")
+    candidate_target = max(args.target, math.ceil(args.target * multiplier))
     excluded_album_terms = [
         str(value).casefold()
         for value in spec.get("excluded_album_terms", [])
@@ -100,6 +112,7 @@ def main() -> None:
     asset_count = conn.execute("SELECT count(*) FROM asset WHERE is_photo = 1 AND hidden = 0 AND trashed = 0").fetchone()[0]
 
     view_scores: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    view_reasons: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
     for view in views:
         view_id = str(view["id"])
         terms = [str(value).casefold() for value in view.get("terms", []) if str(value).strip()]
@@ -116,26 +129,33 @@ def main() -> None:
             ) LIKE ?
         """
         relation_queries = [
-            ("SELECT uuid FROM asset_keyword WHERE lower(keyword) LIKE ?", 6.0),
-            ("SELECT uuid FROM asset_label WHERE lower(label_normalized) LIKE ?", 4.0),
-            ("SELECT uuid FROM asset_place WHERE lower(place) LIKE ?", 4.0),
+            ("keyword", "SELECT uuid FROM asset_keyword WHERE lower(keyword) LIKE ?", 6.0),
+            ("label", "SELECT uuid FROM asset_label WHERE lower(label_normalized) LIKE ?", 4.0),
+            ("place", "SELECT uuid FROM asset_place WHERE lower(place) LIKE ?", 4.0),
         ]
         for term in terms:
             for uuid in like_matches(conn, base_query, [term]):
                 view_scores[view_id][uuid] += 7.0
+                view_reasons[view_id][uuid].add("asset-text")
             for uuid in album_matches(conn, [term], excluded_album_terms):
                 view_scores[view_id][uuid] += 7.0
-            for query, weight in relation_queries:
+                view_reasons[view_id][uuid].add("album-term")
+            for channel, query, weight in relation_queries:
                 for uuid in like_matches(conn, query, [term]):
                     view_scores[view_id][uuid] += weight
+                    view_reasons[view_id][uuid].add(channel)
         for uuid in like_matches(conn, "SELECT uuid FROM asset_person WHERE lower(person) LIKE ?", people):
             view_scores[view_id][uuid] += 8.0
+            view_reasons[view_id][uuid].add("existing-people-association")
         for uuid in album_matches(conn, albums, excluded_album_terms):
             view_scores[view_id][uuid] += 10.0
+            view_reasons[view_id][uuid].add("album")
         for uuid in like_matches(conn, "SELECT uuid FROM asset_place WHERE lower(place) LIKE ?", places):
             view_scores[view_id][uuid] += 5.0
+            view_reasons[view_id][uuid].add("place")
         for uuid in like_matches(conn, "SELECT uuid FROM asset_search WHERE lower(coalesce(normalized_string,'')) LIKE ?", search_terms):
             view_scores[view_id][uuid] += 4.0
+            view_reasons[view_id][uuid].add("search-description")
 
         year_start = view.get("year_start")
         year_end = view.get("year_end")
@@ -146,6 +166,7 @@ def main() -> None:
                 year = conn.execute("SELECT year FROM asset WHERE uuid = ?", (uuid,)).fetchone()
                 if year and year[0] is not None and low <= int(year[0]) <= high:
                     view_scores[view_id][uuid] += 2.0
+                    view_reasons[view_id][uuid].add("supporting-date-range")
 
     matched_ids = {uuid for scores in view_scores.values() for uuid in scores}
     base_rows = asset_rows(conn, list(matched_ids)) if matched_ids else {}
@@ -158,7 +179,6 @@ def main() -> None:
 
     selected: list[str] = []
     selected_set: set[str] = set()
-    multiplier = float(spec.get("candidate_multiplier", 1.75))
     for view in views:
         view_id = str(view["id"])
         limit = max(1, math.ceil(int(view.get("quota", 0)) * multiplier))
@@ -190,7 +210,6 @@ def main() -> None:
     selected_set = set(selected)
 
     prior_album_title = str(spec.get("prior_corpus_album_title") or "").strip()
-    outside_prior_fraction = float(spec.get("minimum_outside_prior_fraction", 0.0))
     if prior_album_title and outside_prior_fraction > 0:
         prior_ids = {
             row[0]
@@ -261,13 +280,11 @@ def main() -> None:
                 "uuid": uuid,
                 "filename": row.get("original_filename") or row.get("filename") or "",
                 "candidate_views": ";".join(view for view, _ in scores),
-                "assigned_view": assigned_view,
-                "assignment_status": "assigned" if scores else "unclassified",
-                "assignment_reason": (
-                    f"highest retrieval evidence score {metadata_score:.2f}"
-                    if scores else "no supported retrieval hypothesis"
+                "retrieval_basis": ";".join(
+                    f"{view_id}:{reason}"
+                    for view_id, _ in scores
+                    for reason in sorted(view_reasons[view_id][uuid])
                 ),
-                "assignment_version": "retrieval-v1",
                 "evidence_confidence": confidence,
                 "metadata_score": f"{metadata_score:.2f}",
                 "visible_context": "",
@@ -295,12 +312,16 @@ def main() -> None:
                 "local_path": "",
             }
         )
-    args.output.parent.mkdir(parents=True, exist_ok=True)
+    if not output_rows:
+        raise SystemExit("retrieval produced no candidates")
+    args.output.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    args.output.parent.chmod(0o700)
     fields = list(output_rows[0])
     with args.output.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
         writer.writerows(output_rows)
+    args.output.chmod(0o600)
     print(f"source_photos={asset_count}")
     print(f"matched_assets={len(matched_ids)}")
     print(f"candidate_target={candidate_target}")

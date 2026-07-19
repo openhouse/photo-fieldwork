@@ -2,12 +2,22 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Photo Fieldwork configuration",
   "type": "object",
-  "required": ["schema_version", "seed", "target_count", "unclassified_view", "views"],
+  "required": ["seed", "target_count", "unclassified_view", "evaluation_sample_per_view", "source", "views"],
   "properties": {
     "schema_version": {"const": 2},
     "seed": {"type": "integer"},
     "target_count": {"type": "integer", "minimum": 1},
     "unclassified_view": {"type": "string"},
+    "evaluation_sample_per_view": {"type": "integer", "minimum": 1},
+    "source": {
+      "type": "object",
+      "required": ["identifier", "expected_count", "identifier_sha256"],
+      "properties": {
+        "identifier": {"type": "string", "minLength": 1},
+        "expected_count": {"type": "integer", "minimum": 1},
+        "identifier_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
     "burst_limit": {"type": "integer", "minimum": 1},
     "exploratory_fraction": {"type": "number", "minimum": 0, "maximum": 1},
     "minimum_eval_precision": {"type": "number", "minimum": 0, "maximum": 1},

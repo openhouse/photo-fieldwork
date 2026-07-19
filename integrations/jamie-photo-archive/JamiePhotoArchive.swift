@@ -2,8 +2,24 @@ import Foundation
 import AppKit
 import Photos
 import Vision
+import CryptoKit
 
 let visibleLibraryStillsSourceIdentifier = "visible-library-stills://v1"
+
+func ensurePrivateDirectory(_ url: URL) throws {
+    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    try FileManager.default.setAttributes(
+        [.posixPermissions: 0o700],
+        ofItemAtPath: url.path
+    )
+}
+
+func protectPrivateFile(_ url: URL) throws {
+    try FileManager.default.setAttributes(
+        [.posixPermissions: 0o600],
+        ofItemAtPath: url.path
+    )
+}
 
 func fetchSourceAssets(identifier: String) throws -> (PHFetchResult<PHAsset>, String) {
     if identifier == visibleLibraryStillsSourceIdentifier {
@@ -20,6 +36,18 @@ func fetchSourceAssets(identifier: String) throws -> (PHFetchResult<PHAsset>, St
         throw ArchiveError.unresolved("album \(identifier)")
     }
     return (PHAsset.fetchAssets(in: album, options: nil), album.localizedTitle ?? "source")
+}
+
+func sourceIdentifierDigest(_ assets: PHFetchResult<PHAsset>) -> String {
+    var identifiers: [String] = []
+    identifiers.reserveCapacity(assets.count)
+    assets.enumerateObjects { asset, _, _ in identifiers.append(asset.localIdentifier.components(separatedBy: "/")[0]) }
+    var hasher = SHA256()
+    for identifier in identifiers.sorted() {
+        hasher.update(data: Data(identifier.utf8))
+        hasher.update(data: Data([0x0A]))
+    }
+    return hasher.finalize().map { String(format: "%02x", $0) }.joined()
 }
 
 struct PlanHeader: Codable {
@@ -47,6 +75,7 @@ struct SnapshotPlan: Codable {
     let safety_mode: String
     let source_album_identifier: String
     let expected_source_count: Int
+    let source_identifier_sha256: String?
     let batch_size: Int
     let log_path: String
     let receipt_path: String
@@ -61,6 +90,7 @@ struct InspectionPlan: Codable {
     let safety_mode: String
     let source_album_identifier: String
     let expected_source_count: Int
+    let source_identifier_sha256: String?
     let asset_identifiers: [String]
     let output_jsonl_path: String
     let receipt_path: String
@@ -95,9 +125,11 @@ struct InspectionRow: Codable {
 
 struct InspectionReceipt: Codable {
     let completed_at: String
+    let execution_nonce: String
     let plan_id: String
     let source_album_identifier: String
     let source_count: Int
+    let source_identifier_sha256: String
     let requested_count: Int
     let completed_count: Int
     let pixel_available_count: Int
@@ -113,19 +145,23 @@ struct FolderReceipt: Codable {
     let key: String
     let title: String
     let identifier: String
+    let parent_identifier: String?
 }
 
 struct AlbumReceipt: Codable {
     let title: String
     let identifier: String
     let count: Int
+    let parent_identifier: String
 }
 
 struct SnapshotReceipt: Codable {
     let completed_at: String
+    let execution_nonce: String
     let plan_id: String
     let source_album_identifier: String
     let source_count: Int
+    let source_identifier_sha256: String
     let safety_mode: String
     let folders: [FolderReceipt]
     let albums: [AlbumReceipt]
@@ -140,12 +176,13 @@ enum ArchiveError: Error, CustomStringConvertible {
     case titleMismatch(String)
     case unexpectedMembership(String, Int)
     case membershipMismatch(String, Int, Int)
+    case sourceDigestMismatch
     case inspection(String)
 
     var description: String {
         switch self {
         case .usage:
-            return "Usage: JamiePhotoArchive --plan /absolute/path/plan.json"
+            return "Usage: JamiePhotoArchive --plan /absolute/path/plan.json --launch-nonce 32-lowercase-hex"
         case .authorization(let status):
             return "Full Photos access unavailable; authorization status=\(status)"
         case .invalidPlan(let reason):
@@ -160,6 +197,8 @@ enum ArchiveError: Error, CustomStringConvertible {
             return "Album \(album) contains \(count) members outside the immutable plan"
         case .membershipMismatch(let album, let expected, let actual):
             return "Album \(album) membership mismatch: expected \(expected), actual \(actual)"
+        case .sourceDigestMismatch:
+            return "Frozen source identifier digest changed"
         case .inspection(let reason):
             return "Inspection failed: \(reason)"
         }
@@ -168,11 +207,13 @@ enum ArchiveError: Error, CustomStringConvertible {
 
 final class InspectionRunner {
     private let plan: InspectionPlan
+    private let executionNonce: String
     private let imageManager = PHImageManager.default()
     private let encoder = JSONEncoder()
 
-    init(plan: InspectionPlan) {
+    init(plan: InspectionPlan, executionNonce: String) {
         self.plan = plan
+        self.executionNonce = executionNonce
         encoder.outputFormatting = [.sortedKeys]
     }
 
@@ -181,13 +222,11 @@ final class InspectionRunner {
         let line = "[\(stamp)] plan=\(plan.plan_id) \(message)\n"
         print(line, terminator: "")
         let url = URL(fileURLWithPath: plan.log_path)
-        try? FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
+        try? ensurePrivateDirectory(url.deletingLastPathComponent())
         if !FileManager.default.fileExists(atPath: url.path) {
             FileManager.default.createFile(atPath: url.path, contents: Data())
         }
+        try? protectPrivateFile(url)
         if let handle = try? FileHandle(forWritingTo: url) {
             defer { try? handle.close() }
             _ = try? handle.seekToEnd()
@@ -228,6 +267,10 @@ final class InspectionRunner {
                 sourceFetch.count
             )
         }
+        let sourceDigest = sourceIdentifierDigest(sourceFetch)
+        if let expectedDigest = plan.source_identifier_sha256, expectedDigest != sourceDigest {
+            throw ArchiveError.sourceDigestMismatch
+        }
         var sourceIdentifiers = Set<String>()
         sourceFetch.enumerateObjects { asset, _, _ in
             sourceIdentifiers.insert(asset.localIdentifier)
@@ -239,30 +282,26 @@ final class InspectionRunner {
         log("verified_source count=\(sourceFetch.count) requested=\(unique.count)")
 
         let outputURL = URL(fileURLWithPath: plan.output_jsonl_path)
-        try FileManager.default.createDirectory(
-            at: outputURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
+        try ensurePrivateDirectory(outputURL.deletingLastPathComponent())
         if !FileManager.default.fileExists(atPath: outputURL.path) {
             FileManager.default.createFile(atPath: outputURL.path, contents: Data())
         }
-        let completed = try completedIdentifiers(at: outputURL)
+        try protectPrivateFile(outputURL)
+        let priorRows = try completedRows(at: outputURL)
+        let completed = Set(priorRows.map(\.asset_identifier))
         let outputHandle = try FileHandle(forWritingTo: outputURL)
         defer { try? outputHandle.close() }
         try outputHandle.seekToEnd()
 
         if plan.export_previews {
-            try FileManager.default.createDirectory(
-                at: URL(fileURLWithPath: plan.preview_directory),
-                withIntermediateDirectories: true
-            )
+            try ensurePrivateDirectory(URL(fileURLWithPath: plan.preview_directory))
         }
 
         var completedCount = completed.count
-        var pixelAvailableCount = 0
-        var previewExportedCount = 0
-        var sensitiveHoldCount = 0
-        var unavailableCount = 0
+        var pixelAvailableCount = priorRows.filter(\.pixel_available).count
+        var previewExportedCount = priorRows.filter(\.preview_exported).count
+        var sensitiveHoldCount = priorRows.filter { $0.safety_state == "hold" }.count
+        var unavailableCount = priorRows.filter { !$0.pixel_available }.count
         let fetch = PHAsset.fetchAssets(withLocalIdentifiers: plan.asset_identifiers, options: nil)
         guard fetch.count == plan.asset_identifiers.count else {
             throw ArchiveError.membershipMismatch("inspection fetch", plan.asset_identifiers.count, fetch.count)
@@ -295,9 +334,11 @@ final class InspectionRunner {
 
         return InspectionReceipt(
             completed_at: ISO8601DateFormatter().string(from: Date()),
+            execution_nonce: executionNonce,
             plan_id: plan.plan_id,
             source_album_identifier: plan.source_album_identifier,
             source_count: sourceFetch.count,
+            source_identifier_sha256: sourceDigest,
             requested_count: plan.asset_identifiers.count,
             completed_count: completedCount,
             pixel_available_count: pixelAvailableCount,
@@ -333,17 +374,26 @@ final class InspectionRunner {
         return album
     }
 
-    private func completedIdentifiers(at url: URL) throws -> Set<String> {
+    private func completedRows(at url: URL) throws -> [InspectionRow] {
         guard let contents = try? String(contentsOf: url, encoding: .utf8) else { return [] }
+        var rows: [InspectionRow] = []
         var identifiers = Set<String>()
-        for line in contents.split(separator: "\n") {
-            guard let data = line.data(using: .utf8),
-                  let row = try? JSONDecoder().decode(InspectionRow.self, from: data) else {
-                continue
+        for (index, line) in contents.split(separator: "\n").enumerated() {
+            guard let data = line.data(using: .utf8) else {
+                throw ArchiveError.inspection("inspection JSONL line \(index + 1) is not UTF-8")
             }
-            identifiers.insert(row.asset_identifier)
+            let row: InspectionRow
+            do {
+                row = try JSONDecoder().decode(InspectionRow.self, from: data)
+            } catch {
+                throw ArchiveError.inspection("inspection JSONL line \(index + 1) is malformed")
+            }
+            guard identifiers.insert(row.asset_identifier).inserted else {
+                throw ArchiveError.inspection("duplicate inspection row for \(row.asset_identifier)")
+            }
+            rows.append(row)
         }
-        return identifiers
+        return rows
     }
 
     private func inspect(_ asset: PHAsset) -> InspectionRow {
@@ -462,13 +512,21 @@ final class InspectionRunner {
     private func exportPreview(_ image: CGImage, identifier: String) -> Bool {
         let safeName = identifier.replacingOccurrences(of: "/", with: "_") + ".jpg"
         let url = URL(fileURLWithPath: plan.preview_directory).appendingPathComponent(safeName)
-        if FileManager.default.fileExists(atPath: url.path) { return true }
+        if FileManager.default.fileExists(atPath: url.path) {
+            if let existing = NSImage(contentsOf: url), existing.isValid,
+               existing.size.width > 0, existing.size.height > 0 {
+                try? protectPrivateFile(url)
+                return true
+            }
+            try? FileManager.default.removeItem(at: url)
+        }
         let bitmap = NSBitmapImageRep(cgImage: image)
         guard let data = bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.82]) else {
             return false
         }
         do {
             try data.write(to: url, options: .atomic)
+            try protectPrivateFile(url)
             return true
         } catch {
             return false
@@ -504,10 +562,12 @@ final class InspectionRunner {
 final class ArchiveRunner {
     private let library = PHPhotoLibrary.shared()
     private let plan: SnapshotPlan
+    private let executionNonce: String
     private var folderByKey: [String: PHCollectionList] = [:]
 
-    init(plan: SnapshotPlan) {
+    init(plan: SnapshotPlan, executionNonce: String) {
         self.plan = plan
+        self.executionNonce = executionNonce
     }
 
     func log(_ message: String) {
@@ -515,13 +575,11 @@ final class ArchiveRunner {
         let line = "[\(stamp)] plan=\(plan.plan_id) \(message)\n"
         print(line, terminator: "")
         let url = URL(fileURLWithPath: plan.log_path)
-        try? FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
+        try? ensurePrivateDirectory(url.deletingLastPathComponent())
         if !FileManager.default.fileExists(atPath: url.path) {
             FileManager.default.createFile(atPath: url.path, contents: Data())
         }
+        try? protectPrivateFile(url)
         if let handle = try? FileHandle(forWritingTo: url) {
             defer { try? handle.close() }
             _ = try? handle.seekToEnd()
@@ -549,6 +607,10 @@ final class ArchiveRunner {
                 sourceCount
             )
         }
+        let sourceDigest = sourceIdentifierDigest(sourceFetch)
+        if let expectedDigest = plan.source_identifier_sha256, expectedDigest != sourceDigest {
+            throw ArchiveError.sourceDigestMismatch
+        }
         log("verified_source count=\(sourceCount)")
 
         var folderReceipts: [FolderReceipt] = []
@@ -559,7 +621,8 @@ final class ArchiveRunner {
                 FolderReceipt(
                     key: spec.key,
                     title: spec.title,
-                    identifier: folder.localIdentifier
+                    identifier: folder.localIdentifier,
+                    parent_identifier: spec.parent_key.flatMap { folderByKey[$0]?.localIdentifier }
                 )
             )
             log("verified_folder key=\(spec.key) id=\(folder.localIdentifier)")
@@ -579,16 +642,19 @@ final class ArchiveRunner {
                 AlbumReceipt(
                     title: spec.title,
                     identifier: album.localIdentifier,
-                    count: count
+                    count: count,
+                    parent_identifier: parent.localIdentifier
                 )
             )
         }
 
         return SnapshotReceipt(
             completed_at: ISO8601DateFormatter().string(from: Date()),
+            execution_nonce: executionNonce,
             plan_id: plan.plan_id,
             source_album_identifier: plan.source_album_identifier,
             source_count: sourceCount,
+            source_identifier_sha256: sourceDigest,
             safety_mode: plan.safety_mode,
             folders: folderReceipts,
             albums: albumReceipts
@@ -773,38 +839,40 @@ func writeReceipt(_ receipt: SnapshotReceipt, to path: String) throws {
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     let data = try encoder.encode(receipt)
     let url = URL(fileURLWithPath: path)
-    try FileManager.default.createDirectory(
-        at: url.deletingLastPathComponent(),
-        withIntermediateDirectories: true
-    )
+    try ensurePrivateDirectory(url.deletingLastPathComponent())
     try data.write(to: url, options: .atomic)
+    try protectPrivateFile(url)
 }
 
 do {
     let arguments = CommandLine.arguments
     guard let planIndex = arguments.firstIndex(of: "--plan"),
-          arguments.indices.contains(planIndex + 1) else {
+          arguments.indices.contains(planIndex + 1),
+          let nonceIndex = arguments.firstIndex(of: "--launch-nonce"),
+          arguments.indices.contains(nonceIndex + 1) else {
         throw ArchiveError.usage
+    }
+    let executionNonce = arguments[nonceIndex + 1]
+    guard executionNonce.range(of: #"^[a-f0-9]{32}$"#, options: .regularExpression) != nil else {
+        throw ArchiveError.invalidPlan("launch nonce must be 32 lowercase hex characters")
     }
     let planURL = URL(fileURLWithPath: arguments[planIndex + 1])
     let planData = try Data(contentsOf: planURL)
     let header = try JSONDecoder().decode(PlanHeader.self, from: planData)
     if header.operation == "inspect-local-images" {
         let plan = try JSONDecoder().decode(InspectionPlan.self, from: planData)
-        let runner = InspectionRunner(plan: plan)
+        let runner = InspectionRunner(plan: plan, executionNonce: executionNonce)
         let receipt = try runner.run()
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let receiptURL = URL(fileURLWithPath: plan.receipt_path)
-        try FileManager.default.createDirectory(
-            at: receiptURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
+        try ensurePrivateDirectory(receiptURL.deletingLastPathComponent())
         try encoder.encode(receipt).write(to: receiptURL, options: .atomic)
+        try protectPrivateFile(receiptURL)
         runner.log("completed receipt=\(plan.receipt_path)")
     } else {
         let plan = try JSONDecoder().decode(SnapshotPlan.self, from: planData)
-        let runner = ArchiveRunner(plan: plan)
+        let runner = ArchiveRunner(plan: plan, executionNonce: executionNonce)
         let receipt = try runner.run()
         try writeReceipt(receipt, to: plan.receipt_path)
         runner.log("completed receipt=\(plan.receipt_path)")

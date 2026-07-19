@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "claimed_prior_proposal_id": "pfp-0b5311b25a415530",
+  "current_master_sha256": "febc4eec9d76c4c5b7111cd4bbcea9483bc5061f500816cd20f0a3bc58388fa2",
+  "rows": [
+    {"uuid": "SYNTHETIC-A", "assigned_view": "community"},
+    {"uuid": "SYNTHETIC-B", "assigned_view": "project-proof"},
+    {"uuid": "SYNTHETIC-D", "assigned_view": "project-proof"}
+  ]
+}

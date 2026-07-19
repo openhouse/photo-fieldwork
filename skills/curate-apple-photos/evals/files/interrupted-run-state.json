@@ -1,0 +1,24 @@
+{
+  "schema_version": 2,
+  "version": "synthetic-v07",
+  "phases": {
+    "brief": {"status": "completed"},
+    "retrieval": {"status": "completed"},
+    "local_inspection": {"status": "completed"},
+    "recursive_evaluation": {"status": "pending"},
+    "validation": {"status": "pending"},
+    "write_test": {"status": "pending"},
+    "write_test_verification": {"status": "pending"},
+    "production_commit": {"status": "pending"},
+    "production_rerun": {"status": "pending"},
+    "idempotence_verification": {"status": "pending"},
+    "independent_verification": {"status": "pending"}
+  },
+  "artifacts": {
+    "manifests/inspection.jsonl": {
+      "bytes": 4120,
+      "sha256": "c5e394fce41c3e70505400bfc8dbd34cd0fd6086f68bd632a1d6794f47f7f631"
+    }
+  },
+  "note": "Synthetic fixture: the referenced artifact is intentionally absent, so status must fail closed before resume."
+}

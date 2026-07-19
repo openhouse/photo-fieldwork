@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
-"""Build a compact, read-only snapshot of every visible still in Apple Photos.
+"""Build a compact inventory of every visible still in Apple Photos.
 
-The Photos database is opened immutable and query-only. The output is a separate
-SQLite database used for retrieval; this script never writes to Photos.sqlite.
+The live Photos database is copied from a read-only, query-only connection so
+committed WAL content is present. Only the frozen copy is opened immutable. The
+output is a separate SQLite database; this script never writes to Photos.sqlite.
 """
 
 from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
 
+from photos_sqlite import consistent_snapshot, open_query_only
 
-DEFAULT_PHOTOS_DB = Path(
-    "/Volumes/apple-photos-8tb-external-ssd/Photos Library.photoslibrary/database/Photos.sqlite"
-)
 SOURCE_IDENTIFIER = "visible-library-stills://v1"
 APPLE_EPOCH_OFFSET = 978307200
 
@@ -75,9 +75,7 @@ AND a.ZVISIBILITYSTATE = 0 AND a.ZBUNDLESCOPE = 0
 
 
 def readonly(path: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(f"file:{path}?mode=ro&immutable=1", uri=True, timeout=120)
-    conn.execute("PRAGMA query_only=ON")
-    return conn
+    return open_query_only(path, immutable=True)
 
 
 def copy_query(
@@ -98,33 +96,19 @@ def copy_query(
     return count
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--photos-db", type=Path, default=DEFAULT_PHOTOS_DB)
-    parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--expected-source-count", type=int)
-    parser.add_argument(
-        "--inventory-profile",
-        choices=("minimal", "retrieval", "debug"),
-        default="retrieval",
-        help="debug is the only profile that retains exact coordinates and source paths",
-    )
-    args = parser.parse_args()
-
+def build(args: argparse.Namespace, photos_path: Path, snapshot_meta: dict) -> None:
     if args.output.exists():
         raise SystemExit(f"refusing to overwrite existing inventory: {args.output}")
-    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    args.output.parent.chmod(0o700)
 
-    photos = readonly(args.photos_db)
+    photos = readonly(photos_path)
     output = sqlite3.connect(args.output)
+    args.output.chmod(0o600)
     output.executescript(SCHEMA)
     output.execute("PRAGMA journal_mode=WAL")
     output.execute("PRAGMA synchronous=NORMAL")
 
-    latitude = "a.ZLATITUDE" if args.inventory_profile == "debug" else "NULL"
-    longitude = "a.ZLONGITUDE" if args.inventory_profile == "debug" else "NULL"
-    title = "aa.ZTITLE" if args.inventory_profile != "minimal" else "NULL"
-    description = "ad.ZLONGDESCRIPTION" if args.inventory_profile != "minimal" else "NULL"
     asset_select = f"""
     WITH face_counts AS (
       SELECT ZASSETFORFACE asset_pk, COUNT(*) face_count
@@ -145,7 +129,7 @@ def main() -> None:
       CASE WHEN coalesce(aa.ZEDITORBUNDLEID, '') <> '' THEN 1 ELSE 0 END,
       0, 0, 0,
       CASE WHEN coalesce(a.ZCLOUDASSETGUID, '') <> '' THEN 1 ELSE 0 END,
-      NULL, NULL, {title}, {description},
+      NULL, NULL, aa.ZTITLE, ad.ZLONGDESCRIPTION,
       coalesce(a.ZISDETECTEDSCREENSHOT, 0),
       CASE WHEN (coalesce(a.ZKINDSUBTYPE, 0) & 32) <> 0 THEN 1 ELSE 0 END,
       CASE WHEN (coalesce(a.ZKINDSUBTYPE, 0) & 64) <> 0 THEN 1 ELSE 0 END,
@@ -158,7 +142,7 @@ def main() -> None:
       ca.ZWELLCHOSENSUBJECTSCORE, ca.ZWELLFRAMEDSUBJECTSCORE,
       ca.ZWELLTIMEDSHOTSCORE, a.ZMEDIAGROUPUUID,
       ea.ZCAMERAMAKE, ea.ZCAMERAMODEL, aa.ZORIGINALFILESIZE,
-      {latitude}, {longitude},
+      a.ZLATITUDE, a.ZLONGITUDE,
       CASE WHEN a.ZLATITUDE BETWEEN -90 AND 90
              AND a.ZLONGITUDE BETWEEN -180 AND 180
              AND NOT (a.ZLATITUDE = 0 AND a.ZLONGITUDE = 0)
@@ -232,39 +216,20 @@ def main() -> None:
         photos, output, search_select,
         "INSERT OR IGNORE INTO asset_search(uuid, category, category_name, content_string, normalized_string, lookup_identifier) VALUES (?, ?, ?, ?, ?, ?)",
     )
-    if args.inventory_profile == "minimal":
-        output.executescript(
-            """
-            DELETE FROM asset_person;
-            DELETE FROM asset_album;
-            DELETE FROM asset_keyword;
-            DELETE FROM asset_search;
-            """
-        )
-        output.commit()
-        people_count = album_count = keyword_count = search_count = 0
 
-    membership_digest = hashlib.sha256()
-    for (uuid,) in output.execute("SELECT uuid FROM asset ORDER BY uuid"):
-        membership_digest.update(uuid.encode("utf-8"))
-        membership_digest.update(b"\n")
-    membership_sha256 = membership_digest.hexdigest()
-    source_fingerprint = hashlib.sha256(
-        f"{SOURCE_IDENTIFIER}:{asset_count}:{membership_sha256}:{VISIBLE_PREDICATE.strip()}".encode("utf-8")
-    ).hexdigest()
+    identifier_hash = hashlib.sha256()
+    for (identifier,) in output.execute("SELECT uuid FROM asset ORDER BY uuid"):
+        identifier_hash.update(identifier.encode("utf-8"))
+        identifier_hash.update(b"\n")
     meta = {
-        "schema_version": "2",
         "source_identifier": SOURCE_IDENTIFIER,
         "source_count": str(asset_count),
-        "source_membership_sha256": membership_sha256,
-        "source_fingerprint": source_fingerprint,
+        "source_identifier_sha256": identifier_hash.hexdigest(),
         "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-        "photos_database": str(args.photos_db) if args.inventory_profile == "debug" else "[redacted]",
-        "inventory_profile": args.inventory_profile,
-        "artifact_sensitivity": "private-operational",
         "source_scope": "visible, non-hidden, non-trashed, primary-scope still photographs",
         "direct_photos_writes": "false",
         "external_uploads": "false",
+        "sqlite_user_version": str(snapshot_meta.get("sqlite_user_version", "unknown")),
         "people_links": str(people_count),
         "album_links": str(album_count),
         "keyword_links": str(keyword_count),
@@ -290,15 +255,12 @@ def main() -> None:
     output.commit()
 
     final_count = output.execute("SELECT count(*) FROM asset").fetchone()[0]
-    if args.expected_source_count is not None and final_count != args.expected_source_count:
+    if args.expected_count is not None and final_count != args.expected_count:
         raise SystemExit(
-            f"visible still count changed or query mismatch: {final_count} != {args.expected_source_count}"
+            f"visible still count changed or query mismatch: {final_count} != {args.expected_count}"
         )
     print(f"source_identifier={SOURCE_IDENTIFIER}")
     print(f"visible_stills={final_count}")
-    print(f"source_fingerprint={source_fingerprint}")
-    print(f"source_membership_sha256={membership_sha256}")
-    print(f"inventory_profile={args.inventory_profile}")
     print(f"people_links={people_count}")
     print(f"album_links={album_count}")
     print(f"keyword_links={keyword_count}")
@@ -306,6 +268,52 @@ def main() -> None:
     print(f"output={args.output}")
     photos.close()
     output.close()
+    args.output.chmod(0o600)
+    if args.source_profile_output:
+        args.source_profile_output.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        args.source_profile_output.parent.chmod(0o700)
+        profile = {
+            "schema_version": 1,
+            "kind": "visible-library-stills",
+            "identifier": SOURCE_IDENTIFIER,
+            "expected_count": final_count,
+            "identifier_sha256": identifier_hash.hexdigest(),
+            "include_hidden": False,
+            "include_trashed": False,
+            "media_types": ["image"],
+        }
+        args.source_profile_output.write_text(json.dumps(profile, indent=2) + "\n", encoding="utf-8")
+        args.source_profile_output.chmod(0o600)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--photos-db", type=Path, help="live Photos database; copied read-only with WAL")
+    source.add_argument("--snapshot", type=Path, help="existing frozen SQLite snapshot")
+    parser.add_argument("--snapshot-directory", type=Path)
+    parser.add_argument("--keep-snapshot", action="store_true")
+    parser.add_argument("--expected-count", type=int)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--source-profile-output", type=Path)
+    args = parser.parse_args()
+
+    if args.snapshot:
+        build(
+            args,
+            args.snapshot,
+            {
+                "snapshot_bytes": args.snapshot.stat().st_size,
+                "sqlite_user_version": "unknown",
+            },
+        )
+        return
+    with consistent_snapshot(
+        args.photos_db,
+        snapshot_directory=args.snapshot_directory,
+        keep=args.keep_snapshot,
+    ) as (snapshot, metadata):
+        build(args, snapshot, metadata)
 
 
 if __name__ == "__main__":

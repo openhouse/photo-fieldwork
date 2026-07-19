@@ -1,0 +1,21 @@
+{
+  "requested_destination": "portfolio-case-study",
+  "rows": [
+    {
+      "uuid": "SYNTHETIC-PRIVATE-001",
+      "publication_status": "cleared-for-specific-use",
+      "publication_destination": "press-kit",
+      "rights_status": "owner-verified",
+      "consent_status": "cleared-for-use",
+      "claim_status": "provenance-backed"
+    },
+    {
+      "uuid": "SYNTHETIC-PRIVATE-002",
+      "publication_status": "cleared-for-specific-use",
+      "publication_destination": "portfolio-case-study",
+      "rights_status": "unknown",
+      "consent_status": "not-applicable",
+      "claim_status": "visible-only"
+    }
+  ]
+}
