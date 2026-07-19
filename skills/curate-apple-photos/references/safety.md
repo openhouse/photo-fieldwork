@@ -14,9 +14,18 @@ Automated flags are conservative retrieval controls, not declarations about a pe
 
 Store only generalized flags. Keep raw OCR ephemeral.
 
+Automated detection writes `auto-hold`; missing local inspection writes
+`unavailable`; corrupt previews write `corrupt`. These are retrieval controls,
+not declarations about a person.
+
 ## Human-sensitive review
 
-Use `needs-review` for minors, intimate domestic scenes, vulnerable people, private homes, grief, health context, protest risk, or images whose publication could change someone's safety or dignity. Do not automatically include these in an editor-facing master.
+Use `needs-human-review` for minors, intimate domestic scenes, vulnerable people, private homes, grief, health context, protest risk, or images whose publication could change someone's safety or dignity. Do not automatically include these in an editor-facing master.
+
+Apply human decisions with `apply_safety_review.py`. Human review may write
+`needs-human-review`, `human-added-hold`, `confirmed-sensitive`, or
+`cleared-false-positive`. Every decision requires a generalized reason, actor,
+and timestamp. Clearing one false positive must not weaken a detector globally.
 
 ## Public meaning
 
@@ -38,4 +47,3 @@ Prohibited:
 - direct Photos database writes;
 - cloud analysis or external upload;
 - replacing or renaming prior versions.
-

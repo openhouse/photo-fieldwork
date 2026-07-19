@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Photo Fieldwork Apple Photos snapshot plan",
+  "type": "object",
+  "required": [
+    "operation",
+    "schema_version",
+    "plan_id",
+    "plan_sha256",
+    "safety_mode",
+    "source_album_identifier",
+    "expected_source_count",
+    "release_seal_fingerprint",
+    "folders",
+    "albums"
+  ],
+  "properties": {
+    "operation": {"const": "snapshot-membership"},
+    "schema_version": {"const": 1},
+    "plan_id": {"type": "string", "minLength": 1},
+    "plan_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "safety_mode": {"const": "create-folders-albums-and-add-membership-only"},
+    "source_album_identifier": {"type": "string"},
+    "expected_source_count": {"type": "integer", "minimum": 0},
+    "expected_source_membership_sha256": {"type": ["string", "null"]},
+    "release_seal_fingerprint": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "batch_size": {"type": "integer", "minimum": 1, "maximum": 2000},
+    "log_path": {"type": "string"},
+    "receipt_path": {"type": "string"},
+    "folders": {"type": "array", "minItems": 1},
+    "albums": {"type": "array", "minItems": 1}
+  }
+}

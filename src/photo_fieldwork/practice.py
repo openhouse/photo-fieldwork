@@ -8,7 +8,7 @@ from pathlib import Path
 FIELDS = [
     "uuid", "filename", "candidate_views", "evidence_confidence", "visible_context",
     "persons", "favorite", "edited", "safety_status", "safety_reason", "hidden",
-    "missing", "duplicate_group", "burst_group", "aesthetic_score", "event_cluster",
+    "missing", "duplicate_group", "burst_group", "aesthetic_score",
     "date", "place", "local_path",
 ]
 
@@ -40,7 +40,6 @@ def create_demo_inventory(path: Path) -> None:
             "duplicate_group": "duplicate-a" if index in {11, 12} else "",
             "burst_group": "burst-a" if index in {16, 17, 18} else "",
             "aesthetic_score": str((index % 5) / 5),
-            "event_cluster": f"event-{(index - 1) // 5 + 1}",
             "date": f"2026-01-{index:02d}",
             "place": "Example City",
             "local_path": "",
@@ -75,4 +74,3 @@ def write_demo_readme(path: Path) -> None:
         "safety and Apple Photos documentation.\n",
         encoding="utf-8",
     )
-

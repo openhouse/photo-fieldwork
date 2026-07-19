@@ -8,9 +8,12 @@
     "target_count": {"type": "integer", "minimum": 1},
     "unclassified_view": {"type": "string"},
     "burst_limit": {"type": "integer", "minimum": 1},
-    "exploratory_fraction": {"type": "number", "minimum": 0, "maximum": 1},
+    "event_cluster_limit": {"type": "integer", "minimum": 0},
     "minimum_eval_precision": {"type": "number", "minimum": 0, "maximum": 1},
     "minimum_eval_coverage": {"type": "number", "minimum": 0, "maximum": 1},
+    "minimum_view_precision": {"type": "number", "minimum": 0, "maximum": 1},
+    "minimum_decisive_samples_per_view": {"type": "integer", "minimum": 0},
+    "maximum_uncertain_fraction": {"type": "number", "minimum": 0, "maximum": 1},
     "minimum_named_people_fraction": {"type": "number", "minimum": 0, "maximum": 1},
     "minimum_person_free_fraction": {"type": "number", "minimum": 0, "maximum": 1},
     "views": {

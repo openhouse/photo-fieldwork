@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Photo Fieldwork local inspection plan",
+  "type": "object",
+  "required": [
+    "operation",
+    "schema_version",
+    "plan_id",
+    "plan_sha256",
+    "safety_mode",
+    "source_album_identifier",
+    "expected_source_count",
+    "asset_identifiers",
+    "network_access_allowed"
+  ],
+  "properties": {
+    "operation": {"const": "inspect-local-images"},
+    "schema_version": {"const": 1},
+    "plan_id": {"type": "string", "minLength": 1},
+    "plan_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "safety_mode": {"const": "read-only-local-inspection-and-preview-export"},
+    "source_album_identifier": {"type": "string"},
+    "expected_source_count": {"type": "integer", "minimum": 0},
+    "asset_identifiers": {"type": "array", "items": {"type": "string"}},
+    "output_jsonl_path": {"type": "string"},
+    "receipt_path": {"type": "string"},
+    "log_path": {"type": "string"},
+    "preview_directory": {"type": "string"},
+    "target_long_edge": {"type": "integer", "minimum": 1},
+    "export_previews": {"type": "boolean"},
+    "ocr_all": {"type": "boolean"},
+    "classify_all": {"type": "boolean"},
+    "detect_faces": {"type": "boolean"},
+    "network_access_allowed": {"const": false}
+  }
+}

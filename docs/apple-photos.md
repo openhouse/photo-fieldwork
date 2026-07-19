@@ -53,4 +53,7 @@ After writing, compare planned and actual memberships through an independent rea
 - no members outside the source;
 - no HOLD overlap;
 - source count unchanged.
-
+- source membership digest unchanged;
+- folder and album parent relationships match the plan;
+- receipt plan digest matches the reviewed plan;
+- master and safety HOLD remain disjoint.

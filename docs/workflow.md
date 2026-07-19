@@ -8,7 +8,10 @@ Write down what may be read, what may be created, where outputs live, and which 
 
 ## 1. Freeze a source corpus
 
-Give the broad retrieval corpus a stable name and count. Never alter it during a versioned run. Preserve v00, v01, and later runs as separate folders so selection logic can be compared rather than overwritten.
+Give the broad retrieval query a stable name. Freeze each run with an observed
+count and SHA-256 over sorted stable IDs. A dynamic query is not an immutable
+source merely because its name is stable. Preserve every version separately so
+selection logic can be compared rather than overwritten.
 
 ## 2. Build a compact inventory
 
@@ -40,6 +43,10 @@ People associations are first-class archive structure. Preserve named relationsh
 
 Sample low, middle, and high-scoring images from each view. Measure coverage and precision. Read the rejected examples. Revise retrieval, scoring, holds, or labels, then rerun with the same seed. A metric without inspected failure cases is not enough.
 
+Enforce overall and per-view precision, minimum decisive sample sizes, and a
+maximum uncertainty rate. A corrective round must add relevant fresh evidence,
+change policy, or both.
+
 ## 9. Plan before writing
 
 Produce proposed-master, hold, membership, and decision manifests before touching the catalog. Every selected stable ID needs a reason. The plan must be idempotent.
@@ -48,6 +55,9 @@ Produce proposed-master, hold, membership, and decision manifests before touchin
 
 Write ten non-sensitive items to a uniquely named test album. Verify exact membership and rerun the test to prove idempotence. Only then create production folders and albums in moderate, resumable batches.
 
+Content-address every plan and preserve each execution as a separate attempt
+receipt. Do not overwrite the evidence needed to compare an idempotence rerun.
+
 ## 11. Verify independently
 
 Use a read-only mechanism distinct from the writer to compare planned and actual membership. Report missing, unexpected, outside-source, and hold-overlap counts. Preserve receipts, configuration, scripts, and evaluation feedback with the version.
@@ -55,4 +65,3 @@ Use a read-only mechanism distinct from the writer to compare planned and actual
 ## 12. Hand off honestly
 
 Tell editors what the system did and did not do. The result is a contact field for human editing, not the final visual narrative.
-

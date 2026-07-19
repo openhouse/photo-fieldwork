@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Photo Fieldwork release seal",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "created_at",
+    "master_count",
+    "hold_count",
+    "source_fingerprint",
+    "master_fingerprint",
+    "holds_fingerprint",
+    "config_fingerprint",
+    "evaluation_fingerprint",
+    "validation_fingerprint",
+    "evaluation_passed",
+    "validation_passed",
+    "seal_fingerprint"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "created_at": {"type": "string", "minLength": 1},
+    "master_count": {"type": "integer", "minimum": 1},
+    "hold_count": {"type": "integer", "minimum": 0},
+    "source_fingerprint": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "master_fingerprint": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "holds_fingerprint": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "config_fingerprint": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "evaluation_fingerprint": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "validation_fingerprint": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "evaluation_passed": {"const": true},
+    "validation_passed": {"const": true},
+    "seal_fingerprint": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}
+  },
+  "additionalProperties": false
+}

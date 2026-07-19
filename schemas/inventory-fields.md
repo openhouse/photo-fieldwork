@@ -19,17 +19,27 @@ The selector accepts UTF-8 CSV. Unknown columns are preserved. Boolean values ma
 | `persons` | Semicolon-separated pre-existing person names. Never infer unnamed identities. |
 | `favorite` | Prior human attention signal. |
 | `edited` | Prior human attention signal. |
-| `safety_status` | `clear` or `hold`. Holds can never enter the master. |
+| `safety_status` | Provenance-aware safety state. Blocking states can never enter the master. |
 | `safety_reason` | Generalized reason. Do not store sensitive OCR text. |
+| `safety_actor` | `automated`, `human`, or another generalized review role. |
+| `safety_reviewed_at` | Optional review timestamp. |
 | `hidden` | Excludes the item when true. |
 | `missing` | Excludes the item when true. |
 | `duplicate_group` | Exact-duplicate group identifier. One representative is retained. |
+| `perceptual_cluster_id` | Near-identical image-family identifier used for deduplication and split-leakage audit. |
 | `burst_group` | Near-identical burst group identifier. The configured limit is retained. |
+| `event_cluster_id` | Broader event identifier. Selection enforces `event_cluster_limit` across overlapping views. |
 | `aesthetic_score` | Optional Apple score used only within a duplicate or burst group. |
-| `event_cluster` | Event identifier used to limit concentration. |
 | `date` | Capture or import date. Treat as fallible provenance. |
 | `place` | Coarsened place only in editor-facing exports. |
 | `local_path` | Local preview or original path. Do not publish private paths. |
 
 The selector writes `primary_view`, `score_total`, `selection_tier`, and `selection_reason` into the proposed master.
 
+## Safety states
+
+Blocking states are `hold`, `auto-hold`, `needs-human-review`, `human-added-hold`,
+`confirmed-sensitive`, `unavailable`, and `corrupt`. `clear` and
+`cleared-false-positive` are eligible only when the rest of the selection contract
+also passes. A cleared false positive requires a human review record; it is not a
+global detector exception.
