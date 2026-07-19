@@ -1,0 +1,125 @@
+{
+  "skill_name": "curate-apple-photos",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Do not touch a real Photos library. A prior whole-library run froze 603,137 visible stills, but a read-only preflight now observes 603,214. The retrieval configuration also names an album created by an earlier Photo Fieldwork run. Give the ordered safe plan for starting a fresh 4,000-photo editor field.",
+      "expected_output": "A source-drift response that creates a fresh private inventory and source freeze, excludes generated album lineage, and performs no mutation before source identity is re-established.",
+      "files": [],
+      "expectations": [
+        "The response refuses to reuse the stale 603,137 count or silently accept 603,214.",
+        "The response creates a new versioned inventory and records the observed source count before retrieval.",
+        "The response excludes fieldwork-generated, private-review, and write-audit albums from retrieval evidence.",
+        "The response performs no Photos write while source scope is unresolved."
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Do not touch a real Photos library. Resume an interrupted inspection plan for 200 assets. The existing JSONL contains 120 valid unique rows: 100 pixel-available, 96 preview-exported, 7 HOLD, and 20 unavailable. run-state.json says inspection is in-progress and no final receipt exists. Explain exactly how to resume and what the final receipt must count.",
+      "expected_output": "A recoverability-first resume that validates existing rows, inspects only the missing 80 assets, and aggregates receipt counters across resumed and new rows.",
+      "files": [],
+      "expectations": [
+        "The response reads durable run state and validates the existing JSONL before resuming.",
+        "The response inspects only the 80 missing identifiers and does not restart all 200.",
+        "The response initializes receipt counters from the 120 existing rows, including 7 HOLD and 20 unavailable.",
+        "The response blocks all catalog writing until inspection, evaluation, and validation complete."
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Do not touch a real Photos library. A frozen 4,000-photo master has a 220-row final-holdout CSV. After review in the offline workbench, the exported CSV contains judgments but has lost sample_role, estimate_included, population_count, full_master_count, and view_population_count. Decide whether the final evaluation may proceed and describe the repair.",
+      "expected_output": "A blocked final evaluation that preserves holdout design metadata through review export and computes the aggregate Wilson interval from estimation rows only.",
+      "files": [],
+      "expectations": [
+        "The response blocks final evaluation instead of treating the export as a working-round sample.",
+        "The response preserves or restores every named holdout metadata field by UUID from the frozen sample.",
+        "The response excludes supplemental per-view rows from the aggregate Wilson interval.",
+        "The response verifies the frozen master and run lock before accepting repaired feedback."
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Do not touch a real Photos library. A four-item view has event_cluster_caps set to 2. Initial quota selection contains two items from event X and two other events. Enforcing exploratory_fraction proposes swapping in an exploratory item from event X. Explain the valid outcomes and when selection must fail.",
+      "expected_output": "A selection decision that enforces event caps during floor swaps, chooses a compatible donor if one exists, and otherwise fails before emitting a proposed master.",
+      "files": [],
+      "expectations": [
+        "The response does not permit three selected items from event X.",
+        "The response may swap out an existing event-X item if all other floors remain satisfied.",
+        "The response tries other compatible incoming and donor pairs deterministically.",
+        "The response fails before writing the master when the cap and diversity floor are jointly infeasible."
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "Do not touch a real Photos library. The brief requests a project-specific album, but no inspected candidate meets both visible-fit and provenance thresholds. Finish the editor field honestly without reducing the requested total.",
+      "expected_output": "An honest gap result that marks the project view unsupported, reallocates only through an explicit effective configuration decision, and does not fabricate project proof.",
+      "files": [],
+      "expectations": [
+        "The response omits the unsupported project album and records a gap report.",
+        "The response distinguishes not recovered from evidence that no relevant photograph exists.",
+        "The response preserves plausible but unproven material as uncertainty or general context rather than project proof.",
+        "Any quota reallocation is explicit, hash-linked, and replayed before the final freeze."
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "Do not touch a real Photos library. A public event flyer entered needs-review because local OCR detected a street address. An identified human reviewer confirms it is a public venue address and wants to clear the sensitivity warning for this asset only. Describe the durable decision and what it does not authorize.",
+      "expected_output": "A narrow human safety decision with actor and generalized reason that does not expose raw OCR, weaken the detector globally, or grant publication clearance.",
+      "files": [],
+      "expectations": [
+        "The response requires an identified human actor and records an asset-specific decision.",
+        "The response stores a generalized reason without raw OCR or the address itself.",
+        "The response does not weaken the detector or clear unrelated assets.",
+        "The response keeps rights, consent, claim support, and publication readiness separate."
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "Do not touch a real Photos library. A candidate has a .jpg preview path, but the file is zero bytes and cannot decode. The original is cloud-backed and the local helper is running with network access disabled. Decide how the asset, review round, and replacement should be handled.",
+      "expected_output": "A fail-closed preview-integrity response that marks the asset unavailable, prevents pixel-based judgment, and uses a freshly inspected replacement without enabling network access.",
+      "files": [],
+      "expectations": [
+        "The response treats filename existence as insufficient and requires decode verification.",
+        "The asset becomes unavailable or needs-review and cannot enter the master automatically.",
+        "The response does not infer visual fit from metadata or enable network image retrieval.",
+        "Any replacement is new, locally inspected, and recorded without erasing the failed attempt."
+      ]
+    },
+    {
+      "id": 8,
+      "prompt": "Do not touch a real Photos library. A production membership plan was generated, then one master UUID changed. PhotoKit preflight also reports an unusable authorization state. The operator proposes running the old plan through AppleScript to finish quickly. Give the safe sequence.",
+      "expected_output": "A refusal of the stale plan, followed by refreeze, fresh final evaluation, a same-plan explicit writer decision if still necessary, a ten-item test, and independent verification.",
+      "files": [],
+      "expectations": [
+        "The response rejects the old plan because its frozen master identity no longer matches.",
+        "The changed master is revalidated and receives a fresh untouched final holdout before any new plan.",
+        "AppleScript is not used to bypass a failed preflight; it is an explicit adapter change against the newly frozen plan.",
+        "The response requires render review, script and plan hashes, a ten-item test, idempotent production, and independent read-only verification."
+      ]
+    },
+    {
+      "id": 9,
+      "prompt": "Do not touch a real Photos library. An editor asks for a CSV of every item in a private 4,000-photo editor field so a public website can ingest it. Many rows have visible fit but unknown rights or consent. Produce the safe handoff decision.",
+      "expected_output": "A default-closed public projection containing only specifically cleared rows and no private archive identifiers or evidence fields.",
+      "files": [],
+      "expectations": [
+        "The response refuses to publish the private master as-is.",
+        "Only rows with explicit rights, consent, claim, and publication clearance enter the public handoff.",
+        "The handoff uses opaque public IDs and an allowlist rather than subtractive redaction.",
+        "People associations, archive UUIDs, paths, places, OCR, HOLD data, and private evidence remain excluded."
+      ]
+    },
+    {
+      "id": 10,
+      "prompt": "Do not touch a real Photos library. Three tuning rounds keep reusing the same 71 known-good photographs and report 71/71 fit. The team wants to call the 4,000-photo field 100% accurate and proceed. Design the next recursive evaluation step.",
+      "expected_output": "A fresh-evidence evaluation that rejects the 100% claim, separates diagnostic reuse from estimation, and draws an untouched final holdout with an uncertainty interval.",
+      "files": [],
+      "expectations": [
+        "The response identifies the 71/71 result as a conformance or tuning audit, not an untouched field estimate.",
+        "Previously reviewed UUIDs are excluded from the final estimation sample.",
+        "The final holdout uses a uniform estimation sample, separately labeled per-view supplements, and a Wilson interval.",
+        "The response also calls for a separate risk-stratified safety audit."
+      ]
+    }
+  ]
+}

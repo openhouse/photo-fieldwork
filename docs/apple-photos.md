@@ -20,7 +20,8 @@ Read installed local help before assuming command syntax. Do not upgrade tools d
 For whole-library work, `visible-library-stills://v1` means visible, non-hidden,
 non-trashed, primary-scope still photographs. The inventory builder records the
 count it observes and accepts an optional expected count; it does not hard-code
-a previous library size.
+a previous library size. It also records a SHA-256 digest of sorted source UUID
+membership so equal counts with different members do not look identical.
 
 Machine-specific paths and protected identifiers belong in a private profile
 conforming to `schemas/profile.schema.json`.
@@ -59,6 +60,11 @@ bundle. It checks the authorization state observed by that process, resolves the
 source, compares the frozen count, and requests one local 64-pixel sample with
 network access disabled. It always attempts to write a diagnostic receipt,
 including on failure, and performs no mutation.
+
+On an interrupted inspection, the helper validates existing JSONL rows and
+skips their identifiers. Its final receipt aggregates pixel, preview, HOLD, and
+unavailable counters across both prior and newly appended rows. Batch-only
+counters are not a valid completion receipt.
 
 ```bash
 python3 skills/curate-apple-photos/scripts/photo_archive_bridge.py \

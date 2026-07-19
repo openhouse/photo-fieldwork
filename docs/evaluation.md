@@ -38,6 +38,12 @@ After all retrieval rules, quotas, replacements, and labels are frozen:
 6. Calculate the Wilson interval from the uniform estimation sample only; use supplemental rows for per-view diagnostics, not the aggregate interval.
 7. Record whether the reviewer built the field, performed a separate pass, or was independent.
 
+An offline review export must preserve `sample_role`, `estimate_included`,
+`sample_seed`, `population_count`, `full_master_count`, and
+`view_population_count`. If those fields are missing, block final evaluation and
+repair the feedback by UUID from the locked original sample, or draw a fresh
+holdout when that identity cannot be verified.
+
 An observed 71/71 fit rate has a 95% Wilson lower bound of about 0.949. The
 point estimate is useful, but it is not certainty. A final holdout that is made
 from surviving tuning examples or hand-selected replacements is a conformance

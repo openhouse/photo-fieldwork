@@ -243,17 +243,37 @@ def select(inventory: list[dict[str, str]], config: dict) -> tuple[list[dict], l
             reverse=True,
         )
         while current < required and candidates:
-            incoming = candidates.pop(0)
-            donors = sorted(
-                (row for row in selected if not predicate(row)),
-                key=lambda row: (
-                    row["primary_view"] != incoming["primary_view"],
-                    float(row["score_total"]),
-                ),
-            )
-            if not donors:
+            chosen: tuple[dict, dict] | None = None
+            for incoming in candidates:
+                donors = sorted(
+                    (row for row in selected if not predicate(row)),
+                    key=lambda row: (
+                        row["primary_view"] != incoming["primary_view"],
+                        float(row["score_total"]),
+                        row["uuid"],
+                    ),
+                )
+                incoming_view = incoming["primary_view"]
+                incoming_cluster = str(incoming.get("event_cluster", "")).strip()
+                cap = event_caps.get(incoming_view)
+                for outgoing in donors:
+                    if cap and incoming_cluster:
+                        remaining_cluster_count = sum(
+                            row["uuid"] != outgoing["uuid"]
+                            and row["primary_view"] == incoming_view
+                            and str(row.get("event_cluster", "")).strip() == incoming_cluster
+                            for row in selected
+                        )
+                        if remaining_cluster_count >= cap:
+                            continue
+                    chosen = (incoming, outgoing)
+                    break
+                if chosen:
+                    break
+            if not chosen:
                 break
-            outgoing = donors[0]
+            incoming, outgoing = chosen
+            candidates.remove(incoming)
             selected.remove(outgoing)
             selected_ids.remove(outgoing["uuid"])
             incoming["selection_reason"] += f"; diversity floor: {reason}"
@@ -522,6 +542,29 @@ def effective_final_config(intent_config: dict, master: list[dict[str, str]]) ->
     config["enforce_view_quotas"] = True
     config["derived_from_frozen_master"] = True
     return config
+
+
+def unsupported_view_gap_report(config: dict) -> dict:
+    gaps = [
+        {
+            "view_id": view["id"],
+            "label": view["label"],
+            "intent_quota": int(view.get("intent_quota", view.get("quota", 0))),
+            "effective_quota": int(view.get("quota", 0)),
+            "status": view.get("status", "active"),
+            "interpretation": "No selected row supported this view at final freeze.",
+        }
+        for view in config["views"]
+        if view.get("status") in {"unsupported", "empty-by-editorial-decision"}
+    ]
+    return {
+        "unsupported_views": gaps,
+        "claim_boundary": (
+            "A gap means qualifying evidence was not recovered in this run; "
+            "it is not evidence that no relevant photograph exists."
+        ),
+        "production_album_policy": "omit unsupported and deliberately empty view albums",
+    }
 
 
 def validate(master: list[dict[str, str]], holds: list[dict[str, str]], config: dict) -> tuple[list[str], dict]:

@@ -15,6 +15,7 @@ check: test
 	python3 -m json.tool schemas/album-lineage.schema.json >/dev/null
 	python3 -m json.tool profiles/album-lineage.example.json >/dev/null
 	python3 -m json.tool schemas/apple-photos-plan.schema.json >/dev/null
+	python3 -m json.tool skills/curate-apple-photos/evals/evals.json >/dev/null
 
 install-skill:
 	./bin/install-skill

@@ -396,7 +396,11 @@ final class InspectionRunner {
         if !FileManager.default.fileExists(atPath: outputURL.path) {
             FileManager.default.createFile(atPath: outputURL.path, contents: Data())
         }
-        let completed = try completedIdentifiers(at: outputURL)
+        let completedRows = try completedRows(at: outputURL)
+        let completed = Set(completedRows.map(\.asset_identifier))
+        guard completed.isSubset(of: unique) else {
+            throw ArchiveError.inspection("existing inspection output contains identifiers outside this plan")
+        }
         let outputHandle = try FileHandle(forWritingTo: outputURL)
         defer { try? outputHandle.close() }
         try outputHandle.seekToEnd()
@@ -408,11 +412,11 @@ final class InspectionRunner {
             )
         }
 
-        var completedCount = completed.count
-        var pixelAvailableCount = 0
-        var previewExportedCount = 0
-        var sensitiveHoldCount = 0
-        var unavailableCount = 0
+        var completedCount = completedRows.count
+        var pixelAvailableCount = completedRows.filter(\.pixel_available).count
+        var previewExportedCount = completedRows.filter(\.preview_exported).count
+        var sensitiveHoldCount = completedRows.filter { $0.safety_state == "hold" }.count
+        var unavailableCount = completedRows.filter { !$0.pixel_available }.count
         let fetch = PHAsset.fetchAssets(withLocalIdentifiers: plan.asset_identifiers, options: nil)
         guard fetch.count == plan.asset_identifiers.count else {
             throw ArchiveError.membershipMismatch("inspection fetch", plan.asset_identifiers.count, fetch.count)
@@ -483,17 +487,23 @@ final class InspectionRunner {
         return album
     }
 
-    private func completedIdentifiers(at url: URL) throws -> Set<String> {
+    private func completedRows(at url: URL) throws -> [InspectionRow] {
         guard let contents = try? String(contentsOf: url, encoding: .utf8) else { return [] }
+        let lines = contents.split(separator: "\n")
+        var rows: [InspectionRow] = []
         var identifiers = Set<String>()
-        for line in contents.split(separator: "\n") {
+        for (index, line) in lines.enumerated() {
             guard let data = line.data(using: .utf8),
                   let row = try? JSONDecoder().decode(InspectionRow.self, from: data) else {
-                continue
+                if index == lines.count - 1 { continue }
+                throw ArchiveError.inspection("invalid existing inspection row \(index + 1)")
             }
-            identifiers.insert(row.asset_identifier)
+            guard identifiers.insert(row.asset_identifier).inserted else {
+                throw ArchiveError.inspection("duplicate existing inspection row \(row.asset_identifier)")
+            }
+            rows.append(row)
         }
-        return identifiers
+        return rows
     }
 
     private func inspect(_ asset: PHAsset) -> InspectionRow {

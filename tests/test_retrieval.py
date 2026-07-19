@@ -1,3 +1,4 @@
+import hashlib
 import importlib.util
 import sqlite3
 import tempfile
@@ -10,6 +11,12 @@ RETRIEVER_PATH = ROOT / "skills/curate-apple-photos/scripts/retrieve_candidates.
 SPEC = importlib.util.spec_from_file_location("retrieve_candidates", RETRIEVER_PATH)
 retriever = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(retriever)
+INVENTORY_PATH = ROOT / "skills/curate-apple-photos/scripts/build_visible_library_inventory.py"
+INVENTORY_SPEC = importlib.util.spec_from_file_location(
+    "build_visible_library_inventory", INVENTORY_PATH
+)
+inventory_builder = importlib.util.module_from_spec(INVENTORY_SPEC)
+INVENTORY_SPEC.loader.exec_module(inventory_builder)
 
 
 class RetrievalTests(unittest.TestCase):
@@ -77,6 +84,13 @@ class RetrievalTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertNotIn("603137", source)
         self.assertIn("--expected-count", source)
+
+    def test_source_membership_fingerprint_is_sorted_and_stable(self):
+        conn = sqlite3.connect(":memory:")
+        conn.execute("CREATE TABLE asset (uuid TEXT PRIMARY KEY)")
+        conn.executemany("INSERT INTO asset(uuid) VALUES (?)", [("B",), ("A",)])
+        expected = hashlib.sha256(b"A\nB\n").hexdigest()
+        self.assertEqual(inventory_builder.source_membership_sha256(conn), expected)
 
 
 if __name__ == "__main__":

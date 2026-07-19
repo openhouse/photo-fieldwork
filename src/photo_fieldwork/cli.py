@@ -17,6 +17,7 @@ from .pipeline import (
     read_config,
     read_csv,
     select,
+    unsupported_view_gap_report,
     validate,
     write_csv,
 )
@@ -165,6 +166,8 @@ def command_freeze_final(args: argparse.Namespace) -> int:
     effective = effective_final_config(intent, master)
     effective_path = workspace / "final" / "effective-final-config.json"
     atomic_json(effective_path, effective)
+    gap_report_path = workspace / "reports" / "unsupported-view-gaps.json"
+    atomic_json(gap_report_path, unsupported_view_gap_report(effective))
     errors, metrics = validate(master, holds, effective)
     report = {**metrics, "errors": errors}
     report_path = workspace / "reports" / "final-replay-validation.json"
@@ -182,10 +185,14 @@ def command_freeze_final(args: argparse.Namespace) -> int:
             "master": args.master,
             "holds": args.holds,
             "replay_validation": report_path,
+            "unsupported_view_gaps": gap_report_path,
         },
         {"master_count": len(master), "hold_count": len(holds)},
     )
-    additional = {"replay_validation": report_path}
+    additional = {
+        "replay_validation": report_path,
+        "unsupported_view_gaps": gap_report_path,
+    }
     decisions = workspace / "config-decisions.jsonl"
     if decisions.exists():
         additional["config_decisions"] = decisions

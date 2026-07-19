@@ -11,13 +11,21 @@ read-only preflight before inventory or inspection. If authorization, source
 count, local sample pixels, schema compatibility, or disk access fails, stop
 before expensive work.
 
+If the user supplies an interrupted workspace, do not initialize a replacement
+run. Verify its recorded artifacts, plans, receipts, and lock, then resume only
+the next incomplete phase. Existing inspection rows remain part of the evidence
+and of every cumulative receipt counter. A successful resume does not authorize
+a write: evaluation, final freeze and holdout, and validation must still pass.
+
 ## 1. Freeze a source corpus
 
 Give the broad retrieval corpus a stable name and count. Never alter it during a versioned run. Preserve v00, v01, and later runs as separate folders so selection logic can be compared rather than overwritten.
 
 The source may be a physical album or the virtual
 `visible-library-stills://v1` scope. Derive its count from the read-only snapshot;
-do not compile a previous count into source code.
+do not compile a previous count into source code. Record a SHA-256 digest of the
+sorted source membership. Drift in either count or membership requires a new
+versioned inventory and source freeze.
 
 ## 2. Build a compact inventory
 
@@ -68,9 +76,16 @@ intent quotas, but set effective quotas to actual counts and mark unsupported,
 deferred, or deliberately empty views honestly. Hash the master, HOLD, config,
 and replay validation into `run-lock.json`.
 
+Omit unsupported production albums and retain an explicit gap report. “Not
+recovered in this run” is not evidence that no relevant photograph exists.
+
 Draw an untouched final holdout after the freeze. Report review completion,
 view sampling coverage, decisive fit rate, field audit rate, and a 95% Wilson
 interval. Run safety auditing separately.
+
+Any selected UUID, assignment, quota, or HOLD change invalidates the final lock,
+holdout, evaluation, and plans. Refreeze, inspect a fresh untouched holdout, and
+validate before generating replacement plans.
 
 ## 10. Plan before writing
 
@@ -92,5 +107,6 @@ Use a read-only mechanism distinct from the writer to compare planned and actual
 Tell editors what the system did and did not do. The result is a contact field for human editing, not the final visual narrative.
 
 Publication is a separate reduction. Create an allowlisted projection only for
-assets with scoped rights and consent states. Never derive the public handoff by
-copying the private master and attempting to remove sensitive columns later.
+assets with scoped rights, consent, claim, and publication states. Use salted
+opaque public IDs. Never derive the public handoff by copying the private master
+and attempting to remove sensitive columns later.

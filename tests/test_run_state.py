@@ -61,6 +61,8 @@ class RunStateTests(unittest.TestCase):
 
     def test_review_workbench_omits_people_and_has_no_external_requests(self):
         previews = self.workspace / "previews"
+        previews.mkdir(exist_ok=True)
+        (previews / "A_L0_001.jpg").write_bytes(b"private-preview-bytes")
         output = self.workspace / "review" / "index.html"
         sample = [
             {
@@ -78,6 +80,40 @@ class RunStateTests(unittest.TestCase):
         self.assertNotIn("Exact home address", document)
         self.assertNotIn("https://", document)
         self.assertIn("connect-src 'none'", document)
+        self.assertNotIn("../previews", document)
+        self.assertIn("review-assets/A_L0_001.jpg", document)
+        copied = output.parent / "review-assets" / "A_L0_001.jpg"
+        self.assertTrue(copied.exists())
+        self.assertEqual(os.stat(copied).st_mode & 0o777, 0o600)
+
+    def test_review_export_preserves_final_holdout_design_fields(self):
+        previews = self.workspace / "previews"
+        previews.mkdir(exist_ok=True)
+        (previews / "B_L0_001.jpg").write_bytes(b"private-preview-bytes")
+        output = self.workspace / "review" / "index.html"
+        sample = [
+            {
+                "uuid": "B/L0/001",
+                "primary_view": "02",
+                "sample_role": "final-holdout-estimate",
+                "estimate_included": "true",
+                "sample_seed": "44",
+                "population_count": "3800",
+                "full_master_count": "4000",
+                "view_population_count": "800",
+            }
+        ]
+        build_review_workbench(sample, previews, output)
+        document = output.read_text(encoding="utf-8")
+        for expected in (
+            "final-holdout-estimate",
+            '"estimate_included": "true"',
+            '"population_count": "3800"',
+            '"full_master_count": "4000"',
+            '"view_population_count": "800"',
+            '"sample_role","estimate_included","sample_seed","population_count","full_master_count","view_population_count"',
+        ):
+            self.assertIn(expected, document)
 
     def test_config_decisions_form_a_hash_chain(self):
         first = append_config_decision(

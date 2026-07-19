@@ -154,6 +154,8 @@ Those are different questions. Photo Fieldwork keeps them different.
 - Event-cluster caps, prior-corpus novelty floors, and explicit album lineage.
 - A private offline review workbench with no external requests.
 - A public-safe handoff that excludes private fields by construction.
+- A synthetic skill-eval bank covering source drift, resume truthfulness,
+  holdout identity, unsupported claims, writer drift, and publication safety.
 - A fully synthetic practice run.
 - Whole-library Apple Photos inventory and preview-integrity tools.
 - Live read-only PhotoKit preflight and PhotoKit/AppleScript writer contracts.

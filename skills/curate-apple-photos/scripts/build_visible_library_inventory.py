@@ -8,6 +8,7 @@ SQLite database used for retrieval; this script never writes to Photos.sqlite.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -111,6 +112,14 @@ def copy_query(
             print(f"rows_copied={count}")
     output.commit()
     return count
+
+
+def source_membership_sha256(conn: sqlite3.Connection) -> str:
+    digest = hashlib.sha256()
+    for (uuid,) in conn.execute("SELECT uuid FROM asset ORDER BY uuid"):
+        digest.update(uuid.encode("utf-8"))
+        digest.update(b"\n")
+    return digest.hexdigest()
 
 
 def main() -> None:
@@ -318,8 +327,15 @@ def main() -> None:
         raise SystemExit(
             f"visible still count changed or query mismatch: {final_count} != {args.expected_count}"
         )
+    membership_sha256 = source_membership_sha256(output)
+    output.execute(
+        "INSERT INTO meta(key, value) VALUES (?, ?)",
+        ("source_membership_sha256", membership_sha256),
+    )
+    output.commit()
     print(f"source_identifier={SOURCE_IDENTIFIER}")
     print(f"visible_stills={final_count}")
+    print(f"source_membership_sha256={membership_sha256}")
     print(f"people_links={people_count}")
     print(f"album_links={album_count}")
     print(f"keyword_links={keyword_count}")

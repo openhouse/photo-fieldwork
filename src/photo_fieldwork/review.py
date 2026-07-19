@@ -4,8 +4,19 @@ import hashlib
 import html
 import json
 import os
+import shutil
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+
+
+HOLDOUT_CONTEXT_FIELDS = (
+    "sample_role",
+    "estimate_included",
+    "sample_seed",
+    "population_count",
+    "full_master_count",
+    "view_population_count",
+)
 
 
 def preview_name(uuid: str) -> str:
@@ -14,19 +25,37 @@ def preview_name(uuid: str) -> str:
 
 def build_review_workbench(sample: list[dict[str, str]], previews: Path, output: Path) -> None:
     """Build a private, dependency-free review surface with no external requests."""
+    output.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    output.parent.chmod(0o700)
+    review_assets = output.parent / "review-assets"
+    review_assets.mkdir(exist_ok=True, mode=0o700)
+    review_assets.chmod(0o700)
     records = []
     for row in sample:
         image_path = previews / preview_name(row["uuid"])
-        relative = os.path.relpath(image_path, output.parent)
+        available = image_path.is_file() and image_path.stat().st_size > 0
+        relative = ""
+        if available:
+            copied_path = review_assets / preview_name(row["uuid"])
+            if image_path.resolve() != copied_path.resolve():
+                shutil.copy2(image_path, copied_path)
+            copied_path.chmod(0o600)
+            relative = os.path.relpath(copied_path, output.parent)
         records.append(
             {
                 "uuid": row["uuid"],
                 "primary_view": row.get("primary_view", "unknown"),
                 "score_total": row.get("score_total", ""),
                 "visible_context": row.get("visible_context", ""),
-                "sample_role": row.get("sample_role", "working-round"),
+                **{
+                    field: row.get(
+                        field,
+                        "working-round" if field == "sample_role" else "",
+                    )
+                    for field in HOLDOUT_CONTEXT_FIELDS
+                },
                 "image": Path(relative).as_posix(),
-                "available": image_path.exists(),
+                "available": available,
             }
         )
     review_id = hashlib.sha256(
@@ -145,9 +174,9 @@ document.addEventListener("keydown", event => {{
 }});
 const grid=document.getElementById("grid"); records.forEach((row, position) => {{ const button=document.createElement("button"); button.type="button"; button.title=`${{position+1}} ${{row.primary_view}}`; if(row.available){{const image=document.createElement("img");image.src=row.image;image.alt="";button.append(image);}} button.addEventListener("click",()=>{{index=position;render();scrollTo({{top:0,behavior:"smooth"}});}});grid.append(button); }});
 document.getElementById("export").addEventListener("click", () => {{
-  const fields=["uuid","primary_view","judgment","visible_reason","safety_status","error_category","round_id","reviewer_lens"];
+  const fields=["uuid","primary_view","sample_role","estimate_included","sample_seed","population_count","full_master_count","view_population_count","judgment","visible_reason","safety_status","error_category","round_id","reviewer_lens"];
   const quote=value => `"${{String(value ?? "").replaceAll('"','""')}}"`;
-  const lines=[fields.join(",")]; for(const row of records){{const current=decision(row.uuid);lines.push([row.uuid,row.primary_view,current.judgment,current.visible_reason,current.judgment==="hold"?"hold":"clear",current.error_category,"local-workbench","human-or-delegated-review"].map(quote).join(","));}}
+  const lines=[fields.join(",")]; for(const row of records){{const current=decision(row.uuid);const values=fields.map(field=>{{if(field==="judgment")return current.judgment;if(field==="visible_reason")return current.visible_reason;if(field==="safety_status")return current.judgment==="hold"?"hold":"clear";if(field==="error_category")return current.error_category;if(field==="round_id")return "local-workbench";if(field==="reviewer_lens")return "human-or-delegated-review";return row[field]??"";}});lines.push(values.map(quote).join(","));}}
   const url=URL.createObjectURL(new Blob([lines.join("\\n")+"\\n"],{{type:"text/csv"}})); const link=document.createElement("a");link.href=url;link.download="evaluation-reviewed.csv";link.click();URL.revokeObjectURL(url);
 }});
 render();
@@ -155,7 +184,6 @@ render();
 </body>
 </html>
 """
-    output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(document, encoding="utf-8")
 
 

@@ -13,6 +13,7 @@ from photo_fieldwork.pipeline import (
     read_config,
     read_csv,
     select,
+    unsupported_view_gap_report,
     validate,
     wilson_interval,
 )
@@ -132,6 +133,13 @@ class PipelineTests(unittest.TestCase):
         by_id = {view["id"]: view for view in effective["views"]}
         self.assertEqual(by_id["04"]["status"], "unsupported")
         self.assertEqual(by_id["04"]["quota"], 0)
+        gap_report = unsupported_view_gap_report(effective)
+        self.assertEqual(gap_report["unsupported_views"][0]["view_id"], "04")
+        self.assertIn("not evidence", gap_report["claim_boundary"])
+        self.assertEqual(
+            gap_report["production_album_policy"],
+            "omit unsupported and deliberately empty view albums",
+        )
         errors, _ = validate(reduced, holds, effective)
         self.assertEqual(errors, [])
 
@@ -189,6 +197,61 @@ class PipelineTests(unittest.TestCase):
         errors, metrics = validate(master, holds, config)
         self.assertEqual(errors, [])
         self.assertEqual(metrics["event_cap_violations"], {})
+
+    def test_diversity_floor_swap_preserves_event_cluster_cap(self):
+        inventory = [
+            {
+                "uuid": f"EVENT-EVIDENCE-{index}",
+                "filename": f"event-{index}.jpg",
+                "candidate_views": "00",
+                "evidence_confidence": "high",
+                "safety_status": "clear",
+                "event_cluster": "event-x",
+                "favorite": "true",
+                "edited": "true",
+            }
+            for index in range(2)
+        ]
+        inventory.extend(
+            {
+                "uuid": f"OTHER-{index}",
+                "filename": f"other-{index}.jpg",
+                "candidate_views": "00",
+                "evidence_confidence": "high",
+                "safety_status": "clear",
+                "event_cluster": f"other-{index}",
+            }
+            for index in range(2)
+        )
+        inventory.append(
+            {
+                "uuid": "EVENT-EXPLORATORY",
+                "filename": "event-exploratory.jpg",
+                "candidate_views": "00",
+                "evidence_confidence": "low",
+                "safety_status": "clear",
+                "event_cluster": "event-x",
+                "favorite": "true",
+                "edited": "true",
+            }
+        )
+        config = {
+            "seed": 1,
+            "target_count": 4,
+            "unclassified_view": "00",
+            "burst_limit": 2,
+            "exploratory_fraction": 0.25,
+            "minimum_named_people_fraction": 0,
+            "minimum_person_free_fraction": 0,
+            "event_cluster_caps": {"00": 2},
+            "views": [{"id": "00", "label": "Editor field", "quota": 4}],
+        }
+        master, _, _ = select(inventory, config)
+        self.assertIn("EVENT-EXPLORATORY", {row["uuid"] for row in master})
+        self.assertEqual(
+            sum(row["event_cluster"] == "event-x" for row in master),
+            2,
+        )
 
 
 if __name__ == "__main__":

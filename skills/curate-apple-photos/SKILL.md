@@ -1,6 +1,6 @@
 ---
 name: curate-apple-photos
-description: Curate a large, versioned photo corpus from Jamie Burkart's local Apple Photos library from a pasted curatorial brief. Use when asked to create a 5k, 6k, 8k, or other editor-ready Photos album or folder of albums; role-play a named peer panel; use existing People associations; locally inspect pixels through the permissioned Jamie Photo Archive app; run recursive visual evaluation; quarantine sensitive material; preserve prior versions; and commit and independently verify non-destructive album membership.
+description: Curate or safely resume a large, versioned photo corpus from Jamie Burkart's local Apple Photos library from a pasted curatorial brief. Use when asked to create a 5k, 6k, 8k, or other editor-ready Photos album or folder of albums; role-play a named peer panel; use existing People associations; locally inspect pixels through the permissioned Jamie Photo Archive app; run recursive visual evaluation; quarantine sensitive material; preserve prior versions; produce a cleared public projection; and commit and independently verify non-destructive album membership.
 ---
 
 # Curate Apple Photos
@@ -24,16 +24,31 @@ source, match its frozen count, or fetch one local sample with network disabled.
    - `brief.md`, preserving the user's words;
    - `retrieval.json`, defining views, terms, people, albums, places, and supporting date ranges;
    - `config.json`, defining target, quotas, seed, uncertainty view, and evaluation thresholds.
-4. Initialize a uniquely named, mode-`0700` run with
-   `photo_archive_bridge.py init-run`. Never reuse or overwrite an earlier run.
-   Phase changes must be recorded through `photo-fieldwork run transition`; do
+4. Route explicitly:
+   - For a fresh version, create a new private inventory and initialize a
+     uniquely named, mode-`0700` run with `photo_archive_bridge.py init-run`.
+     Never reuse or overwrite an earlier run.
+   - For an interrupted version, do not initialize again. Read
+     `run-state.json`, verify recorded artifact hashes and any `run-lock.json`,
+     inspect existing plans and receipts, and resume only the next incomplete phase.
+5. Phase changes must be recorded through `photo-fieldwork run transition`; do
    not hand-edit `run-state.json`.
+
+When resuming inspection, validate every existing JSONL row and its membership
+before appending only missing identifiers. Final receipt counters are cumulative:
+initialize pixel, preview, HOLD, and unavailable counts from valid prior rows,
+then add new rows. A receipt that counts only the resumed batch is invalid.
+Catalog writing remains blocked until resumed inspection is complete, evaluation
+and the final holdout pass, the master is frozen, and validation passes.
 
 ## Governing invariants
 
 - Choose source scope from the brief. The existing wide album is a useful
   default; explicit whole-library work uses `visible-library-stills://v1`.
-  Derive and freeze the observed count rather than relying on a compiled count.
+  Every fresh version receives a new versioned inventory. Derive and freeze the
+  observed count and sorted-membership SHA-256 rather than relying on a compiled
+  or previous count. Source-count drift blocks retrieval until a new inventory
+  and source freeze are recorded; never silently relabel a stale freeze.
 - Do not alter source albums, originals, metadata, faces, favorite status, dates, locations, or prior versions.
 - Never write Photos SQLite. The permissioned app may only inspect locally or create folders/albums and add existing membership.
 - Do not upload pixels, previews, OCR, faces, coordinates, or manifests.
@@ -45,10 +60,18 @@ source, match its frozen count, or fetch one local sample with network disabled.
 - Apple aesthetic scores may break ties only inside true duplicate or burst clusters.
 - Dates support retrieval but are not narrative authority; imported film and scans may be misdated.
 - Generated fieldwork, private review, and write-audit albums may not become
-  source evidence. Use explicit album lineage and report final novelty outside
-  prior corpora.
+  source evidence. Explicitly exclude all three lineages during retrieval, not
+  only the album that triggered the concern. Report final novelty outside prior
+  corpora.
 - Keep source eligibility, visible evidence, sensitivity, rights, consent,
   claim support, and publication readiness as separate states.
+- Keep the release dependency strict: verified source, complete inspection,
+  passing evaluation, final freeze and lock, untouched final holdout, passing
+  validation, sealed plans, ten-item test, production, independent verification.
+  A later gate never compensates for a missing earlier gate.
+- Any selected UUID, assignment, quota, or HOLD change after final freeze
+  invalidates the lock, final evaluation, and catalog plans. Refreeze, draw and
+  inspect a fresh untouched final holdout, validate, and only then create new plans.
 
 Read [safety.md](references/safety.md) whenever a brief concerns private homes, minors, health, legal strategy, financial records, identity documents, or vulnerable collaborators.
 
@@ -74,7 +97,10 @@ python3 scripts/retrieve_candidates_stream.py \
 2. Aim for 1.5-2.0 times the requested master size after metadata retrieval. Include named relationships, prior favorites/edits, person-free material context, and exploratory results.
 3. Generate a local inspection plan with `photo_archive_bridge.py inspection-plan`.
 4. Run the stable permissioned helper with `photo_archive_bridge.py run-plan`. Network access must remain false. Export 1280px previews into the private run workspace; raw OCR is never written.
-5. Merge the inspection JSONL into the candidate CSV using `merge_inspection.py`.
+5. Run `verify_preview_exports.py`. A filename or non-empty directory is not
+   proof that every preview decodes. Unavailable or corrupt rows remain
+   protected and require freshly inspected replacements.
+6. Merge the inspection JSONL into the candidate CSV using `merge_inspection.py`.
 
 ## Select, look, evaluate, recurse
 
@@ -92,11 +118,21 @@ photo-fieldwork select \
 2. Create a score-stratified sample from every view. For the first round, inspect at least 3 per view and at least 36 overall. Later rounds should normally inspect 60-100 images across low, middle, and high scores.
 3. Build contact sheets with `make_contact_sheets.py`. Use `view_image` to inspect every page. Open individual previews when context or safety is unclear.
    For larger rounds, build the offline workbench with
-   `photo-fieldwork review-build`; it must remain private and make no external requests.
+   `photo-fieldwork review-build`; it must remain private and make no external
+   requests. The workbench copies only sampled previews into its private served
+   root. Its export must preserve `sample_role`, `estimate_included`,
+   `sample_seed`, `population_count`, `full_master_count`, and
+   `view_population_count`; otherwise a final evaluation is blocked. Before
+   repairing feedback by UUID, verify the frozen master and `run-lock.json`. If
+   that identity cannot be verified, discard the damaged export and draw a fresh
+   holdout rather than reconstructing one.
 4. Speak briefly as the requested peers. If Jamie cannot review, role-play Jamie using the supplied brief and voice references, while marking the judgment as delegated editorial inference rather than eyewitness fact.
 5. Record `fit`, `reject`, or `uncertain`, one visible reason, a safety state, and an error category in the evaluation CSV.
 6. Run `photo-fieldwork evaluate`. Read all rejections and a stratified uncertainty sample.
 7. Change retrieval, assignments, penalties, quotas, or hold rules in response to observed errors. Keep the seed fixed. Save each round separately and record each effective-config decision.
+   Recheck event-cluster caps during every diversity-floor swap. Prefer a
+   compatible incoming/donor pair deterministically; if caps and floors are
+   jointly infeasible, fail before emitting a proposed master.
 8. Repeat until:
    - review completion, view sampling coverage, and decisive fit rate meet `config.json`;
    - every view has been visually sampled;
@@ -116,6 +152,11 @@ of the field they helped create.
 1. Freeze the surviving master with `photo-fieldwork freeze-final`. This writes
    `effective-final-config.json`, replay validation, and `run-lock.json`. Preserve
    intent quotas and mark unsupported or deliberately empty views honestly.
+   Omit unsupported production albums and preserve
+   `unsupported-view-gaps.json`. State that qualifying evidence was not
+   recovered in this run, not that no relevant photograph exists. Any quota
+   reallocation must be an explicit hash-linked config decision replayed before
+   the freeze.
 2. Draw a new `final-holdout` sample after the freeze. Exclude every prior
    feedback row. For a 4,000-photo field, begin with at least 200 uniform
    estimation rows. Supplemental rows may bring each material view to at least
@@ -137,6 +178,19 @@ of the field they helped create.
 Helper or AppleScript invocation may require a Codex permission approval. Scope
 approval to the reviewed app or exact writer command. Never rebuild, clone,
 rename, or re-sign the helper as an unrecorded attempt to work around TCC.
+
+## Public projection
+
+An editor field is private research, not a publication manifest. Never hand the
+private master directly to a public site. Run `photo-fieldwork handoff` only
+after asset-specific rights, consent, claim, and publication states are cleared
+for the named use.
+
+The handoff is an allowlisted projection with salted opaque public IDs. Exclude
+archive UUIDs, People associations, paths, exact or named private places, OCR,
+HOLD membership, safety reasons, raw evidence, and every field not in the public
+schema. Unknown clearance excludes a row; it does not become a warning attached
+to a public row.
 
 ## Final response
 
