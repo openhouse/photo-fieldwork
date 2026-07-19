@@ -5,15 +5,25 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import os
 import plistlib
 import re
+import secrets
 import sqlite3
 import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
+
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(REPO_ROOT / "src"))
+
+from photo_fieldwork.integrity import canonical_json_fingerprint  # noqa: E402
+from photo_fieldwork.release import REQUIRED_HELPER_CAPABILITIES, validate_helper_profile  # noqa: E402
+from photo_fieldwork.state import initialize_run  # noqa: E402
 
 
 APP = Path("/Applications/Jamie Photo Archive.app")
@@ -35,6 +45,14 @@ AUDIT_FOLDER_ID = "7F9EB400-C06D-412C-9443-300A2C47CCE7/L0/020"
 def dump_json(path: Path, value: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return f"sha256:{digest.hexdigest()}"
 
 
 def local_identifier(value: str) -> str:
@@ -61,7 +79,17 @@ def safe_slug(value: str) -> str:
     return slug[:48] or "photo-field"
 
 
-def command_doctor(_: argparse.Namespace) -> int:
+def installed_helper_profile(bundle: str | None) -> dict:
+    return {
+        "schema_version": 1,
+        "bundle_identifier": bundle,
+        "binary_sha256": file_sha256(APP_EXECUTABLE) if APP_EXECUTABLE.is_file() else None,
+        "capabilities": list(REQUIRED_HELPER_CAPABILITIES),
+        "supported_plan_schema_versions": [2],
+    }
+
+
+def command_doctor(args: argparse.Namespace) -> int:
     checks = {
         "permissioned_app": APP.is_dir(),
         "app_executable": APP_EXECUTABLE.is_file() and os.access(APP_EXECUTABLE, os.X_OK),
@@ -82,12 +110,14 @@ def command_doctor(_: argparse.Namespace) -> int:
         bundle = plist.get("CFBundleIdentifier")
         version = plist.get("CFBundleShortVersionString")
         checks["stable_bundle_identifier"] = bundle == BUNDLE_ID
+        checks["helper_contract_version"] = version == "3.0"
     if INVENTORY_DB.exists():
         conn = sqlite3.connect(f"file:{INVENTORY_DB}?mode=ro&immutable=1", uri=True)
         inventory_meta = {key: json.loads(value) for key, value in conn.execute("SELECT key, value FROM meta")}
         conn.close()
         checks["inventory_source_identifier"] = inventory_meta.get("source_album_uuid") == base_identifier(SOURCE_ID)
         checks["inventory_source_count"] = int(inventory_meta.get("source_album_count", 0)) == SOURCE_COUNT
+    helper_profile = installed_helper_profile(bundle)
     report = {
         "status": "PASS" if all(checks.values()) else "FAIL",
         "checks": checks,
@@ -95,7 +125,12 @@ def command_doctor(_: argparse.Namespace) -> int:
         "version": version,
         "inventory_generated_at": inventory_meta.get("generated_at"),
         "inventory_source_count": inventory_meta.get("source_album_count"),
+        "helper_profile": helper_profile,
     }
+    if args.helper_profile_output:
+        if report["status"] != "PASS":
+            raise ValueError("cannot write a helper profile while doctor checks are failing")
+        dump_json(args.helper_profile_output, helper_profile)
     print(json.dumps(report, indent=2))
     return 0 if report["status"] == "PASS" else 2
 
@@ -107,27 +142,26 @@ def command_init(args: argparse.Namespace) -> int:
         raise ValueError(f"workspace already exists: {root}")
     for name in ("inventory", "manifests", "reports", "logs", "previews", "contact-sheets", "scripts"):
         (root / name).mkdir(parents=True, exist_ok=False)
-    state = {
-        "schema_version": 1,
-        "run_id": root.name,
-        "status": "initialized",
-        "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-        "version": args.version,
-        "target_count": args.target,
-        "source_album_identifier": args.source_id,
-        "expected_source_count": args.source_count,
-        "phases": {
-            "brief": "pending",
-            "retrieval": "pending",
-            "local_inspection": "pending",
-            "recursive_evaluation": "pending",
-            "validation": "pending",
-            "write_test": "pending",
-            "production_commit": "pending",
-            "independent_verification": "pending",
+    initialize_run(
+        root,
+        run_id=root.name,
+        phases=[
+            "brief",
+            "retrieval",
+            "local_inspection",
+            "recursive_evaluation",
+            "validation",
+            "write_test",
+            "production_commit",
+            "independent_verification",
+        ],
+        metadata={
+            "version": args.version,
+            "target_count": args.target,
+            "source_album_identifier": args.source_id,
+            "expected_source_count": args.source_count,
         },
-    }
-    dump_json(root / "run-state.json", state)
+    )
     (root / "README.md").write_text(
         f"# {args.version}: {args.slug}\n\n"
         f"- Target: {args.target:,} unique still photographs\n"
@@ -204,9 +238,20 @@ def folder_specs(version_title: str, include_version: bool) -> list[dict]:
     return folders
 
 
-def album(title: str, parent: str, uuids: list[str]) -> dict:
+def album(
+    title: str,
+    parent: str,
+    uuids: list[str],
+    *,
+    key: str,
+    role: str,
+    visibility: str,
+) -> dict:
     identifiers = list(dict.fromkeys(local_identifier(value) for value in uuids))
     return {
+        "key": key,
+        "role": role,
+        "visibility": visibility,
         "title": title,
         "parent_folder_key": parent,
         "existing_identifier": None,
@@ -215,13 +260,36 @@ def album(title: str, parent: str, uuids: list[str]) -> dict:
 
 
 def snapshot_plan(args: argparse.Namespace, plan_id: str, folders: list[dict], albums: list[dict], receipt: str) -> dict:
+    source = (
+        json.loads(args.source_profile.read_text(encoding="utf-8"))
+        if getattr(args, "source_profile", None)
+        else {
+            "schema_version": 1,
+            "id": args.source_id,
+            "kind": "photos-album",
+            "scope": "configured immutable source album",
+            "actual_count": args.source_count,
+            "fingerprint": None,
+        }
+    )
+    if getattr(args, "source_profile", None):
+        if int(source["actual_count"]) != int(args.source_count):
+            raise ValueError(
+                f"source profile count {source['actual_count']} does not match adapter source count {args.source_count}"
+            )
+        if source.get("catalog_identifier") and source["catalog_identifier"] != args.source_id:
+            raise ValueError("source profile catalog_identifier does not match --source-id")
+    source["catalog_identifier"] = args.source_id
     return {
         "operation": "snapshot-membership",
-        "schema_version": 1,
+        "schema_version": 2,
         "plan_id": plan_id,
         "safety_mode": "create-folders-albums-and-add-membership-only",
         "source_album_identifier": args.source_id,
         "expected_source_count": args.source_count,
+        "source": source,
+        "release_candidate": args.release_candidate,
+        "helper_requirement": args.helper_requirement,
         "batch_size": args.batch_size,
         "log_path": str(args.workspace / "logs" / "jamie-photo-archive-app.log"),
         "receipt_path": str(args.workspace / "manifests" / receipt),
@@ -235,6 +303,28 @@ def command_snapshot_plans(args: argparse.Namespace) -> int:
     hold_rows = read_csv(args.holds)
     master_ids = [base_identifier(row["uuid"]) for row in master_rows]
     hold_ids = [base_identifier(row["uuid"]) for row in hold_rows]
+    catalog_plan = json.loads(args.catalog_plan.read_text(encoding="utf-8"))
+    catalog_master = next(
+        (album for album in catalog_plan.get("albums", []) if album.get("role") == "editor-master"),
+        None,
+    )
+    if catalog_master is None:
+        raise ValueError("catalog plan lacks an editor-master album")
+    if set(base_identifier(value) for value in catalog_master.get("asset_identifiers", [])) != set(master_ids):
+        raise ValueError("catalog plan editor master differs from the supplied master")
+    if not catalog_plan.get("candidate_binding"):
+        raise ValueError("catalog plan lacks a passing candidate binding")
+    if not catalog_plan.get("helper_requirement"):
+        raise ValueError("catalog plan lacks an authorized helper requirement")
+    if catalog_plan.get("release_class") != "editor-field":
+        raise ValueError("catalog plan is not an editor-field release")
+    args.release_candidate = {
+        "catalog_plan_id": catalog_plan.get("plan_id"),
+        "catalog_plan_fingerprint": canonical_json_fingerprint(catalog_plan),
+        "candidate_binding": catalog_plan["candidate_binding"],
+        "release_class": catalog_plan["release_class"],
+    }
+    args.helper_requirement = catalog_plan["helper_requirement"]
     if len(master_ids) != args.target or len(set(master_ids)) != args.target:
         raise ValueError(f"master must contain exactly {args.target} unique IDs")
     overlap = set(master_ids) & set(hold_ids)
@@ -274,20 +364,83 @@ def command_snapshot_plans(args: argparse.Namespace) -> int:
         args,
         f"{args.version}-write-test",
         folder_specs(args.folder_title, include_version=False),
-        [album(test_title, "audit", test_ids)],
+        [
+            album(
+                test_title,
+                "audit",
+                test_ids,
+                key="write-test",
+                role="write-test",
+                visibility="restricted-private",
+            )
+        ],
         f"{args.version}-write-test-receipt.json",
     )
-    production_albums = [album(f"00 MASTER — {args.target:,}", "version", master_ids)]
+    production_albums = [
+        album(
+            f"00 MASTER — {args.target:,}",
+            "version",
+            master_ids,
+            key="master",
+            role="editor-master",
+            visibility="private-editor",
+        )
+    ]
     for view, values in sorted(by_view.items()):
         label = view_labels.get(view, "EDITOR VIEW")
-        production_albums.append(album(f"{view} {label} — {len(values):,}", "version", values))
+        production_albums.append(
+            album(
+                f"{view} {label} — {len(values):,}",
+                "version",
+                values,
+                key=f"view-{view}",
+                role="editor-view",
+                visibility="private-editor",
+            )
+        )
     if named:
-        production_albums.append(album(f"90 PEOPLE / NAMED ASSOCIATIONS — {len(named):,}", "version", named))
+        production_albums.append(
+            album(
+                f"90 PEOPLE / NAMED ASSOCIATIONS — {len(named):,}",
+                "version",
+                named,
+                key="people-context",
+                role="people-context",
+                visibility="private-editor",
+            )
+        )
     if uncertain:
-        production_albums.append(album(f"91 CONTEXT UNCERTAIN — EDITOR REVIEW — {len(uncertain):,}", "version", uncertain))
+        production_albums.append(
+            album(
+                f"91 CONTEXT UNCERTAIN — EDITOR REVIEW — {len(uncertain):,}",
+                "version",
+                uncertain,
+                key="uncertainty",
+                role="uncertainty",
+                visibility="private-editor",
+            )
+        )
     if hold_ids:
-        production_albums.append(album(f"{args.version} — AUTOMATED SAFETY HOLD — {len(hold_ids):,}", "private", hold_ids))
-    production_albums.append(album(test_title, "audit", test_ids))
+        production_albums.append(
+            album(
+                f"{args.version} — AUTOMATED SAFETY HOLD — {len(hold_ids):,}",
+                "private",
+                hold_ids,
+                key="safety-hold",
+                role="safety-hold",
+                visibility="restricted-private",
+            )
+        )
+    production_albums.append(
+        album(
+            test_title,
+            "audit",
+            test_ids,
+            key="write-test",
+            role="write-test",
+            visibility="restricted-private",
+        )
+    )
     production = snapshot_plan(
         args,
         f"{args.version}-production",
@@ -312,8 +465,37 @@ def command_run_plan(args: argparse.Namespace) -> int:
     receipt_path = Path(plan["receipt_path"])
     if not APP.is_dir():
         raise ValueError(f"permissioned app not found: {APP}")
+    with APP_PLIST.open("rb") as handle:
+        bundle = plistlib.load(handle).get("CFBundleIdentifier")
+    helper_profile = installed_helper_profile(bundle)
+    profile_errors = validate_helper_profile(helper_profile)
+    if profile_errors:
+        raise ValueError(f"installed helper is incompatible: {'; '.join(profile_errors)}")
+    if plan.get("operation") == "snapshot-membership":
+        requirement = plan.get("helper_requirement") or {}
+        if not plan.get("release_candidate"):
+            raise ValueError("snapshot plan lacks an authorized release candidate")
+        if helper_profile["bundle_identifier"] != requirement.get("bundle_identifier"):
+            raise ValueError("installed helper bundle differs from the authorized plan")
+        if helper_profile["binary_sha256"] != requirement.get("binary_sha256"):
+            raise ValueError("installed helper binary differs from the authorized plan")
+        missing = set(requirement.get("required_capabilities", [])) - set(helper_profile["capabilities"])
+        if missing:
+            raise ValueError(f"installed helper lacks authorized capabilities: {', '.join(sorted(missing))}")
+    nonce = secrets.token_hex(16)
+    plan_file_sha256 = file_sha256(plan_path)
     before = receipt_path.stat().st_mtime_ns if receipt_path.exists() else None
-    command = ["/usr/bin/open", "-W", "-n", str(APP), "--args", "--plan", str(plan_path)]
+    command = [
+        "/usr/bin/open",
+        "-W",
+        "-n",
+        str(APP),
+        "--args",
+        "--plan",
+        str(plan_path),
+        "--launch-nonce",
+        nonce,
+    ]
     print("launching permissioned helper; this may run for a long time", flush=True)
     completed = subprocess.run(command, check=False)
     if completed.returncode:
@@ -324,6 +506,33 @@ def command_run_plan(args: argparse.Namespace) -> int:
     if before is not None and before == after:
         raise ValueError(f"receipt was not refreshed: {receipt_path}")
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    if receipt.get("execution_nonce") != nonce:
+        raise ValueError("helper receipt does not match the bridge launch nonce")
+    if receipt.get("plan_file_sha256") != plan_file_sha256:
+        raise ValueError("helper receipt does not match the launched plan bytes")
+    if receipt.get("source_id") != plan.get("source_album_identifier"):
+        raise ValueError("helper observed a different source album than the plan")
+    expected_source_count = (plan.get("source") or {}).get(
+        "actual_count", plan.get("expected_source_count")
+    )
+    if int(receipt.get("source_count", -1)) != int(expected_source_count):
+        raise ValueError("helper observed a different source count than the plan")
+    if file_sha256(APP_EXECUTABLE) != helper_profile["binary_sha256"]:
+        raise ValueError("helper binary changed during execution")
+    source = plan.get("source") or {}
+    receipt.update(
+        {
+            "schema_version": 1,
+            "plan_fingerprint": canonical_json_fingerprint(plan),
+            "source_id": source.get("id", plan.get("source_album_identifier")),
+            "source_fingerprint": source.get("fingerprint"),
+            "helper": {
+                "bundle_identifier": helper_profile["bundle_identifier"],
+                "binary_sha256": helper_profile["binary_sha256"],
+            },
+        }
+    )
+    dump_json(receipt_path, receipt)
     print(json.dumps(receipt, indent=2, ensure_ascii=False))
     return 0
 
@@ -333,6 +542,7 @@ def parser() -> argparse.ArgumentParser:
     sub = root.add_subparsers(dest="command", required=True)
 
     doctor = sub.add_parser("doctor", help="check the local integration without mutating Photos")
+    doctor.add_argument("--helper-profile-output", type=Path)
     doctor.set_defaults(func=command_doctor)
 
     init = sub.add_parser("init-run", help="create a durable versioned run workspace")
@@ -368,6 +578,8 @@ def parser() -> argparse.ArgumentParser:
     plans.add_argument("--config", type=Path)
     plans.add_argument("--source-id", default=SOURCE_ID)
     plans.add_argument("--source-count", type=int, default=SOURCE_COUNT)
+    plans.add_argument("--source-profile", type=Path)
+    plans.add_argument("--catalog-plan", type=Path, required=True)
     plans.add_argument("--batch-size", type=int, default=500)
     plans.set_defaults(func=command_snapshot_plans)
 

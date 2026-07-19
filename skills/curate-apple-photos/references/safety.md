@@ -2,6 +2,17 @@
 
 Automated flags are conservative retrieval controls, not declarations about a person or document.
 
+## Safety states
+
+- `clear_automated`: no automated hold signal; not a public-clearance decision.
+- `hold_automated`: automatically quarantined before ranking.
+- `review_sensitive`: requires protected human review and cannot enter the general master.
+- `cleared_editor_private`: human-cleared for the private editor field only.
+- `cleared_public_candidate`: human-cleared as a candidate for a later public edit.
+- `restricted_private`: retained privately and excluded from general editor and public-candidate fields.
+
+Automated logic may move an item toward greater restriction. Only a human editor may grant either clearance state. Editorial relevance and safety state are separate judgments.
+
 ## Automatic HOLD
 
 - identity documents;
@@ -16,7 +27,7 @@ Store only generalized flags. Keep raw OCR ephemeral.
 
 ## Human-sensitive review
 
-Use `needs-review` for minors, intimate domestic scenes, vulnerable people, private homes, grief, health context, protest risk, or images whose publication could change someone's safety or dignity. Do not automatically include these in an editor-facing master.
+Use `review_sensitive` for minors, intimate domestic scenes, vulnerable people, private homes, grief, health context, protest risk, or images whose publication could change someone's safety or dignity. Do not automatically include these in an editor-facing master.
 
 ## Public meaning
 
@@ -38,4 +49,3 @@ Prohibited:
 - direct Photos database writes;
 - cloud analysis or external upload;
 - replacing or renaming prior versions.
-

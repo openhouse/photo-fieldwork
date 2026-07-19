@@ -6,13 +6,17 @@ It does not automate taste. It helps people automate retrieval, deduplication, b
 
 ## Try it in two minutes
 
-Requirements: Python 3.11 or newer. The practice workflow has no third-party dependencies and does not access Apple Photos.
+Requirements: Python 3.11 or newer. Install the package once so Pillow can decode preview evidence. The practice workflow does not access Apple Photos.
+
+```bash
+python3 -m pip install -e .
+```
 
 ```bash
 make demo
 ```
 
-This creates a synthetic inventory, runs a deterministic selection, quarantines unsafe records, produces a stratified evaluation sample, applies practice feedback, and validates the result under `runs/practice/`.
+This creates a synthetic inventory and source fingerprint, runs exact quota assignment, quarantines unsafe records, produces a UUID-addressed evaluation sample, applies practice feedback, and validates the result under `runs/practice/`.
 
 Inspect the outputs:
 
@@ -30,15 +34,29 @@ make check
 
 ## Use it with your own inventory
 
-1. Copy `config/starter.json` and edit the views, quotas, and thresholds.
-2. Prepare a CSV using `schemas/inventory-fields.md`.
-3. Run the selection and create an evaluation sample.
-4. Inspect sampled images locally and record `fit`, `reject`, or `uncertain`.
-5. Evaluate, revise, and repeat until the agreed criteria pass.
-6. Generate a catalog write plan. Test ten items before any production write.
-7. Verify the committed album membership independently and read-only.
+1. Copy `config/starter.json` and edit the views, exact quotas, and evaluation gates.
+2. Prepare a CSV using `schemas/inventory-fields.md`, then freeze its UUID membership in a source profile.
+3. Initialize a run ledger and record phase artifacts as work completes.
+4. Run the selection and create an evaluation sample.
+5. Inspect sampled images locally and record UUID-keyed `fit`, `reject`, or `uncertain` decisions with visible reasons.
+6. Evaluate, apply feedback, revise, and repeat until the agreed overall and per-view gates pass.
+7. Bind the plan to the installed helper profile. Test ten items before any production write.
+8. Run production twice with distinct nonces, then verify exact membership, topology, safety separation, and source identity independently and read-only.
+9. Build a separate public handoff only from specifically cleared rights, consent, claim, and publication states.
 
 ```bash
+./bin/photo-fieldwork source-profile \
+  --inventory path/to/inventory.csv \
+  --id visible-library-stills://v1 \
+  --kind photos-query \
+  --scope "visible, non-hidden, non-trashed stills" \
+  --output runs/my-run/inventory/source-profile.json
+
+./bin/photo-fieldwork init-run \
+  --run runs/my-run \
+  --version v01 \
+  --target 4000
+
 ./bin/photo-fieldwork select \
   --inventory path/to/inventory.csv \
   --config path/to/config.json \
@@ -51,8 +69,29 @@ make check
 
 ./bin/photo-fieldwork evaluate \
   --feedback runs/my-run/manifests/eval-sample.csv \
+  --master runs/my-run/manifests/proposed-master.csv \
   --config path/to/config.json \
   --output runs/my-run/reports
+
+./bin/photo-fieldwork freshness \
+  --sample runs/my-run/manifests/final-holdout.csv \
+  --prior-feedback runs/my-run/manifests/round-01-feedback.csv \
+  --prior-feedback runs/my-run/manifests/round-02-feedback.csv \
+  --minimum-fresh-fraction 1 \
+  --require-disjoint \
+  --output runs/my-run/reports
+
+./bin/photo-fieldwork split-audit \
+  --tuning runs/my-run/manifests/round-01-feedback.csv \
+  --holdout runs/my-run/manifests/final-holdout.csv \
+  --canary runs/my-run/manifests/regression-canaries.csv \
+  --output runs/my-run/reports/final-split-audit.json
+
+./bin/photo-fieldwork apply-feedback \
+  --master runs/my-run/manifests/proposed-master.csv \
+  --sample runs/my-run/manifests/eval-sample.csv \
+  --feedback runs/my-run/manifests/eval-feedback.csv \
+  --output runs/my-run
 
 ./bin/photo-fieldwork validate \
   --master runs/my-run/manifests/proposed-master.csv \
@@ -64,9 +103,22 @@ make check
   --master runs/my-run/manifests/proposed-master.csv \
   --config path/to/config.json \
   --plan-id my-run-v01 \
-  --source-title "Wide retrieval - do not edit" \
-  --source-identifier SOURCE-ID \
+  --source-profile runs/my-run/inventory/source-profile.json \
+  --holds runs/my-run/manifests/hold-sensitive.csv \
+  --evaluation-seal runs/my-run/reports/evaluation-seal.json \
+  --evaluation-report runs/my-run/reports/evaluation-report.json \
+  --helper-profile runs/my-run/inventory/helper-profile.json \
   --output runs/my-run/manifests/catalog-plan.json
+
+./bin/photo-fieldwork transition \
+  --run runs/my-run \
+  --phase validation \
+  --status completed \
+  --expected-revision 1 \
+  --artifact runs/my-run/reports/validation-report.json \
+  --attempt-id validation-0001
+
+./bin/photo-fieldwork status runs/my-run
 ```
 
 ## The central distinction
@@ -81,13 +133,22 @@ Those are different questions. Photo Fieldwork keeps them different.
 
 ## What is included
 
-- A deterministic, configurable selection engine.
-- Safety holds that cannot enter the master.
-- Duplicate and burst controls.
+- A deterministic, capacity-aware selection engine that meets exact view quotas or reports why it cannot.
+- Explicit safety states whose restricted lanes cannot enter the general master.
+- Duplicate and burst controls that propagate unresolved safety holds across related images.
 - Named-people and visible-apparatus signals.
 - An unclassified editor field for honest uncertainty.
-- Stratified evaluation samples and precision thresholds.
+- UUID-hashed evaluation samples with separate coverage, decisive precision, fit, rejection, and uncertainty rates.
+- Final-holdout freshness gates and evaluation seals that bind planning to the reviewed candidate.
+- Cluster-clean holdout audits across UUID, perceptual, duplicate, burst, tuning, and canary evidence.
+- Preview coverage, collision, checksum, and full JPEG-decode verification.
+- Atomic run state, an append-only event ledger, artifact checksums, and state recovery.
+- Frozen source profiles with SHA-256 membership fingerprints.
+- Semantic album plans and machine-readable plus human-readable verification reports.
+- Helper capability negotiation, exact plan/receipt/topology binding, and distinct-execution idempotence evidence.
+- A closed public-handoff projection with opaque IDs and independent rights, consent, claim, and publication gates.
 - A fully synthetic practice run.
+- Sixteen synthetic contract evals, including a 4,000-item benchmark, run by `make check`.
 - Apple Photos integration guidance and adapter contracts.
 - A case study of how visual inspection changed a real workflow.
 
@@ -99,7 +160,9 @@ Those are different questions. Photo Fieldwork keeps them different.
 - Direct writes to Photos SQLite.
 - A claim that the generated corpus is the final edit.
 
-Read [the workflow](docs/workflow.md), [the architecture](docs/architecture.md), [the safety model](docs/safety.md), and [the Apple Photos guide](docs/apple-photos.md) before using a private archive.
+Read [the workflow](docs/workflow.md), [the architecture](docs/architecture.md), [run integrity](docs/run-integrity.md), [the safety model](docs/safety.md), and [the Apple Photos guide](docs/apple-photos.md) before using a private archive.
+
+The rationale for the selected branch-family contracts is recorded in [the preferred composite](docs/preferred-composite.md).
 
 ## Use it as a Codex skill
 

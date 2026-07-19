@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Photo Fieldwork execution receipt",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "completed_at",
+    "execution_nonce",
+    "plan_file_sha256",
+    "plan_id",
+    "plan_fingerprint",
+    "source_id",
+    "source_count",
+    "helper",
+    "folders",
+    "albums"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "completed_at": {"type": "string", "format": "date-time"},
+    "execution_nonce": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+    "plan_file_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "plan_id": {"type": "string", "minLength": 1},
+    "plan_fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "source_id": {"type": "string", "minLength": 1},
+    "source_count": {"type": "integer", "minimum": 0},
+    "source_fingerprint": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"},
+    "helper": {
+      "type": "object",
+      "required": ["bundle_identifier", "binary_sha256"],
+      "properties": {
+        "bundle_identifier": {"type": "string", "minLength": 1},
+        "binary_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+      }
+    },
+    "folders": {"type": "array"},
+    "albums": {"type": "array"}
+  },
+  "additionalProperties": true
+}

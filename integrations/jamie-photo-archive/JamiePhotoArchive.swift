@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import CryptoKit
 import Photos
 import Vision
 
@@ -15,10 +16,24 @@ struct FolderSpec: Codable {
 }
 
 struct AlbumSpec: Codable {
+    let key: String
     let title: String
     let parent_folder_key: String
     let existing_identifier: String?
     let asset_identifiers: [String]
+}
+
+struct ReleaseCandidate: Codable {
+    let catalog_plan_id: String
+    let catalog_plan_fingerprint: String
+    let release_class: String
+}
+
+struct HelperRequirement: Codable {
+    let bundle_identifier: String
+    let binary_sha256: String
+    let required_capabilities: [String]
+    let plan_schema_version: Int
 }
 
 struct SnapshotPlan: Codable {
@@ -28,6 +43,8 @@ struct SnapshotPlan: Codable {
     let safety_mode: String
     let source_album_identifier: String
     let expected_source_count: Int
+    let release_candidate: ReleaseCandidate
+    let helper_requirement: HelperRequirement
     let batch_size: Int
     let log_path: String
     let receipt_path: String
@@ -86,18 +103,23 @@ struct InspectionReceipt: Codable {
     let resumed_count: Int
     let network_access_allowed: Bool
     let external_uploads_performed: Bool
+    let execution_nonce: String
+    let plan_file_sha256: String
 }
 
 struct FolderReceipt: Codable {
     let key: String
     let title: String
     let identifier: String
+    let parent_identifier: String?
 }
 
 struct AlbumReceipt: Codable {
+    let key: String
     let title: String
     let identifier: String
     let count: Int
+    let parent_identifier: String
 }
 
 struct SnapshotReceipt: Codable {
@@ -108,6 +130,8 @@ struct SnapshotReceipt: Codable {
     let safety_mode: String
     let folders: [FolderReceipt]
     let albums: [AlbumReceipt]
+    let execution_nonce: String
+    let plan_file_sha256: String
 }
 
 enum ArchiveError: Error, CustomStringConvertible {
@@ -124,7 +148,7 @@ enum ArchiveError: Error, CustomStringConvertible {
     var description: String {
         switch self {
         case .usage:
-            return "Usage: JamiePhotoArchive --plan /absolute/path/plan.json"
+            return "Usage: JamiePhotoArchive --plan /absolute/path/plan.json --launch-nonce 32_HEX_CHARACTERS"
         case .authorization(let status):
             return "Full Photos access unavailable; authorization status=\(status)"
         case .invalidPlan(let reason):
@@ -174,7 +198,7 @@ final class InspectionRunner {
         }
     }
 
-    func run() throws -> InspectionReceipt {
+    func run(executionNonce: String, planFileSHA256: String) throws -> InspectionReceipt {
         guard plan.schema_version == 1 else {
             throw ArchiveError.invalidPlan("unsupported inspection schema_version")
         }
@@ -286,7 +310,9 @@ final class InspectionRunner {
             unavailable_count: unavailableCount,
             resumed_count: completed.count,
             network_access_allowed: plan.network_access_allowed,
-            external_uploads_performed: false
+            external_uploads_performed: false,
+            execution_nonce: executionNonce,
+            plan_file_sha256: planFileSHA256
         )
     }
 
@@ -505,9 +531,45 @@ final class ArchiveRunner {
         }
     }
 
-    func run() throws -> SnapshotReceipt {
-        guard plan.schema_version == 1 else {
+    func run(executionNonce: String, planFileSHA256: String) throws -> SnapshotReceipt {
+        guard plan.schema_version == 2 else {
             throw ArchiveError.invalidPlan("unsupported schema_version")
+        }
+        guard plan.release_candidate.release_class == "editor-field",
+              !plan.release_candidate.catalog_plan_id.isEmpty,
+              plan.release_candidate.catalog_plan_fingerprint.range(
+                of: #"^sha256:[0-9a-f]{64}$"#,
+                options: .regularExpression
+              ) != nil else {
+            throw ArchiveError.invalidPlan("release candidate is missing or malformed")
+        }
+        guard plan.helper_requirement.plan_schema_version == plan.schema_version else {
+            throw ArchiveError.invalidPlan("helper requirement does not authorize this plan schema")
+        }
+        guard Bundle.main.bundleIdentifier == plan.helper_requirement.bundle_identifier else {
+            throw ArchiveError.invalidPlan("helper bundle differs from the authorized plan")
+        }
+        let capabilities: Set<String> = [
+            "membership-only-write",
+            "receipt-plan-digest",
+            "launch-nonce",
+            "exact-folder-topology",
+        ]
+        let missingCapabilities = Set(plan.helper_requirement.required_capabilities).subtracting(capabilities)
+        guard missingCapabilities.isEmpty else {
+            throw ArchiveError.invalidPlan(
+                "helper lacks authorized capabilities: \(missingCapabilities.sorted().joined(separator: ", "))"
+            )
+        }
+        guard let executableURL = Bundle.main.executableURL else {
+            throw ArchiveError.invalidPlan("helper executable path is unavailable")
+        }
+        let executableData = try Data(contentsOf: executableURL)
+        let executableSHA256 = "sha256:" + SHA256.hash(data: executableData)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        guard executableSHA256 == plan.helper_requirement.binary_sha256 else {
+            throw ArchiveError.invalidPlan("helper binary differs from the authorized plan")
         }
         guard plan.safety_mode == "create-folders-albums-and-add-membership-only" else {
             throw ArchiveError.invalidPlan("unrecognized safety_mode")
@@ -535,7 +597,8 @@ final class ArchiveRunner {
                 FolderReceipt(
                     key: spec.key,
                     title: spec.title,
-                    identifier: folder.localIdentifier
+                    identifier: folder.localIdentifier,
+                    parent_identifier: spec.parent_key.flatMap { folderByKey[$0]?.localIdentifier }
                 )
             )
             log("verified_folder key=\(spec.key) id=\(folder.localIdentifier)")
@@ -553,9 +616,11 @@ final class ArchiveRunner {
             let count = PHAsset.fetchAssets(in: album, options: nil).count
             albumReceipts.append(
                 AlbumReceipt(
+                    key: spec.key,
                     title: spec.title,
                     identifier: album.localIdentifier,
-                    count: count
+                    count: count,
+                    parent_identifier: parent.localIdentifier
                 )
             )
         }
@@ -567,7 +632,9 @@ final class ArchiveRunner {
             source_count: sourceCount,
             safety_mode: plan.safety_mode,
             folders: folderReceipts,
-            albums: albumReceipts
+            albums: albumReceipts,
+            execution_nonce: executionNonce,
+            plan_file_sha256: planFileSHA256
         )
     }
 
@@ -762,13 +829,22 @@ do {
           arguments.indices.contains(planIndex + 1) else {
         throw ArchiveError.usage
     }
+    guard let nonceIndex = arguments.firstIndex(of: "--launch-nonce"),
+          arguments.indices.contains(nonceIndex + 1) else {
+        throw ArchiveError.invalidPlan("launch nonce is required")
+    }
+    let executionNonce = arguments[nonceIndex + 1]
+    guard executionNonce.range(of: #"^[0-9a-f]{32}$"#, options: .regularExpression) != nil else {
+        throw ArchiveError.invalidPlan("launch nonce is malformed")
+    }
     let planURL = URL(fileURLWithPath: arguments[planIndex + 1])
     let planData = try Data(contentsOf: planURL)
+    let planFileSHA256 = "sha256:" + SHA256.hash(data: planData).map { String(format: "%02x", $0) }.joined()
     let header = try JSONDecoder().decode(PlanHeader.self, from: planData)
     if header.operation == "inspect-local-images" {
         let plan = try JSONDecoder().decode(InspectionPlan.self, from: planData)
         let runner = InspectionRunner(plan: plan)
-        let receipt = try runner.run()
+        let receipt = try runner.run(executionNonce: executionNonce, planFileSHA256: planFileSHA256)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let receiptURL = URL(fileURLWithPath: plan.receipt_path)
@@ -781,7 +857,7 @@ do {
     } else {
         let plan = try JSONDecoder().decode(SnapshotPlan.self, from: planData)
         let runner = ArchiveRunner(plan: plan)
-        let receipt = try runner.run()
+        let receipt = try runner.run(executionNonce: executionNonce, planFileSHA256: planFileSHA256)
         try writeReceipt(receipt, to: plan.receipt_path)
         runner.log("completed receipt=\(plan.receipt_path)")
     }

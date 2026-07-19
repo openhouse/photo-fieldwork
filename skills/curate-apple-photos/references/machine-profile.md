@@ -7,7 +7,7 @@ Use these as defaults, then verify them live.
 - App: `/Applications/Jamie Photo Archive.app`
 - Executable: `/Applications/Jamie Photo Archive.app/Contents/MacOS/JamiePhotoArchive`
 - Bundle identifier: `art.jamieburkart.jamiephotoarchive`
-- Installed app version reported on 2026-07-10: 1.0. Capabilities and stable bundle identifier are authoritative; do not replace the app merely for a version-label mismatch.
+- This revision's reviewed helper contract is 3.0. `doctor` must confirm the installed app's bundle identity, binary digest, capabilities, and schema support before a write; install or rebuild the reviewed source explicitly when that gate fails.
 - Supported operations:
   - `inspect-local-images`: local PhotoKit image retrieval, Vision labels, face counts, ephemeral OCR-based safety flags, optional private previews;
   - snapshot plans: create folders/albums and add existing asset membership only.
@@ -15,7 +15,7 @@ Use these as defaults, then verify them live.
 Always launch plans through the app bundle so macOS uses its stable Photos permission identity:
 
 ```bash
-open -W -n "/Applications/Jamie Photo Archive.app" --args --plan /absolute/path/plan.json
+python3 scripts/photo_archive_bridge.py run-plan --plan /absolute/path/plan.json
 ```
 
 ## Immutable wide source

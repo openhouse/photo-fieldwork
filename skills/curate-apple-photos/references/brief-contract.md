@@ -38,7 +38,8 @@ Follow `/Volumes/16TB_SSD/Sites/photo-fieldwork/schemas/config.schema.json`.
 - Reserve 8-12% for `Unclassified / Editor Field` unless the brief gives a reason not to.
 - Preserve both a named-people field and a meaningful person-free field.
 - Project views should say `Editor Hypothesis` until validated.
-- Default evaluation minimums: 0.80 precision and 0.90 coverage.
+- Default evaluation minimums: 0.80 decisive precision and 0.90 coverage.
+- Configure a maximum uncertainty rate, minimum decisive judgments per material view, minimum per-view decisive precision, and maximum per-view uncertainty. Name explicit uncertainty views separately.
 - Default selection floors: `minimum_named_people_fraction` 0.35 and `minimum_person_free_fraction` 0.20, adjusted when the brief genuinely calls for a different balance.
 - Keep the random seed fixed for the run.
 

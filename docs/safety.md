@@ -17,9 +17,18 @@
 - Inferring age, race, health, sexuality, or other sensitive traits.
 - Using aesthetic models to rank unrelated photographs.
 
-## Safety hold contract
+## Safety-state contract
 
-Any item marked `safety_status=hold`, hidden, or missing is excluded before ranking. Validation fails if a hold ID appears in the proposed master.
+Safety is separate from editorial relevance:
+
+- `clear_automated`: no automated hold signal; not publication clearance.
+- `hold_automated`: quarantined before ranking.
+- `review_sensitive`: protected human review required.
+- `cleared_editor_private`: human-cleared for a private editor field.
+- `cleared_public_candidate`: human-cleared as a candidate for later public editing.
+- `restricted_private`: privately retained and excluded from general fields.
+
+Legacy `clear`, `hold`, and `needs-review` values normalize to the corresponding automated states. Automated logic may escalate sensitivity. Only `actor=human-editor` may grant a clearance state. Hidden and missing items enter `hold_automated`. Validation fails if a restricted ID appears in the general master.
 
 The HOLD set should be private and access-controlled. It is not an editor album and must not be exported casually.
 
@@ -36,4 +45,3 @@ A production adapter must:
 7. Support independent read-only verification.
 
 If an adapter cannot meet all seven conditions, it is not production-ready.
-
