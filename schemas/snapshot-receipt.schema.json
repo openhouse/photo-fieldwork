@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Photo Fieldwork Apple Photos snapshot receipt",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema_version", "plan_id", "plan_sha256", "helper_revision", "helper_version", "proposal_id",
+    "master_sha256", "hold_sha256", "config_sha256", "source_fingerprint",
+    "release_class", "source_count", "safety_mode", "folders", "albums"
+  ],
+  "properties": {
+    "schema_version": {"const": 2},
+    "plan_id": {"type": "string"},
+    "plan_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "helper_revision": {"type": "string"},
+    "helper_version": {"type": "string"},
+    "proposal_id": {"type": "string"},
+    "master_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "hold_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "config_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "source_fingerprint": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "release_class": {"type": "string"},
+    "source_count": {"type": "integer", "minimum": 1},
+    "folders": {"type": "array"},
+    "albums": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["key", "title", "identifier", "count"],
+        "properties": {
+          "key": {"type": "string"},
+          "title": {"type": "string"},
+          "identifier": {"type": "string"},
+          "count": {"type": "integer", "minimum": 0}
+        }
+      }
+    }
+  }
+}

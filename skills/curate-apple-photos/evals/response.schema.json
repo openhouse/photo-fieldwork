@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Photo Fieldwork decision-drill response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "decision",
+    "release_class",
+    "controls",
+    "observed_facts",
+    "unknowns",
+    "blocking_conditions",
+    "next_actions",
+    "prohibited_actions",
+    "claim_boundary"
+  ],
+  "properties": {
+    "decision": {
+      "enum": ["block", "resume", "revise", "proceed", "complete"]
+    },
+    "release_class": {
+      "enum": [null, "editor-field-verified", "master-human-reviewed", "publication-ready"]
+    },
+    "controls": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "photos_mutation_authorized",
+        "publication_authorized",
+        "source_revalidation_required",
+        "human_safety_review_required",
+        "fresh_visual_review_required",
+        "helper_compatibility_required",
+        "independent_verification_required",
+        "assignment_reconciliation_required",
+        "evaluation_independence_required",
+        "artifact_chain_revalidation_required",
+        "run_reconciliation_required"
+      ],
+      "properties": {
+        "photos_mutation_authorized": {
+          "type": "boolean",
+          "description": "True only when the supplied evidence presently authorizes a Photos mutation."
+        },
+        "publication_authorized": {
+          "type": "boolean",
+          "description": "True only when the supplied evidence presently authorizes publication."
+        },
+        "source_revalidation_required": {
+          "type": "boolean",
+          "description": "True only when source revalidation remains outstanding after considering the supplied evidence."
+        },
+        "human_safety_review_required": {
+          "type": "boolean",
+          "description": "True only when a human safety decision remains outstanding after considering the supplied evidence."
+        },
+        "fresh_visual_review_required": {
+          "type": "boolean",
+          "description": "True only when fresh visual review remains outstanding after considering the supplied evidence."
+        },
+        "helper_compatibility_required": {
+          "type": "boolean",
+          "description": "True only when helper compatibility has not yet been established by the supplied evidence."
+        },
+        "independent_verification_required": {
+          "type": "boolean",
+          "description": "True only when required independent verification remains outstanding after considering the supplied evidence."
+        },
+        "assignment_reconciliation_required": {
+          "type": "boolean",
+          "description": "True only when exact quotas, assignments, or replacement closure remain unresolved."
+        },
+        "evaluation_independence_required": {
+          "type": "boolean",
+          "description": "True only when the final holdout or fresh-evidence boundary remains unproved."
+        },
+        "artifact_chain_revalidation_required": {
+          "type": "boolean",
+          "description": "True only when source, master, config, evaluation, validation, or plan bindings must be regenerated or revalidated."
+        },
+        "run_reconciliation_required": {
+          "type": "boolean",
+          "description": "True only when durable run state, attempts, receipts, or catalog observations disagree or are incomplete."
+        }
+      }
+    },
+    "observed_facts": {"type": "array", "items": {"type": "string"}},
+    "unknowns": {"type": "array", "items": {"type": "string"}},
+    "blocking_conditions": {"type": "array", "items": {"type": "string"}},
+    "next_actions": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    "prohibited_actions": {"type": "array", "items": {"type": "string"}},
+    "claim_boundary": {"type": "array", "items": {"type": "string"}, "minItems": 1}
+  }
+}

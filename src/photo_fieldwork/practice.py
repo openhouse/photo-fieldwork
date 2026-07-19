@@ -6,7 +6,8 @@ from pathlib import Path
 
 
 FIELDS = [
-    "uuid", "filename", "candidate_views", "evidence_confidence", "visible_context",
+    "uuid", "filename", "candidate_views", "assigned_view", "assignment_status",
+    "assignment_reason", "assignment_version", "evidence_confidence", "visible_context",
     "persons", "favorite", "edited", "safety_status", "safety_reason", "hidden",
     "missing", "duplicate_group", "burst_group", "aesthetic_score", "event_cluster",
     "date", "place", "local_path",
@@ -28,12 +29,20 @@ def create_demo_inventory(path: Path) -> None:
             "uuid": f"DEMO-{index:03d}",
             "filename": f"practice-{index:03d}.jpg",
             "candidate_views": view,
+            "assigned_view": view or "00",
+            "assignment_status": "assigned" if view else "unclassified",
+            "assignment_reason": "synthetic practice assignment",
+            "assignment_version": "synthetic-v1",
             "evidence_confidence": confidence,
             "visible_context": context,
             "persons": people,
             "favorite": "true" if index % 7 == 0 else "false",
             "edited": "true" if index % 6 == 0 else "false",
-            "safety_status": "hold" if index in {9, 24} else "clear",
+            "safety_status": (
+                "hold-automated" if index in {9, 24}
+                else "needs-human-review" if index == 14
+                else "clear-automated"
+            ),
             "safety_reason": "possible private document" if index == 9 else "possible private contact information" if index == 24 else "",
             "hidden": "false",
             "missing": "false",
@@ -75,4 +84,3 @@ def write_demo_readme(path: Path) -> None:
         "safety and Apple Photos documentation.\n",
         encoding="utf-8",
     )
-

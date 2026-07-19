@@ -3,22 +3,31 @@
 Photo Fieldwork keeps archive-specific access separate from archive-independent judgment.
 
 ```text
-Catalog reader or filesystem scanner
+Versioned source adapter + source manifest
               |
               v
        inventory.csv
               |
               v
+retrieval hypotheses + local inspection
+              |
+              v
+ explicit editorial assignments
+              |
+              v
  deterministic selector ---> hold-sensitive.csv
               |
               v
-   proposed-master.csv
+   proposed-master.csv + master_sha256 + hold_sha256
         |            |
         v            v
- evaluation loop   catalog-plan.json
+ scoped evaluation   hash-bound catalog-plan.json
                          |
                          v
                  catalog writer adapter
+                         |
+                         v
+              hash-bound app receipt
                          |
                          v
                   independent verifier
@@ -26,13 +35,13 @@ Catalog reader or filesystem scanner
 
 ## Core
 
-The standard-library Python core reads a normalized CSV, applies immutable safety exclusions, reduces duplicate and burst clusters, assigns editor views, creates selection reasons, samples evaluations, measures results, validates invariants, and emits an adapter-neutral catalog plan.
+The standard-library Python core reads a normalized CSV, propagates typed safety exclusions through connected duplicate and burst relations, consumes explicit editor assignments, enforces exact quotas, creates selection reasons, freezes proposal and sample hashes, distinguishes evaluation scopes and release classes, validates invariants, and emits an adapter-neutral catalog plan only when the exact master and source match passing evaluation and validation artifacts.
 
 The core does not read a Photos database, open images, call a model, or mutate a catalog.
 
 ## Reader adapters
 
-A reader converts a catalog or filesystem into `inventory.csv`. Reader development should preserve stable IDs and existing human metadata while minimizing sensitive exports.
+A reader converts a versioned source snapshot into `inventory.csv`. Reader development should preserve stable IDs and existing human metadata while minimizing sensitive exports. Source manifests record the adapter identifier, observed count, predicate version, and fingerprint; an unacknowledged source change blocks later phases.
 
 Potential adapters include:
 
@@ -48,11 +57,11 @@ An inspector may add local visible-context, technical-quality, and generalized s
 
 ## Writer adapters
 
-A writer consumes `catalog-plan.json`. It may create version folders, create albums, and add existing stable IDs. It must not invent selection logic. It must emit a receipt and be safe to rerun.
+A writer consumes schema-version-2 `catalog-plan.json`. It may create version folders, create albums, and add existing stable IDs. It must not invent selection logic. It must decode and preserve source, proposal, master, hold, evaluation, validation, plan, release, and helper-revision fields; emit a matching receipt; update revisioned hash-linked run state; and be safe to rerun.
 
 ## Verifier adapters
 
-A verifier independently compares plan and catalog. It should be read-only and should not share mutation code with the writer.
+A verifier independently compares plan, receipt, source membership, and catalog. It should be read-only and should not share mutation code with the writer. Count equality alone is insufficient: the source membership digest must match.
 
 ## Extension points
 

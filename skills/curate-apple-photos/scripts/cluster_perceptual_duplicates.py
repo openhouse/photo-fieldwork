@@ -1,0 +1,192 @@
+#!/usr/bin/env python3
+"""Add local perceptual duplicate clusters to a candidate manifest.
+
+The script reads exported previews, computes a 64-bit difference hash, and uses
+banded candidate lookup before exact Hamming-distance comparison. No pixels or
+hashes leave the machine. Every source row is preserved in the output.
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+from collections import defaultdict
+from pathlib import Path
+
+from PIL import Image, ImageOps, UnidentifiedImageError
+
+
+BAND_WIDTHS = (7, 7, 7, 7, 7, 7, 7, 7, 8)
+
+
+def preview_path(directories: list[Path], identifier: str) -> Path | None:
+    names = [
+        f"{identifier}.jpg",
+        f"{identifier.replace('/', '_')}.jpg",
+        f"{identifier.split('/', 1)[0]}.jpg",
+    ]
+    for directory in directories:
+        for name in names:
+            candidate = directory / name
+            if candidate.is_file():
+                return candidate
+    return None
+
+
+def difference_hash(path: Path) -> int:
+    with Image.open(path) as source:
+        image = ImageOps.exif_transpose(source).convert("L").resize((9, 8))
+        pixels = list(image.getdata())
+    value = 0
+    for row in range(8):
+        for column in range(8):
+            left = pixels[row * 9 + column]
+            right = pixels[row * 9 + column + 1]
+            value = (value << 1) | int(left > right)
+    return value
+
+
+def hamming(left: int, right: int) -> int:
+    return (left ^ right).bit_count()
+
+
+def bands(value: int):
+    offset = 0
+    for band, width in enumerate(BAND_WIDTHS):
+        yield band, (value >> offset) & ((1 << width) - 1)
+        offset += width
+
+
+class UnionFind:
+    def __init__(self, values: list[str]) -> None:
+        self.parent = {value: value for value in values}
+
+    def find(self, value: str) -> str:
+        while self.parent[value] != value:
+            self.parent[value] = self.parent[self.parent[value]]
+            value = self.parent[value]
+        return value
+
+    def union(self, left: str, right: str) -> None:
+        left_root = self.find(left)
+        right_root = self.find(right)
+        if left_root != right_root:
+            self.parent[max(left_root, right_root)] = min(left_root, right_root)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--input", type=Path, required=True)
+    parser.add_argument("--previews", type=Path, action="append", required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--threshold", type=int, default=8)
+    args = parser.parse_args()
+    if not 0 <= args.threshold <= 8:
+        raise SystemExit("threshold must be between 0 and 8 for guaranteed nine-band candidate recall")
+
+    with args.input.open(newline="", encoding="utf-8-sig") as handle:
+        reader = csv.DictReader(handle)
+        fields = list(reader.fieldnames or [])
+        rows = list(reader)
+    if not rows or "uuid" not in fields:
+        raise SystemExit("input requires uuid rows")
+
+    hashes: dict[str, int] = {}
+    unavailable: dict[str, str] = {}
+    for row in rows:
+        identifier = row["uuid"]
+        path = preview_path(args.previews, identifier)
+        if path is None:
+            unavailable[identifier] = "preview unavailable"
+            continue
+        try:
+            hashes[identifier] = difference_hash(path)
+        except (UnidentifiedImageError, OSError):
+            unavailable[identifier] = "preview decode failure"
+
+    union = UnionFind(list(hashes))
+    buckets: dict[tuple[int, int], list[str]] = defaultdict(list)
+    for identifier in sorted(hashes):
+        value = hashes[identifier]
+        candidates: set[str] = set()
+        for band, segment in bands(value):
+            candidates.update(buckets[(band, segment)])
+        for candidate in candidates:
+            if hamming(value, hashes[candidate]) <= args.threshold:
+                union.union(identifier, candidate)
+        for band, segment in bands(value):
+            buckets[(band, segment)].append(identifier)
+
+    connected_groups: dict[str, list[str]] = defaultdict(list)
+    for identifier in hashes:
+        connected_groups[union.find(identifier)].append(identifier)
+    groups: list[list[str]] = []
+    for connected in connected_groups.values():
+        complete_link_groups: list[list[str]] = []
+        for identifier in sorted(connected):
+            compatible = [
+                group
+                for group in complete_link_groups
+                if all(hamming(hashes[identifier], hashes[member]) <= args.threshold for member in group)
+            ]
+            if compatible:
+                best = min(
+                    compatible,
+                    key=lambda group: max(hamming(hashes[identifier], hashes[member]) for member in group),
+                )
+                best.append(identifier)
+            else:
+                complete_link_groups.append([identifier])
+        groups.extend(complete_link_groups)
+    cluster_by_id: dict[str, str] = {}
+    representative_by_id: dict[str, str] = {}
+    distance_by_id: dict[str, int] = {}
+    for members in groups:
+        if len(members) < 2:
+            continue
+        representative = min(
+            members,
+            key=lambda candidate: (
+                sum(hamming(hashes[candidate], hashes[member]) for member in members),
+                candidate,
+            ),
+        )
+        cluster_id = f"phash-{hashes[representative]:016x}"
+        for identifier in members:
+            cluster_by_id[identifier] = cluster_id
+            representative_by_id[identifier] = representative
+            distance_by_id[identifier] = hamming(hashes[identifier], hashes[representative])
+
+    for field in (
+        "perceptual_cluster_id",
+        "perceptual_hash",
+        "perceptual_status",
+        "perceptual_representative",
+        "perceptual_distance_to_representative",
+        "perceptual_method_version",
+    ):
+        if field not in fields:
+            fields.append(field)
+    for row in rows:
+        identifier = row["uuid"]
+        row["perceptual_cluster_id"] = cluster_by_id.get(identifier, "")
+        row["perceptual_hash"] = f"{hashes[identifier]:016x}" if identifier in hashes else ""
+        row["perceptual_status"] = unavailable.get(identifier, "inspected")
+        row["perceptual_representative"] = representative_by_id.get(identifier, "")
+        row["perceptual_distance_to_representative"] = str(distance_by_id.get(identifier, ""))
+        row["perceptual_method_version"] = "dhash64-complete-link-v2"
+
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    with args.output.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        writer.writerows(rows)
+    print(f"hashed_previews={len(hashes)}")
+    print(f"unavailable_previews={len(unavailable)}")
+    print(f"duplicate_clusters={sum(len(members) > 1 for members in groups)}")
+    print(f"clustered_assets={len(cluster_by_id)}")
+    print(f"output={args.output}")
+
+
+if __name__ == "__main__":
+    main()

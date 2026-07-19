@@ -2,11 +2,13 @@
 
 ## Data minimization
 
-- Inventory only the source corpus needed for the run.
+- Resolve and fingerprint only the source scope needed for the run.
+- Use the `minimal` or `retrieval` inventory profile unless a private-operational debug artifact is explicitly required.
 - Use previews rather than originals when possible.
 - Keep exact coordinates out of editor-facing manifests.
 - Store generalized safety flags, not detected private text.
 - Never publish archive manifests containing private local paths or named-person associations without review.
+- Label artifacts `private-operational`, `review-sensitive`, or `public-safe`. Run the public-report linter before human publication review.
 
 ## Prohibited by default
 
@@ -17,11 +19,19 @@
 - Inferring age, race, health, sexuality, or other sensitive traits.
 - Using aesthetic models to rank unrelated photographs.
 
-## Safety hold contract
+## Typed safety contract
 
-Any item marked `safety_status=hold`, hidden, or missing is excluded before ranking. Validation fails if a hold ID appears in the proposed master.
+Revision B recognizes these primary states:
 
-The HOLD set should be private and access-controlled. It is not an editor album and must not be exported casually.
+- `clear-automated`: automation found no configured hold signal; this is not human publication approval.
+- `needs-human-review`: dignity, consent, or contextual safety requires a person.
+- `cleared-human`: a person resolved the review for the declared editor-field purpose.
+- `hold-automated`: a conservative detector quarantined the item.
+- `hold-human`: a person explicitly withheld the item.
+
+Legacy `clear`, `needs-review`, and `hold` remain readable. Only states listed in `eligible_safety_states` may enter selection. Hidden, missing, held, and unresolved review rows are excluded before ranking. Validation and plan generation fail if an ineligible state appears in the proposed master.
+
+The HOLD set and preview workspace should be private and access-controlled. Versioned run directories are created owner-only. Raw OCR is not persisted. A public export needs separate allowlisting and human review.
 
 ## Catalog adapter contract
 
@@ -32,8 +42,7 @@ A production adapter must:
 3. Create only folders, albums, and membership.
 4. Run a ten-item write test first.
 5. Be idempotent and resumable.
-6. Emit a receipt with exact identifiers and counts.
+6. Emit a receipt bound to source, proposal, master, holds, plan hash, release class, and helper revision.
 7. Support independent read-only verification.
 
 If an adapter cannot meet all seven conditions, it is not production-ready.
-

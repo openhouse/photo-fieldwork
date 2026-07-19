@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Photo Fieldwork source manifest",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema_version",
+    "source_adapter",
+    "source_identifier",
+    "source_title",
+    "predicate_version",
+    "observed_count",
+    "membership_sha256",
+    "source_fingerprint",
+    "artifact_sensitivity",
+    "created_at"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "source_adapter": {"type": "string", "minLength": 1},
+    "source_identifier": {"type": "string", "minLength": 1},
+    "source_title": {"type": "string", "minLength": 1},
+    "predicate_version": {"type": "string", "minLength": 1},
+    "observed_count": {"type": "integer", "minimum": 1},
+    "membership_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "source_fingerprint": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "library_fingerprint": {"type": "string"},
+    "inventory_sha256": {"type": "string"},
+    "artifact_sensitivity": {"enum": ["private-operational", "review-sensitive", "public-safe"]},
+    "created_at": {"type": "string"}
+  }
+}

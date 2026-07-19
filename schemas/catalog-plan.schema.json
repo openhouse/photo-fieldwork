@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Photo Fieldwork catalog plan",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema_version", "plan_id", "plan_sha256", "proposal_id", "master_sha256",
+    "hold_sha256", "config_sha256", "source", "source_fingerprint", "release_class",
+    "evaluation", "evaluation_report_sha256", "validation", "validation_report_sha256",
+    "safety_mode", "albums"
+  ],
+  "properties": {
+    "schema_version": {"const": 2},
+    "plan_id": {"type": "string", "minLength": 1},
+    "plan_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "proposal_id": {"type": "string", "pattern": "^pfp-[a-f0-9]{16}$"},
+    "master_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "hold_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "config_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "source": {"$ref": "source-manifest.schema.json"},
+    "source_fingerprint": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "release_class": {"enum": ["editor-field-verified", "master-human-reviewed", "publication-ready"]},
+    "evaluation": {"type": "object"},
+    "evaluation_report_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "validation": {"type": "object"},
+    "validation_report_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "safety_mode": {"type": "string"},
+    "albums": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["key", "title", "asset_identifiers"],
+        "properties": {
+          "key": {"type": "string", "minLength": 1},
+          "title": {"type": "string", "minLength": 1},
+          "asset_identifiers": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+        }
+      }
+    }
+  }
+}

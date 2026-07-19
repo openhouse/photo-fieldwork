@@ -10,4 +10,5 @@ previews/
 originals/
 private/
 *.photoslibrary/
-
+config/local-profile.json
+*.private.json

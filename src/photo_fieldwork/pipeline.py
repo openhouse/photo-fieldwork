@@ -10,9 +10,50 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Iterable
 
+from .contracts import (
+    EVALUATION_SCOPES,
+    RELEASE_CLASSES,
+    canonical_sha256,
+    finalize_plan,
+    identifier_set_sha256,
+    release_satisfies,
+    sample_sha256,
+    validate_source_manifest,
+)
+
+
+JUDGMENTS = {"fit", "reject", "uncertain"}
+ASSIGNMENT_STATUSES = {"assigned", "unclassified", "sparse-hypothesis", "held", "rejected"}
+DEFAULT_ELIGIBLE_SAFETY_STATES = {"clear", "clear-automated", "cleared-human"}
+RELATION_FIELDS = (
+    "perceptual_cluster_id",
+    "duplicate_group",
+    "duplicate_group_id",
+    "burst_group",
+)
+
+
+class SelectionInfeasible(ValueError):
+    """Selection cannot satisfy the frozen per-view or diversity contract."""
+
+    def __init__(
+        self,
+        message: str,
+        deficits: dict[str, object],
+        *,
+        holds: list[dict[str, str]] | None = None,
+        partial_master: list[dict[str, str]] | None = None,
+    ):
+        super().__init__(message)
+        self.deficits = deficits
+        self.holds = holds or []
+        self.partial_master = partial_master or []
+
 
 def read_config(path: Path) -> dict:
     config = json.loads(path.read_text(encoding="utf-8"))
+    if config.get("schema_version") != 2:
+        raise ValueError("config schema_version must be 2")
     view_ids = [view["id"] for view in config["views"]]
     if len(view_ids) != len(set(view_ids)):
         raise ValueError("view IDs must be unique")
@@ -20,16 +61,33 @@ def read_config(path: Path) -> dict:
         raise ValueError("unclassified_view must name a configured view")
     if sum(int(view["quota"]) for view in config["views"]) != int(config["target_count"]):
         raise ValueError("view quotas must sum to target_count")
+    valid_modes = {"material", "sparse-hypothesis"}
+    invalid_modes = {
+        str(view.get("evaluation_mode", "material"))
+        for view in config["views"]
+        if str(view.get("evaluation_mode", "material")) not in valid_modes
+    }
+    if invalid_modes:
+        raise ValueError(f"invalid view evaluation modes: {', '.join(sorted(invalid_modes))}")
+    release_class = str(config.get("required_release_class", "editor-field-verified"))
+    if release_class not in RELEASE_CLASSES:
+        raise ValueError(f"invalid required_release_class: {release_class}")
+    scope = str(config.get("evaluation_scope", "final-stratified-sample"))
+    if scope not in EVALUATION_SCOPES:
+        raise ValueError(f"invalid evaluation_scope: {scope}")
+    eligible_states = config.get("eligible_safety_states", sorted(DEFAULT_ELIGIBLE_SAFETY_STATES))
+    if not isinstance(eligible_states, list) or not eligible_states:
+        raise ValueError("eligible_safety_states must be a non-empty list")
     return config
 
 
-def read_csv(path: Path) -> list[dict[str, str]]:
+def read_csv(path: Path, required: set[str] | None = None) -> list[dict[str, str]]:
     with path.open(newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
     if not rows:
         raise ValueError(f"no rows found in {path}")
-    required = {"uuid", "filename"}
-    missing = required - set(rows[0])
+    required_fields = required or {"uuid", "filename"}
+    missing = required_fields - set(rows[0])
     if missing:
         raise ValueError(f"missing required columns: {', '.join(sorted(missing))}")
     return rows
@@ -63,12 +121,92 @@ def stable_noise(seed: int, uuid: str) -> float:
     return int.from_bytes(digest[:8], "big") / 2**64
 
 
-def is_hold(row: dict[str, str]) -> bool:
+def wilson_interval(successes: int, total: int, z: float = 1.96) -> list[float] | None:
+    if total <= 0:
+        return None
+    proportion = successes / total
+    denominator = 1 + z * z / total
+    center = (proportion + z * z / (2 * total)) / denominator
+    margin = z * math.sqrt((proportion * (1 - proportion) + z * z / (4 * total)) / total) / denominator
+    return [round(max(0.0, center - margin), 4), round(min(1.0, center + margin), 4)]
+
+
+def master_sha256(rows: Iterable[dict[str, str]]) -> str:
+    """Hash the exact membership and editorial assignment written to Photos."""
+    payload = [
+        {
+            "uuid": str(row["uuid"]).split("/", 1)[0],
+            "assigned_view": str(row.get("assigned_view") or row.get("primary_view") or ""),
+        }
+        for row in rows
+    ]
+    payload.sort(key=lambda row: (row["assigned_view"], row["uuid"]))
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def eligible_safety_states(config: dict) -> set[str]:
+    return {
+        str(value).strip().lower()
+        for value in config.get("eligible_safety_states", sorted(DEFAULT_ELIGIBLE_SAFETY_STATES))
+    }
+
+
+def is_hold(row: dict[str, str], config: dict | None = None) -> bool:
+    allowed = eligible_safety_states(config or {})
+    state = str(row.get("safety_status", "clear-automated")).strip().lower()
+    assignment_status = str(row.get("assignment_status", "assigned")).strip().lower()
     return (
-        str(row.get("safety_status", "clear")).lower() == "hold"
+        state not in allowed
+        or assignment_status == "held"
         or truthy(row.get("hidden"))
         or truthy(row.get("missing"))
     )
+
+
+def is_assignment_rejected(row: dict[str, str]) -> bool:
+    return str(row.get("assignment_status", "assigned")).strip().lower() == "rejected"
+
+
+def relational_hold_origins(
+    rows: list[dict[str, str]], config: dict
+) -> dict[str, list[str]]:
+    """Propagate direct HOLD states through duplicate and burst relations."""
+    parents = list(range(len(rows)))
+
+    def find(index: int) -> int:
+        while parents[index] != index:
+            parents[index] = parents[parents[index]]
+            index = parents[index]
+        return index
+
+    def union(left: int, right: int) -> None:
+        left_root = find(left)
+        right_root = find(right)
+        if left_root != right_root:
+            parents[right_root] = left_root
+
+    first_by_relation: dict[tuple[str, str], int] = {}
+    for index, row in enumerate(rows):
+        for field in RELATION_FIELDS:
+            value = str(row.get(field, "")).strip()
+            if not value:
+                continue
+            key = (field, value)
+            if key in first_by_relation:
+                union(index, first_by_relation[key])
+            else:
+                first_by_relation[key] = index
+
+    origins_by_root: dict[int, set[str]] = defaultdict(set)
+    for index, row in enumerate(rows):
+        if is_hold(row, config):
+            origins_by_root[find(index)].add(str(row["uuid"]))
+    return {
+        str(row["uuid"]): sorted(origins_by_root.get(find(index), set()))
+        for index, row in enumerate(rows)
+        if origins_by_root.get(find(index))
+    }
 
 
 def attention_score(row: dict[str, str]) -> float:
@@ -103,7 +241,11 @@ def cluster_representatives(rows: list[dict[str, str]], config: dict) -> list[di
     exact_groups: dict[str, list[dict[str, str]]] = defaultdict(list)
     singles: list[dict[str, str]] = []
     for row in rows:
-        group = row.get("duplicate_group", "").strip()
+        group = (
+            row.get("perceptual_cluster_id", "").strip()
+            or row.get("duplicate_group", "").strip()
+            or row.get("duplicate_group_id", "").strip()
+        )
         (exact_groups[group] if group else singles).append(row)
 
     def cluster_rank(row: dict[str, str]) -> tuple:
@@ -126,15 +268,27 @@ def cluster_representatives(rows: list[dict[str, str]], config: dict) -> list[di
         group = row.get("burst_group", "").strip()
         (burst_groups[group] if group else unburst).append(row)
     limit = int(config.get("burst_limit", 2))
-    for group in burst_groups.values():
-        unburst.extend(sorted(group, key=cluster_rank, reverse=True)[:limit])
+    for burst_rows in burst_groups.values():
+        unburst.extend(sorted(burst_rows, key=cluster_rank, reverse=True)[:limit])
     return unburst
 
 
 def choose_primary_view(row: dict[str, str], config: dict) -> str:
     configured = {view["id"] for view in config["views"]}
-    candidates = [view for view in split_values(row.get("candidate_views")) if view in configured]
-    return candidates[0] if candidates else config["unclassified_view"]
+    assigned = str(row.get("assigned_view", "")).strip()
+    if not assigned:
+        raise ValueError(
+            f"inventory row {row.get('uuid', '<unknown>')} lacks assigned_view; "
+            "candidate_views are retrieval hypotheses, not editorial assignments"
+        )
+    if assigned not in configured:
+        raise ValueError(f"inventory row {row.get('uuid', '<unknown>')} has unknown assigned_view {assigned}")
+    status = str(row.get("assignment_status", "assigned")).strip() or "assigned"
+    if status not in ASSIGNMENT_STATUSES:
+        raise ValueError(f"inventory row {row.get('uuid', '<unknown>')} has invalid assignment_status {status}")
+    if not str(row.get("assignment_version", "")).strip():
+        raise ValueError(f"inventory row {row.get('uuid', '<unknown>')} lacks assignment_version")
+    return assigned
 
 
 def rank_row(row: dict[str, str], config: dict) -> float:
@@ -142,8 +296,28 @@ def rank_row(row: dict[str, str], config: dict) -> float:
 
 
 def select(inventory: list[dict[str, str]], config: dict) -> tuple[list[dict], list[dict], dict]:
-    holds = [dict(row) for row in inventory if is_hold(row)]
-    eligible = cluster_representatives([dict(row) for row in inventory if not is_hold(row)], config)
+    hold_origins = relational_hold_origins(inventory, config)
+    holds = []
+    rejected = []
+    eligible_rows = []
+    for row in inventory:
+        identifier = str(row["uuid"])
+        if identifier in hold_origins:
+            item = dict(row)
+            if not is_hold(row, config):
+                item["safety_status"] = "hold-related"
+                item["safety_reason"] = (
+                    "related safety HOLD: " + ";".join(hold_origins[identifier])
+                )
+            holds.append(item)
+        elif is_assignment_rejected(row):
+            rejected.append(dict(row))
+        else:
+            eligible_rows.append(dict(row))
+    eligible = cluster_representatives(
+        eligible_rows,
+        config,
+    )
     for row in eligible:
         row["primary_view"] = choose_primary_view(row, config)
         row["score_total"] = f"{rank_row(row, config):.6f}"
@@ -152,7 +326,9 @@ def select(inventory: list[dict[str, str]], config: dict) -> tuple[list[dict], l
         row["selection_reason"] = "; ".join(
             reason
             for reason in [
-                f"retrieval hypothesis {row['primary_view']}",
+                f"editorial assignment {row['primary_view']}",
+                f"assignment: {row.get('assignment_reason')}" if row.get("assignment_reason") else "",
+                f"retrieval hypotheses: {row.get('candidate_views')}" if row.get("candidate_views") else "",
                 f"visible context: {row.get('visible_context')}" if row.get("visible_context") else "",
                 f"evidence confidence: {confidence}",
                 "pre-existing named people" if split_values(row.get("persons")) else "",
@@ -167,6 +343,20 @@ def select(inventory: list[dict[str, str]], config: dict) -> tuple[list[dict], l
     for rows in by_view.values():
         rows.sort(key=lambda row: float(row["score_total"]), reverse=True)
 
+    deficits = {
+        str(view["id"]): {
+            "required": int(view["quota"]),
+            "available": len(by_view[str(view["id"])]),
+            "deficit": int(view["quota"]) - len(by_view[str(view["id"])]),
+        }
+        for view in config["views"]
+        if len(by_view[str(view["id"])]) < int(view["quota"])
+    }
+    if deficits:
+        raise SelectionInfeasible(
+            "candidate field cannot satisfy exact view quotas", deficits, holds=holds
+        )
+
     selected: list[dict] = []
     selected_ids: set[str] = set()
     for view in config["views"]:
@@ -174,19 +364,7 @@ def select(inventory: list[dict[str, str]], config: dict) -> tuple[list[dict], l
             if row["uuid"] not in selected_ids:
                 selected.append(row)
                 selected_ids.add(row["uuid"])
-
     target = int(config["target_count"])
-    if len(selected) < target:
-        remainder = sorted(
-            (row for row in eligible if row["uuid"] not in selected_ids),
-            key=lambda row: float(row["score_total"]),
-            reverse=True,
-        )
-        for row in remainder[: target - len(selected)]:
-            selected.append(row)
-            selected_ids.add(row["uuid"])
-
-    selected = selected[:target]
 
     def enforce_floor(predicate, required: int, reason: str) -> None:
         nonlocal selected, selected_ids
@@ -201,11 +379,12 @@ def select(inventory: list[dict[str, str]], config: dict) -> tuple[list[dict], l
         while current < required and candidates:
             incoming = candidates.pop(0)
             donors = sorted(
-                (row for row in selected if not predicate(row)),
-                key=lambda row: (
-                    row["primary_view"] != incoming["primary_view"],
-                    float(row["score_total"]),
+                (
+                    row
+                    for row in selected
+                    if row["primary_view"] == incoming["primary_view"] and not predicate(row)
                 ),
+                key=lambda row: float(row["score_total"]),
             )
             if not donors:
                 break
@@ -222,26 +401,54 @@ def select(inventory: list[dict[str, str]], config: dict) -> tuple[list[dict], l
     enforce_floor(lambda row: bool(split_values(row.get("persons"))), named_floor, "named relationships")
     enforce_floor(lambda row: not bool(split_values(row.get("persons"))), person_free_floor, "person-free material context")
     if sum(bool(split_values(row.get("persons"))) for row in selected) < named_floor:
-        raise ValueError("candidate field cannot satisfy minimum_named_people_fraction")
+        raise SelectionInfeasible(
+            "candidate field cannot satisfy minimum_named_people_fraction",
+            {"minimum_named_people_fraction": {"required": named_floor}},
+            holds=holds,
+            partial_master=selected,
+        )
     if sum(not bool(split_values(row.get("persons"))) for row in selected) < person_free_floor:
-        raise ValueError("candidate field cannot satisfy minimum_person_free_fraction")
+        raise SelectionInfeasible(
+            "candidate field cannot satisfy minimum_person_free_fraction",
+            {"minimum_person_free_fraction": {"required": person_free_floor}},
+            holds=holds,
+            partial_master=selected,
+        )
     selected.sort(key=lambda row: (row["primary_view"], -float(row["score_total"]), row["uuid"]))
+    digest = master_sha256(selected)
+    proposal_id = f"pfp-{digest[:16]}"
+    for row in selected:
+        row["master_sha256"] = digest
+        row["proposal_id"] = proposal_id
     summary = {
         "inventory_count": len(inventory),
         "eligible_after_cluster_reduction": len(eligible),
         "hold_count": len(holds),
+        "assignment_rejected_count": len(rejected),
         "selected_count": len(selected),
         "view_counts": dict(sorted(Counter(row["primary_view"] for row in selected).items())),
         "named_people_count": sum(bool(split_values(row.get("persons"))) for row in selected),
         "uncertain_count": sum(row.get("evidence_confidence", "unknown") in {"low", "unknown", ""} for row in selected),
+        "master_sha256": digest,
+        "proposal_id": proposal_id,
     }
     return selected, holds, summary
 
 
-def make_sample(master: list[dict[str, str]], per_view: int, seed: int) -> list[dict]:
+def make_sample(
+    master: list[dict[str, str]],
+    per_view: int,
+    seed: int,
+    excluded_ids: set[str] | None = None,
+    canary_ids: set[str] | None = None,
+) -> list[dict]:
+    excluded_ids = excluded_ids or set()
+    canary_ids = canary_ids or set()
+    selected_counts = Counter(row.get("primary_view", "unknown") for row in master)
     grouped: dict[str, list[dict]] = defaultdict(list)
     for row in master:
-        grouped[row.get("primary_view", "unknown")].append(row)
+        if row["uuid"] not in excluded_ids and row["uuid"] not in canary_ids:
+            grouped[row.get("primary_view", "unknown")].append(row)
     sample: list[dict] = []
     rng = random.Random(seed)
     for view, rows in sorted(grouped.items()):
@@ -255,45 +462,324 @@ def make_sample(master: list[dict[str, str]], per_view: int, seed: int) -> list[
             picks = [ordered[index] for index in sorted(positions)[:per_view]]
         for row in picks:
             item = dict(row)
+            item["view_selected_count"] = str(selected_counts[view])
+            item["sampling_reason"] = (
+                "full available sparse view"
+                if len(rows) <= per_view
+                else "score boundary and deterministic random stratum sample"
+            )
+            item["sample_kind"] = "fresh"
             item["judgment"] = ""
             item["evaluation_note"] = ""
             sample.append(item)
+    for row in master:
+        if row["uuid"] not in canary_ids:
+            continue
+        item = dict(row)
+        item["view_selected_count"] = str(selected_counts[row.get("primary_view", "unknown")])
+        item["sampling_reason"] = "regression canary"
+        item["sample_kind"] = "canary"
+        item["judgment"] = ""
+        item["evaluation_note"] = ""
+        sample.append(item)
+    digest = sample_sha256(sample)
+    for row in sample:
+        row["sample_sha256"] = digest
+        row["master_count"] = str(len(master))
     return sample
 
 
-def evaluate(feedback: list[dict[str, str]], config: dict) -> tuple[dict, bool]:
-    allowed = {"fit", "reject", "uncertain"}
-    judged = [row for row in feedback if row.get("judgment", "").strip().lower() in allowed]
-    fit = sum(row["judgment"].strip().lower() == "fit" for row in judged)
-    reject = sum(row["judgment"].strip().lower() == "reject" for row in judged)
-    uncertain = sum(row["judgment"].strip().lower() == "uncertain" for row in judged)
-    coverage = len(judged) / len(feedback) if feedback else 0.0
+def evaluate(
+    feedback: list[dict[str, str]],
+    config: dict,
+    master: list[dict[str, str]] | None = None,
+    evaluation_scope: str | None = None,
+    source_manifest: dict | None = None,
+) -> tuple[dict, bool]:
+    if not feedback:
+        raise ValueError("evaluation requires at least one row")
+    proposal_ids = {row.get("proposal_id", "").strip() for row in feedback}
+    master_hashes = {row.get("master_sha256", "").strip() for row in feedback}
+    if "" in proposal_ids or len(proposal_ids) != 1:
+        raise ValueError("evaluation rows must share one non-empty proposal_id")
+    if "" in master_hashes or len(master_hashes) != 1:
+        raise ValueError("evaluation rows must share one non-empty master_sha256")
+    identifiers = [row.get("uuid", "").strip() for row in feedback]
+    if any(not identifier for identifier in identifiers):
+        raise ValueError("evaluation contains an empty uuid")
+    if len(identifiers) != len(set(identifiers)):
+        raise ValueError("evaluation contains duplicate UUID rows")
+    sample_hashes = {row.get("sample_sha256", "").strip() for row in feedback}
+    if "" in sample_hashes or len(sample_hashes) != 1:
+        raise ValueError("evaluation rows must share one non-empty sample_sha256")
+    expected_sample_hash = sample_sha256(feedback)
+    if sample_hashes != {expected_sample_hash}:
+        raise ValueError("sample_sha256 does not match evaluation sample membership")
+    scope = str(evaluation_scope or config.get("evaluation_scope", "final-stratified-sample"))
+    if scope not in EVALUATION_SCOPES:
+        raise ValueError(f"unknown evaluation scope: {scope}")
+    unknown = sorted(
+        {
+            row.get("judgment", "").strip().lower()
+            for row in feedback
+            if row.get("judgment", "").strip() and row.get("judgment", "").strip().lower() not in JUDGMENTS
+        }
+    )
+    if unknown:
+        raise ValueError(f"unknown evaluation judgments: {', '.join(unknown)}")
+    judged = [row for row in feedback if row.get("judgment", "").strip().lower() in JUDGMENTS]
+    fresh_feedback = [row for row in feedback if row.get("sample_kind", "fresh") != "canary"]
+    fresh_judged = [row for row in judged if row.get("sample_kind", "fresh") != "canary"]
+    canary_feedback = [row for row in feedback if row.get("sample_kind") == "canary"]
+    canaries = [row for row in judged if row.get("sample_kind") == "canary"]
+    fit = sum(row["judgment"].strip().lower() == "fit" for row in fresh_judged)
+    reject = sum(row["judgment"].strip().lower() == "reject" for row in fresh_judged)
+    uncertain = sum(row["judgment"].strip().lower() == "uncertain" for row in fresh_judged)
+    sample_completion = len(judged) / len(feedback)
+    fresh_sample_completion = len(fresh_judged) / len(fresh_feedback) if fresh_feedback else 0.0
     precision = fit / (fit + reject) if fit + reject else 0.0
     by_view = {}
-    for view in sorted({row.get("primary_view", "unknown") for row in feedback}):
-        rows = [row for row in judged if row.get("primary_view", "unknown") == view]
+    canary_failures = [row["uuid"] for row in canaries if row["judgment"].strip().lower() != "fit"]
+    canary_completion = len(canaries) / len(canary_feedback) if canary_feedback else 1.0
+    minimum_view_precision = float(config.get("minimum_view_eval_precision", 0.65))
+    minimum_view_sample = int(config.get("minimum_view_eval_sample", 2))
+    maximum_uncertainty = float(config.get("maximum_eval_uncertainty", 0.25))
+    minimum_coverage = float(config.get("minimum_eval_coverage", 0.8))
+    views_by_id = {str(view["id"]): view for view in config["views"] if int(view["quota"]) > 0}
+    master_bound = master is not None
+    source = validate_source_manifest(source_manifest) if source_manifest is not None else None
+    source_bound = source is not None
+    if master is not None:
+        master_ids = [row["uuid"] for row in master]
+        if len(master_ids) != len(set(master_ids)):
+            raise ValueError("bound master contains duplicate UUIDs")
+        digest = master_sha256(master)
+        proposal_id = f"pfp-{digest[:16]}"
+        if master_hashes != {digest} or proposal_ids != {proposal_id}:
+            raise ValueError("evaluation sample does not match the bound master")
+        master_by_id = {row["uuid"]: row for row in master}
+        unknown_ids = set(identifiers) - set(master_by_id)
+        if unknown_ids:
+            raise ValueError(f"evaluation contains {len(unknown_ids)} rows outside the bound master")
+        for row in feedback:
+            expected_view = master_by_id[row["uuid"]].get("primary_view", "")
+            if row.get("primary_view", "") != expected_view:
+                raise ValueError(f"evaluation view does not match bound master for {row['uuid']}")
+        selected_counts = Counter(row.get("primary_view", "unknown") for row in master)
+        master_count = len(master)
+    else:
+        declared_master_counts = {int(row.get("master_count") or 0) for row in feedback}
+        if len(declared_master_counts) != 1 or 0 in declared_master_counts:
+            raise ValueError("unbound evaluation rows must share one positive master_count")
+        master_count = next(iter(declared_master_counts))
+        selected_counts = Counter()
+        for view_id in views_by_id:
+            values = {
+                int(row.get("view_selected_count") or 0)
+                for row in fresh_feedback
+                if row.get("primary_view", "unknown") == view_id
+            }
+            if len(values) == 1:
+                selected_counts[view_id] = next(iter(values))
+    for view_id, view in sorted(views_by_id.items()):
+        sampled = [row for row in fresh_feedback if row.get("primary_view", "unknown") == view_id]
+        rows = [row for row in fresh_judged if row.get("primary_view", "unknown") == view_id]
         decisive = [row for row in rows if row["judgment"].strip().lower() in {"fit", "reject"}]
-        by_view[view] = {
+        view_precision = (
+            sum(row["judgment"].strip().lower() == "fit" for row in decisive) / len(decisive)
+            if decisive else None
+        )
+        view_coverage = len(rows) / len(sampled) if sampled else 0.0
+        uncertainty_rate = (
+            sum(row["judgment"].strip().lower() == "uncertain" for row in rows) / len(rows)
+            if rows else 0.0
+        )
+        selected_count = selected_counts.get(view_id, int(view["quota"]))
+        required_decisive = min(minimum_view_sample, selected_count)
+        mode = str(view.get("evaluation_mode", "material"))
+        precision_gate = float(view.get("minimum_eval_precision", minimum_view_precision))
+        reasons = []
+        if not sampled:
+            reasons.append("view not sampled")
+        if view_coverage < minimum_coverage:
+            reasons.append("coverage below minimum")
+        if uncertainty_rate > maximum_uncertainty:
+            reasons.append("uncertainty above maximum")
+        if mode == "material":
+            if len(decisive) < required_decisive:
+                reasons.append("insufficient decisive judgments")
+            if view_precision is None or view_precision < precision_gate:
+                reasons.append("precision below minimum")
+        by_view[view_id] = {
+            "label": view.get("label", view_id),
+            "evaluation_mode": mode,
+            "sampled": len(sampled),
             "judged": len(rows),
-            "precision": sum(row["judgment"].strip().lower() == "fit" for row in decisive) / len(decisive) if decisive else None,
+            "decisive": len(decisive),
+            "required_decisive": required_decisive,
+            "coverage": round(view_coverage, 4),
+            "precision": round(view_precision, 4) if view_precision is not None else None,
+            "precision_interval_95": wilson_interval(
+                sum(row["judgment"].strip().lower() == "fit" for row in decisive),
+                len(decisive),
+            ),
+            "minimum_precision": precision_gate if mode == "material" else None,
+            "uncertainty_rate": round(uncertainty_rate, 4),
+            "maximum_uncertainty": maximum_uncertainty,
+            "passed": not reasons,
+            "failure_reasons": reasons,
         }
-    passed = coverage >= float(config.get("minimum_eval_coverage", 0.8)) and precision >= float(
-        config.get("minimum_eval_precision", 0.75)
+    quality_passed = (
+        fresh_sample_completion >= minimum_coverage
+        and precision >= float(config.get("minimum_eval_precision", 0.75))
+        and all(result["passed"] for result in by_view.values())
+        and not canary_failures
+        and canary_completion == 1.0
     )
+    master_review_fraction = len({row["uuid"] for row in fresh_judged}) / master_count
+    required_release_class = str(config.get("required_release_class", "editor-field-verified"))
+    release_reasons = []
+    if scope == "learning-sample":
+        release_reasons.append("learning-sample scope cannot authorize a catalog plan")
+    if not master_bound:
+        release_reasons.append("final evaluation is not bound to the exact master manifest")
+    if not source_bound:
+        release_reasons.append("final evaluation is not bound to a source manifest")
+    if required_release_class == "master-human-reviewed":
+        if scope != "full-master" or master_review_fraction != 1.0:
+            release_reasons.append("master-human-reviewed requires a complete full-master evaluation")
+    if required_release_class == "publication-ready":
+        if scope != "publication-shortlist" or master_review_fraction != 1.0:
+            release_reasons.append("publication-ready requires a complete publication-shortlist evaluation")
+        required_publication = {
+            "rights_status": "cleared",
+            "consent_status": "cleared",
+            "caption_status": "verified",
+            "accessibility_status": "complete",
+        }
+        for field, expected in required_publication.items():
+            if any(str(row.get(field, "")).strip().lower() != expected for row in fresh_judged):
+                release_reasons.append(f"publication-ready requires {field}={expected} for every item")
+    passed = quality_passed and not release_reasons
     report = {
+        "schema_version": 3,
+        "proposal_id": next(iter(proposal_ids)),
+        "master_sha256": next(iter(master_hashes)),
+        "sample_sha256": expected_sample_hash,
+        "evaluation_scope": scope,
+        "required_release_class": required_release_class,
+        "release_class": required_release_class if passed else None,
+        "release_failure_reasons": release_reasons,
+        "master_bound": master_bound,
+        "source_bound": source_bound,
+        "source_fingerprint": source["source_fingerprint"] if source else None,
+        "config_sha256": canonical_sha256(config),
+        "master_count": master_count,
         "sample_count": len(feedback),
         "judged_count": len(judged),
+        "fresh_sample_count": len(fresh_feedback),
+        "fresh_judged_count": len(fresh_judged),
         "fit": fit,
         "reject": reject,
         "uncertain": uncertain,
-        "coverage": round(coverage, 4),
+        "sample_completion": round(sample_completion, 4),
+        "fresh_sample_completion": round(fresh_sample_completion, 4),
+        "master_review_fraction": round(master_review_fraction, 4),
+        "coverage": round(fresh_sample_completion, 4),
         "precision": round(precision, 4),
-        "minimum_coverage": config.get("minimum_eval_coverage", 0.8),
+        "fresh_decisive_precision": round(precision, 4),
+        "precision_interval_95": wilson_interval(fit, fit + reject),
+        "minimum_coverage": minimum_coverage,
         "minimum_precision": config.get("minimum_eval_precision", 0.75),
+        "minimum_view_precision": minimum_view_precision,
+        "minimum_view_sample": minimum_view_sample,
+        "maximum_uncertainty": maximum_uncertainty,
+        "canary_sample_count": len(canary_feedback),
+        "canary_count": len(canaries),
+        "canary_completion": round(canary_completion, 4),
+        "canary_failures": canary_failures,
+        "quality_passed": quality_passed,
         "passed": passed,
         "by_view": by_view,
     }
     return report, passed
+
+
+def validate_feedback(feedback: list[dict[str, str]]) -> dict:
+    required = {"uuid", "proposal_id", "master_sha256", "sample_sha256", "judgment"}
+    missing = required - set(feedback[0]) if feedback else required
+    if missing:
+        raise ValueError(f"feedback missing required columns: {', '.join(sorted(missing))}")
+    seen: dict[str, str] = {}
+    proposal_ids: set[str] = set()
+    master_hashes: set[str] = set()
+    sample_hashes: set[str] = set()
+    for row in feedback:
+        uuid = row["uuid"].strip()
+        judgment = row["judgment"].strip().lower()
+        if not uuid:
+            raise ValueError("feedback contains an empty uuid")
+        if judgment not in JUDGMENTS:
+            raise ValueError(f"feedback row {uuid} has invalid judgment {judgment or '<empty>'}")
+        if uuid in seen:
+            raise ValueError(f"feedback contains duplicate judgment rows for {uuid}")
+        seen[uuid] = judgment
+        proposal_ids.add(row["proposal_id"].strip())
+        master_hashes.add(row["master_sha256"].strip())
+        sample_hashes.add(row["sample_sha256"].strip())
+    if "" in proposal_ids or len(proposal_ids) != 1:
+        raise ValueError("feedback must name one non-empty proposal_id")
+    if "" in master_hashes or len(master_hashes) != 1:
+        raise ValueError("feedback must name one non-empty master_sha256")
+    if "" in sample_hashes or len(sample_hashes) != 1:
+        raise ValueError("feedback must name one non-empty sample_sha256")
+    return {
+        "schema_version": 1,
+        "row_count": len(feedback),
+        "unique_uuid_count": len(seen),
+        "proposal_id": next(iter(proposal_ids)),
+        "master_sha256": next(iter(master_hashes)),
+        "sample_sha256": next(iter(sample_hashes)),
+        "judgment_counts": dict(sorted(Counter(seen.values()).items())),
+        "status": "PASS",
+    }
+
+
+def apply_feedback(sample: list[dict[str, str]], feedback: list[dict[str, str]]) -> list[dict[str, str]]:
+    summary = validate_feedback(feedback)
+    sample_proposals = {row.get("proposal_id", "").strip() for row in sample}
+    sample_hashes = {row.get("master_sha256", "").strip() for row in sample}
+    sample_manifest_hashes = {row.get("sample_sha256", "").strip() for row in sample}
+    if sample_proposals != {summary["proposal_id"]}:
+        raise ValueError("feedback proposal_id does not match the evaluation sample")
+    if sample_hashes != {summary["master_sha256"]}:
+        raise ValueError("feedback master_sha256 does not match the evaluation sample")
+    if sample_manifest_hashes != {summary["sample_sha256"]}:
+        raise ValueError("feedback sample_sha256 does not match the evaluation sample")
+    if sample_manifest_hashes != {sample_sha256(sample)}:
+        raise ValueError("evaluation sample membership does not match sample_sha256")
+    updates: dict[str, dict[str, str]] = {}
+    for row in feedback:
+        uuid = row["uuid"].strip()
+        if uuid in updates:
+            continue
+        updates[uuid] = row
+    sample_ids = {row["uuid"] for row in sample}
+    unknown = set(updates) - sample_ids
+    if unknown:
+        raise ValueError(f"feedback contains {len(unknown)} UUIDs outside the evaluation sample")
+    merged = []
+    for row in sample:
+        item = dict(row)
+        update = updates.get(row["uuid"])
+        if update:
+            item["judgment"] = update["judgment"].strip().lower()
+            item["evaluation_note"] = update.get("evaluation_note", "").strip()
+            item["judgment_reason"] = update.get("judgment_reason", "").strip()
+            item["evaluator"] = update.get("evaluator", "").strip()
+            item["judged_at"] = update.get("judged_at", "").strip()
+        merged.append(item)
+    return merged
 
 
 def validate(master: list[dict[str, str]], holds: list[dict[str, str]], config: dict) -> tuple[list[str], dict]:
@@ -309,18 +795,53 @@ def validate(master: list[dict[str, str]], holds: list[dict[str, str]], config: 
         errors.append(f"master overlaps safety holds by {len(overlap)} rows")
     if any(not row.get("selection_reason") for row in master):
         errors.append("one or more selected rows lack a selection reason")
+    if any(not row.get("assigned_view") for row in master):
+        errors.append("one or more selected rows lack assigned_view")
+    if any(row.get("primary_view") != row.get("assigned_view") for row in master):
+        errors.append("primary_view must remain an exact output alias of assigned_view")
+    unsafe = [row["uuid"] for row in master if is_hold(row, config)]
+    if unsafe:
+        errors.append(f"master contains {len(unsafe)} unresolved or ineligible safety states")
+    hashes = {row.get("master_sha256", "") for row in master}
+    expected_hash = master_sha256(master)
+    if hashes != {expected_hash}:
+        errors.append("master_sha256 is missing or does not match exact membership and assignments")
+    proposal_ids = {row.get("proposal_id", "") for row in master}
+    if proposal_ids != {f"pfp-{expected_hash[:16]}"}:
+        errors.append("proposal_id is missing or does not match master_sha256")
     configured = {view["id"] for view in config["views"] if int(view["quota"]) > 0}
-    represented = {row.get("primary_view") for row in master}
+    represented = {str(row.get("primary_view") or "") for row in master}
     missing_views = configured - represented
     if missing_views:
         errors.append(f"configured views absent from master: {', '.join(sorted(missing_views))}")
+    actual_view_counts = Counter(str(row.get("primary_view") or "") for row in master)
+    expected_view_counts = {
+        str(view["id"]): int(view["quota"])
+        for view in config["views"]
+        if int(view["quota"]) > 0
+    }
+    quota_drift = {
+        view_id: {"expected": expected, "actual": actual_view_counts.get(view_id, 0)}
+        for view_id, expected in expected_view_counts.items()
+        if actual_view_counts.get(view_id, 0) != expected
+    }
+    if quota_drift:
+        errors.append(f"master view counts do not match exact quotas: {quota_drift}")
     metrics = {
         "status": "PASS" if not errors else "FAIL",
         "master_count": len(master),
         "unique_count": len(set(ids)),
         "hold_count": len(holds),
         "hold_overlap": len(overlap),
+        "hold_sha256": identifier_set_sha256(hold_ids),
+        "ineligible_safety_count": len(unsafe),
         "represented_views": sorted(represented),
+        "view_counts": dict(sorted(actual_view_counts.items())),
+        "expected_view_counts": expected_view_counts,
+        "quota_drift": quota_drift,
+        "config_sha256": canonical_sha256(config),
+        "master_sha256": expected_hash,
+        "proposal_id": f"pfp-{expected_hash[:16]}",
     }
     return errors, metrics
 
@@ -329,16 +850,52 @@ def build_catalog_plan(
     master: list[dict[str, str]],
     config: dict,
     plan_id: str,
-    source_title: str,
-    source_identifier: str,
+    evaluation_report: dict,
+    source_manifest: dict,
+    holds: list[dict[str, str]] | None = None,
 ) -> dict:
     """Build an adapter-neutral, membership-only catalog plan."""
+    source = validate_source_manifest(source_manifest)
+    holds = holds or []
+    digest = master_sha256(master)
+    proposal_id = f"pfp-{digest[:16]}"
+    if any(row.get("primary_view") != row.get("assigned_view") for row in master):
+        raise ValueError("catalog plan requires primary_view to match assigned_view")
+    if not evaluation_report.get("passed"):
+        raise ValueError("catalog plan requires a passing final evaluation")
+    if evaluation_report.get("master_sha256") != digest:
+        raise ValueError("evaluated master hash does not match the proposed catalog plan")
+    if evaluation_report.get("proposal_id") != proposal_id:
+        raise ValueError("evaluated proposal_id does not match the proposed catalog plan")
+    if not evaluation_report.get("master_bound"):
+        raise ValueError("catalog plan requires an evaluation bound to the exact master")
+    if not evaluation_report.get("source_bound"):
+        raise ValueError("catalog plan requires an evaluation bound to a source manifest")
+    if evaluation_report.get("source_fingerprint") != source["source_fingerprint"]:
+        raise ValueError("evaluated source fingerprint does not match catalog source")
+    config_digest = canonical_sha256(config)
+    if evaluation_report.get("config_sha256") != config_digest:
+        raise ValueError("evaluated configuration does not match catalog plan configuration")
+    required_release_class = str(config.get("required_release_class", "editor-field-verified"))
+    actual_release_class = str(evaluation_report.get("release_class") or "")
+    if not actual_release_class or not release_satisfies(actual_release_class, required_release_class):
+        raise ValueError("evaluation does not satisfy the required release class")
+    if any(is_hold(row, config) for row in master):
+        raise ValueError("catalog plan cannot include unresolved or ineligible safety states")
+    master_ids = {row["uuid"] for row in master}
+    hold_ids = {row["uuid"] for row in holds}
+    if master_ids & hold_ids:
+        raise ValueError("catalog plan master overlaps safety holds")
+    hold_digest = identifier_set_sha256(hold_ids)
+    validation_errors, validation_report = validate(master, holds, config)
+    if validation_errors:
+        raise ValueError("catalog plan requires a passing exact-master validation")
     view_labels = {view["id"]: view["label"] for view in config["views"]}
     albums = [
         {
             "key": "master",
             "title": f"00 MASTER - {len(master):,}",
-            "asset_ids": [row["uuid"] for row in master],
+            "asset_identifiers": [row["uuid"] for row in master],
         }
     ]
     for view_id in sorted({row["primary_view"] for row in master}):
@@ -347,16 +904,28 @@ def build_catalog_plan(
             {
                 "key": f"view-{view_id}",
                 "title": f"{view_id} {view_labels.get(view_id, 'Unlabeled View')} - {len(asset_ids):,}",
-                "asset_ids": asset_ids,
+                "asset_identifiers": asset_ids,
             }
         )
-    return {
-        "schema_version": 1,
+    plan = {
+        "schema_version": 2,
         "plan_id": plan_id,
+        "proposal_id": proposal_id,
+        "master_sha256": digest,
+        "hold_sha256": hold_digest,
+        "config_sha256": config_digest,
+        "source_fingerprint": source["source_fingerprint"],
+        "release_class": actual_release_class,
+        "evaluation": dict(evaluation_report),
+        "evaluation_report_sha256": canonical_sha256(evaluation_report),
+        "validation": validation_report,
+        "validation_report_sha256": canonical_sha256(validation_report),
         "created_at": datetime.now(timezone.utc).isoformat(),
         "safety_mode": "create-folders-albums-and-add-membership-only",
-        "source": {"title": source_title, "identifier": source_identifier},
+        "source": source,
         "expected_master_count": len(master),
+        "expected_hold_count": len(hold_ids),
+        "expected_source_count": int(str(source["observed_count"])),
         "write_test_count": min(10, len(master)),
         "albums": albums,
         "required_verification": [
@@ -368,3 +937,4 @@ def build_catalog_plan(
             "source membership unchanged",
         ],
     }
+    return finalize_plan(plan)
