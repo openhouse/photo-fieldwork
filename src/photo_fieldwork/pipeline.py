@@ -12,6 +12,7 @@ from typing import Iterable
 
 from . import __version__
 from .feedback import JUDGMENTS, sample_fingerprint, validate_feedback
+from .integrity import verify_evaluation_seal
 from .safety import may_enter_general_master, normalize_safety_state
 
 
@@ -94,6 +95,45 @@ def is_hold(row: dict[str, str]) -> bool:
     return not may_enter_general_master(row.get("safety_status", "clear")) or truthy(row.get("hidden")) or truthy(
         row.get("missing")
     )
+
+
+def partition_safety_rows(inventory: list[dict[str, str]]) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    """Conservatively propagate unresolved safety states across related images."""
+    unresolved_duplicates = {
+        row.get("duplicate_group", "").strip()
+        for row in inventory
+        if is_hold(row) and row.get("duplicate_group", "").strip()
+    }
+    unresolved_bursts = {
+        row.get("burst_group", "").strip()
+        for row in inventory
+        if is_hold(row) and row.get("burst_group", "").strip()
+    }
+    eligible = []
+    holds = []
+    for source_row in inventory:
+        row = dict(source_row)
+        related_by = []
+        if row.get("duplicate_group", "").strip() in unresolved_duplicates:
+            related_by.append("duplicate_group")
+        if row.get("burst_group", "").strip() in unresolved_bursts:
+            related_by.append("burst_group")
+        if is_hold(row) or related_by:
+            if may_enter_general_master(row.get("safety_status", "clear_automated")):
+                row["safety_status"] = "hold_automated"
+            else:
+                row["safety_status"] = normalize_safety_state(row.get("safety_status"))
+            if truthy(row.get("hidden")) or truthy(row.get("missing")):
+                row["safety_status"] = "hold_automated"
+            if related_by and not is_hold(source_row):
+                existing = str(row.get("safety_reason", "")).strip()
+                reason = f"unresolved safety state in related {', '.join(related_by)}"
+                row["safety_reason"] = "; ".join(part for part in (existing, reason) if part)
+                row["safety_propagated_by"] = ";".join(related_by)
+            holds.append(row)
+        else:
+            eligible.append(row)
+    return eligible, holds
 
 
 def attention_score(row: dict[str, str]) -> float:
@@ -246,17 +286,8 @@ def assign_exact_quotas(rows: list[dict], config: dict) -> tuple[list[dict], dic
 
 
 def select(inventory: list[dict[str, str]], config: dict) -> tuple[list[dict], list[dict], dict]:
-    holds = []
-    for source_row in inventory:
-        if is_hold(source_row):
-            row = dict(source_row)
-            row["safety_status"] = (
-                "hold_automated"
-                if truthy(row.get("hidden")) or truthy(row.get("missing"))
-                else normalize_safety_state(row.get("safety_status"))
-            )
-            holds.append(row)
-    eligible = cluster_representatives([dict(row) for row in inventory if not is_hold(row)], config)
+    eligible_rows, holds = partition_safety_rows(inventory)
+    eligible = cluster_representatives(eligible_rows, config)
     for row in eligible:
         row["safety_status"] = normalize_safety_state(row.get("safety_status"))
         row["score_total"] = f"{rank_row(row, config):.6f}"
@@ -512,6 +543,8 @@ def build_catalog_plan(
     source_identifier: str,
     source_profile: dict | None = None,
     holds: list[dict] | None = None,
+    evaluation_seal: dict | None = None,
+    evaluation_report: dict | None = None,
 ) -> dict:
     """Build an adapter-neutral, membership-only catalog plan."""
     view_labels = {view["id"]: view["label"] for view in config["views"]}
@@ -571,6 +604,20 @@ def build_catalog_plan(
         )
     else:
         required_verification.append("legacy source identifier and count are unchanged")
+    candidate_binding = None
+    if evaluation_seal is not None:
+        if evaluation_report is None:
+            raise ValueError("evaluation report is required with an evaluation seal")
+        seal_errors = verify_evaluation_seal(evaluation_seal, master, config, evaluation_report)
+        if seal_errors:
+            raise ValueError(f"evaluation seal does not authorize this plan: {'; '.join(seal_errors)}")
+        candidate_binding = {
+            "evaluation_seal_fingerprint": evaluation_seal["seal_fingerprint"],
+            "master_fingerprint": evaluation_seal["master_fingerprint"],
+            "config_fingerprint": evaluation_seal["config_fingerprint"],
+            "evaluation_report_fingerprint": evaluation_seal["evaluation_report_fingerprint"],
+        }
+        required_verification.append("catalog plan matches the passing evaluation seal")
     return {
         "schema_version": 2,
         "tool_version": __version__,
@@ -578,6 +625,7 @@ def build_catalog_plan(
         "created_at": datetime.now(timezone.utc).isoformat(),
         "safety_mode": "create-folders-albums-and-add-membership-only",
         "source": source,
+        "candidate_binding": candidate_binding,
         "expected_master_count": len(master),
         "write_test_count": min(10, len(master)),
         "albums": albums,

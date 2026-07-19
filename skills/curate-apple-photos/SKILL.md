@@ -68,7 +68,16 @@ python3 scripts/retrieve_candidates.py \
 2. Aim for 1.5-2.0 times the requested master size after metadata retrieval. Include named relationships, prior favorites/edits, person-free material context, and exploratory results.
 3. Generate a local inspection plan with `photo_archive_bridge.py inspection-plan`.
 4. Run the stable permissioned helper with `photo_archive_bridge.py run-plan`. Network access must remain false. Export 1280px previews into the private run workspace; raw OCR is never written.
-5. Merge the inspection JSONL into the candidate CSV using `merge_inspection.py`.
+5. Verify preview coverage and actual JPEG decoding before visual review:
+
+```bash
+python3 scripts/verify_preview_exports.py \
+  --inspection RUN/logs/INSPECTION.jsonl \
+  --preview-directory RUN/previews/PLAN_ID \
+  --output RUN/reports/preview-integrity.json
+```
+
+6. Merge the inspection JSONL into the candidate CSV using `merge_inspection.py`.
 
 ## Select, look, evaluate, recurse
 
@@ -87,9 +96,10 @@ Read [evaluation-loop.md](references/evaluation-loop.md) before the first visual
 3. Build contact sheets with `make_contact_sheets.py`. Use `view_image` to inspect every page. Open individual previews when context or safety is unclear.
 4. Speak briefly as the requested peers. If Jamie cannot review, role-play Jamie using the supplied brief and voice references, while marking the judgment as delegated editorial inference rather than eyewitness fact.
 5. Record `fit`, `reject`, or `uncertain`, one visible reason, a safety state, and an error category in the evaluation CSV.
-6. Keep the UUID and generated `sample_hash` on every decision. Never apply feedback by row order. Run `photo-fieldwork evaluate`, then `photo-fieldwork apply-feedback`. Read all rejections and a stratified uncertainty sample.
+6. Keep the UUID and generated `sample_hash` on every decision. Never apply feedback by row order. Run `photo-fieldwork evaluate --master RUN/manifests/proposed-master.csv`, then `photo-fieldwork apply-feedback`. A passing evaluation writes `evaluation-seal.json`, binding the exact master, assignments, safety states, config, and evaluation report. Read all rejections and a stratified uncertainty sample.
 7. Change retrieval, assignments, penalties, quotas, or hold rules in response to observed errors. Keep the seed fixed. Save each round separately.
-8. Repeat until:
+8. Before the final gate, create a holdout sample and run `photo-fieldwork freshness` against every prior tuning-round feedback file. Require a disjoint holdout unless the completion report explicitly justifies a lower fresh-evidence floor.
+9. Repeat until:
    - evaluation coverage, decisive precision, fit rate, and uncertainty gates meet `config.json`;
    - every material view meets its decisive-count, precision, and uncertainty gates;
    - every view has been visually sampled;
@@ -104,7 +114,7 @@ Do not claim success from Vision labels or metadata alone. The recursive loop re
 ## Validate and commit
 
 1. Run `photo-fieldwork validate`. Save a PASS report.
-2. Generate test and production plans with `photo_archive_bridge.py snapshot-plans --source-profile RUN/inventory/source-profile.json`.
+2. Generate the semantic catalog plan with the passing `evaluation-seal.json` and its exact `evaluation-report.json`. Plan generation must fail if the master or config changed after evaluation. Then generate test and production plans with `photo_archive_bridge.py snapshot-plans --source-profile RUN/inventory/source-profile.json`.
 3. Inspect the plans. Confirm the source count, target count, folder title, HOLD separation, and that operations are membership-only.
 4. Run the ten-item write test through the app. Independently verify it with `verify_photos_commit.py`.
 5. Run the production plan through the app. Rerun it once to confirm idempotence.

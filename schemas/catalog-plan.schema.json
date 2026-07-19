@@ -7,6 +7,21 @@
     "schema_version": {"const": 2},
     "plan_id": {"type": "string", "minLength": 1},
     "source": {"$ref": "source-profile.schema.json"},
+    "candidate_binding": {
+      "type": ["object", "null"],
+      "required": [
+        "evaluation_seal_fingerprint",
+        "master_fingerprint",
+        "config_fingerprint",
+        "evaluation_report_fingerprint"
+      ],
+      "properties": {
+        "evaluation_seal_fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "master_fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "config_fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "evaluation_report_fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+      }
+    },
     "albums": {
       "type": "array",
       "items": {

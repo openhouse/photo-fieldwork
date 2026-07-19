@@ -11,6 +11,7 @@ The goal is not to prove the selector is intelligent. The goal is to discover wh
 5. Compute overall and per-view coverage, decisive precision, fit, rejection, and uncertainty rates.
 6. Read every rejection and a sample of uncertainties.
 7. Revise one part of the system and rerun deterministically.
+8. After tuning stops, evaluate a fresh holdout against all prior round UUIDs.
 
 ## Error taxonomy
 
@@ -34,6 +35,8 @@ The goal is not to prove the selector is intelligent. The goal is to discover wh
 - Every selected row has a reason.
 - Uncertainty is represented explicitly.
 - A human editor is told that project views remain hypotheses where provenance is incomplete.
+- The final holdout meets its fresh-evidence floor and is disjoint from tuning evidence when that gate is required.
+- The passing evaluation seals the exact master, view assignments, safety states, config, and evaluation report used for planning.
 
 Passing the gate means the corpus is ready for editors. It does not mean every category assignment is factually proven.
 
@@ -48,3 +51,5 @@ Passing the gate means the corpus is ready for editors. It does not mean every c
 Never describe decisive precision as the percent of the sample confirmed fit. A run can have high decisive precision and a high uncertainty burden at the same time.
 
 Every decision must name its UUID and carry the sample hash, visible reason, safety state, error category, round ID, and reviewer lens. Positional joins are prohibited.
+
+Run `make eval` for the synthetic failure-mode suite. Its fixtures exercise drift, quota overlap, metric traps, feedback integrity, relational safety, preview decoding, holdout contamination, ledger recovery, and 4,000-item assignment. Passing those contracts is necessary code evidence, not a substitute for pixel inspection or human editorial approval.

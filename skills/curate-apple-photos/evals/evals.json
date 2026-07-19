@@ -1,0 +1,115 @@
+{
+  "skill_name": "curate-apple-photos",
+  "schema_version": 1,
+  "evals": [
+    {
+      "id": "source-membership-drift",
+      "prompt": "The Photos source album still has the same count, but one UUID was replaced after retrieval. Decide whether the run may proceed.",
+      "expected_output": "Fail closed because the source membership fingerprint changed even though the count did not.",
+      "files": [],
+      "assertions": [
+        "Reports a fingerprint mismatch",
+        "Does not accept count equality as sufficient evidence"
+      ]
+    },
+    {
+      "id": "overlapping-exact-quotas",
+      "prompt": "Assign candidates with overlapping eligible views to exact view quotas, then repeat with candidate and view order changed.",
+      "expected_output": "Produce the same feasible assignment regardless of input order and report per-view capacity when infeasible.",
+      "files": [],
+      "assertions": [
+        "Meets every exact quota",
+        "Assignment is deterministic",
+        "Infeasible cases name the short view and available capacity"
+      ]
+    },
+    {
+      "id": "stratified-metric-trap",
+      "prompt": "Overall precision is high, but uncertainty is excessive and one material view has no decisive evidence.",
+      "expected_output": "Fail the evaluation and identify both the uncertainty and weak-view gates.",
+      "files": [],
+      "assertions": [
+        "Keeps decisive precision separate from uncertainty",
+        "Evaluates material views independently",
+        "Does not let an aggregate score conceal a weak stratum"
+      ]
+    },
+    {
+      "id": "uuid-feedback-integrity",
+      "prompt": "Apply a reordered feedback file, then try duplicate, unknown, missing, and stale-sample decisions.",
+      "expected_output": "Apply valid decisions by UUID and reject every malformed or stale decision set.",
+      "files": [],
+      "assertions": [
+        "Never joins feedback by row position",
+        "Rejects duplicate, unknown, and missing UUIDs",
+        "Rejects a mismatched sample hash"
+      ]
+    },
+    {
+      "id": "relational-safety-propagation",
+      "prompt": "One item is restricted and another item in the same duplicate or burst group appears clear.",
+      "expected_output": "Route the whole related group out of the general master until a human editor resolves it.",
+      "files": [],
+      "assertions": [
+        "Propagates unresolved safety state across duplicate groups",
+        "Propagates unresolved safety state across burst groups",
+        "Automated processing cannot clear the group"
+      ]
+    },
+    {
+      "id": "post-review-drift-seal",
+      "prompt": "Evaluation passed, but master membership, a primary-view assignment, or the governing config changed before plan generation.",
+      "expected_output": "Reject the plan because the reviewed candidate is no longer the candidate being committed.",
+      "files": [],
+      "assertions": [
+        "Binds the passing evaluation to exact master membership and assignments",
+        "Binds the passing evaluation to the governing config",
+        "Rejects a plan after either binding changes"
+      ]
+    },
+    {
+      "id": "preview-decode-integrity",
+      "prompt": "Inspection says previews were exported, but one file is missing, truncated, mislabeled, duplicated, or not a decodable image.",
+      "expected_output": "Fail before visual review and identify the affected synthetic UUID.",
+      "files": [],
+      "assertions": [
+        "Verifies expected preview coverage",
+        "Verifies image structure rather than file existence alone",
+        "Rejects ambiguous preview-to-UUID mappings"
+      ]
+    },
+    {
+      "id": "final-holdout-freshness",
+      "prompt": "A proposed final holdout reuses decisions that were already used to tune retrieval and selection.",
+      "expected_output": "Report contamination and fail the configured fresh-evidence floor.",
+      "files": [],
+      "assertions": [
+        "Measures fresh UUIDs against all prior tuning rounds",
+        "Can require a completely disjoint final holdout",
+        "Reports reused identifiers without exposing real archive IDs"
+      ]
+    },
+    {
+      "id": "resumable-ledger-cas",
+      "prompt": "The materialized run state is corrupt and a stale worker attempts a completion transition.",
+      "expected_output": "Recover from the append-only ledger, reject the stale revision, and require a checksummed artifact for completion.",
+      "files": [],
+      "assertions": [
+        "Ledger recovery restores the current revision",
+        "Compare-and-swap rejects stale workers",
+        "Completed phases bind an artifact checksum"
+      ]
+    },
+    {
+      "id": "four-thousand-item-scale",
+      "prompt": "Select a synthetic 4,000-item editor field with exact quotas on a CI-class machine.",
+      "expected_output": "Return 4,000 unique assignments with exact quotas within the bounded benchmark budget.",
+      "files": [],
+      "assertions": [
+        "Produces exactly 4,000 unique UUIDs",
+        "Meets all configured quotas",
+        "Completes within the documented local benchmark threshold"
+      ]
+    }
+  ]
+}

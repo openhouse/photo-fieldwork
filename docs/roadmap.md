@@ -11,12 +11,17 @@ Revision F makes the trustworthy production path substantially more native:
 - semantic catalog plans;
 - independent JSON and Markdown verification;
 - synthetic CI and expanded failure-mode tests.
+- relational safety propagation across duplicate and burst groups;
+- decoded preview integrity reports;
+- final-holdout freshness gates;
+- evaluation seals binding the reviewed candidate to catalog planning;
+- a ten-scenario executable eval suite with a 4,000-item benchmark.
 
 The following recommendations remain deliberately separate. They should land as focused changes with production-scale evidence rather than being hidden inside this revision.
 
 ## Retrieval engine
 
-Replace repeated `%LIKE%` scans with an indexed or compiled single-pass retrieval engine. Add validated exclusion terms, prior-corpus freshness floors overall and by view, quality-floor diagnostics, and performance fixtures at realistic inventory scale.
+Replace repeated `%LIKE%` scans with an indexed or compiled single-pass retrieval engine. Add validated exclusion terms, prior-corpus freshness floors by view, quality-floor diagnostics, and retrieval performance fixtures at realistic whole-library scale.
 
 ## Review workspace
 
@@ -24,7 +29,7 @@ Build a local keyboard-first review surface with blind-first inspection, optiona
 
 ## Preview pipeline
 
-Shard preview work, resume from receipts, verify image decoding, and record checksums. The system should distinguish a missing preview, a corrupt preview, and an uninspected photograph.
+Shard preview work and resume it from receipts. Decode and checksum verification now distinguishes missing or corrupt previews; the next step is bounded parallel export with per-shard recovery.
 
 ## Reproducible rounds
 

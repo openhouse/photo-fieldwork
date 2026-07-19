@@ -6,7 +6,11 @@ It does not automate taste. It helps people automate retrieval, deduplication, b
 
 ## Try it in two minutes
 
-Requirements: Python 3.11 or newer. The practice workflow has no third-party dependencies and does not access Apple Photos.
+Requirements: Python 3.11 or newer. Install the package once so Pillow can decode preview evidence. The practice workflow does not access Apple Photos.
+
+```bash
+python3 -m pip install -e .
+```
 
 ```bash
 make demo
@@ -64,7 +68,16 @@ make check
 
 ./bin/photo-fieldwork evaluate \
   --feedback runs/my-run/manifests/eval-sample.csv \
+  --master runs/my-run/manifests/proposed-master.csv \
   --config path/to/config.json \
+  --output runs/my-run/reports
+
+./bin/photo-fieldwork freshness \
+  --sample runs/my-run/manifests/final-holdout.csv \
+  --prior-feedback runs/my-run/manifests/round-01-feedback.csv \
+  --prior-feedback runs/my-run/manifests/round-02-feedback.csv \
+  --minimum-fresh-fraction 1 \
+  --require-disjoint \
   --output runs/my-run/reports
 
 ./bin/photo-fieldwork apply-feedback \
@@ -85,6 +98,8 @@ make check
   --plan-id my-run-v01 \
   --source-profile runs/my-run/inventory/source-profile.json \
   --holds runs/my-run/manifests/hold-sensitive.csv \
+  --evaluation-seal runs/my-run/reports/evaluation-seal.json \
+  --evaluation-report runs/my-run/reports/evaluation-report.json \
   --output runs/my-run/manifests/catalog-plan.json
 
 ./bin/photo-fieldwork transition \
@@ -111,14 +126,17 @@ Those are different questions. Photo Fieldwork keeps them different.
 
 - A deterministic, capacity-aware selection engine that meets exact view quotas or reports why it cannot.
 - Explicit safety states whose restricted lanes cannot enter the general master.
-- Duplicate and burst controls.
+- Duplicate and burst controls that propagate unresolved safety holds across related images.
 - Named-people and visible-apparatus signals.
 - An unclassified editor field for honest uncertainty.
 - UUID-hashed evaluation samples with separate coverage, decisive precision, fit, rejection, and uncertainty rates.
+- Final-holdout freshness gates and evaluation seals that bind planning to the reviewed candidate.
+- Preview coverage, collision, checksum, and full JPEG-decode verification.
 - Atomic run state, an append-only event ledger, artifact checksums, and state recovery.
 - Frozen source profiles with SHA-256 membership fingerprints.
 - Semantic album plans and machine-readable plus human-readable verification reports.
 - A fully synthetic practice run.
+- Ten synthetic contract evals, including a 4,000-item benchmark, run by `make check`.
 - Apple Photos integration guidance and adapter contracts.
 - A case study of how visual inspection changed a real workflow.
 

@@ -13,6 +13,7 @@ from photo_fieldwork.pipeline import (
     select,
     validate,
 )
+from photo_fieldwork.integrity import create_evaluation_seal
 from photo_fieldwork.practice import create_demo_inventory
 
 
@@ -87,6 +88,92 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(plan["albums"][0]["role"], "editor-master")
         self.assertEqual(plan["albums"][0]["visibility"], "private-editor")
         self.assertEqual(len(plan["albums"][0]["asset_identifiers"]), 12)
+
+    def test_catalog_plan_binds_the_passing_evaluation_candidate(self):
+        master, _, _ = select(self.inventory, self.config)
+        evaluation_report = {"passed": True}
+        seal = create_evaluation_seal(master, self.config, evaluation_report)
+        plan = build_catalog_plan(
+            master,
+            self.config,
+            "practice",
+            "Source",
+            "SOURCE-1",
+            evaluation_seal=seal,
+            evaluation_report=evaluation_report,
+        )
+        self.assertEqual(plan["candidate_binding"]["master_fingerprint"], seal["master_fingerprint"])
+        changed = deepcopy(master)
+        changed[0]["primary_view"] = changed[-1]["primary_view"]
+        with self.assertRaisesRegex(ValueError, "does not authorize this plan"):
+            build_catalog_plan(
+                changed,
+                self.config,
+                "drifted",
+                "Source",
+                "SOURCE-1",
+                evaluation_seal=seal,
+                evaluation_report=evaluation_report,
+            )
+
+        changed_report = {"passed": True, "coverage": 0.5}
+        with self.assertRaisesRegex(ValueError, "evaluation report changed"):
+            build_catalog_plan(
+                master,
+                self.config,
+                "report-drifted",
+                "Source",
+                "SOURCE-1",
+                evaluation_seal=seal,
+                evaluation_report=changed_report,
+            )
+
+    def test_safety_holds_propagate_across_duplicate_and_burst_groups(self):
+        config = {
+            "seed": 1,
+            "target_count": 2,
+            "unclassified_view": "A",
+            "views": [{"id": "A", "label": "A", "quota": 2}],
+        }
+        rows = [
+            {
+                "uuid": "duplicate-hold",
+                "filename": "duplicate-hold.jpg",
+                "candidate_views": "A",
+                "duplicate_group": "DUP",
+                "safety_status": "restricted_private",
+            },
+            {
+                "uuid": "duplicate-related",
+                "filename": "duplicate-related.jpg",
+                "candidate_views": "A",
+                "duplicate_group": "DUP",
+            },
+            {
+                "uuid": "burst-hold",
+                "filename": "burst-hold.jpg",
+                "candidate_views": "A",
+                "burst_group": "BURST",
+                "safety_status": "review_sensitive",
+            },
+            {
+                "uuid": "burst-related",
+                "filename": "burst-related.jpg",
+                "candidate_views": "A",
+                "burst_group": "BURST",
+            },
+            {"uuid": "clear-1", "filename": "clear-1.jpg", "candidate_views": "A"},
+            {"uuid": "clear-2", "filename": "clear-2.jpg", "candidate_views": "A"},
+        ]
+        master, holds, _ = select(rows, config)
+        self.assertEqual({row["uuid"] for row in master}, {"clear-1", "clear-2"})
+        self.assertEqual(
+            {row["uuid"] for row in holds},
+            {"duplicate-hold", "duplicate-related", "burst-hold", "burst-related"},
+        )
+        related = {row["uuid"]: row for row in holds}
+        self.assertEqual(related["duplicate-related"]["safety_status"], "hold_automated")
+        self.assertEqual(related["burst-related"]["safety_status"], "hold_automated")
 
     def test_assignment_meets_exact_quotas_with_overlapping_views(self):
         config = {

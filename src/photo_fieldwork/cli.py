@@ -9,6 +9,7 @@ from pathlib import Path
 
 from . import __version__
 from .feedback import apply_feedback
+from .integrity import create_evaluation_seal, evaluate_freshness
 from .pipeline import build_catalog_plan, evaluate, make_sample, read_config, read_csv, select, validate, write_csv
 from .practice import create_demo_inventory, practice_feedback, write_demo_readme
 from .source import build_source_profile, read_source_profile
@@ -65,10 +66,16 @@ def command_sample(args: argparse.Namespace) -> int:
 def command_evaluate(args: argparse.Namespace) -> int:
     config = read_config(args.config)
     feedback = read_csv(args.feedback)
-    report, passed = evaluate(feedback, config)
+    master = read_csv(args.master)
     args.output.mkdir(parents=True, exist_ok=True)
+    seal_path = args.output / "evaluation-seal.json"
+    seal_path.unlink(missing_ok=True)
+    report, passed = evaluate(feedback, config)
     (args.output / "evaluation-report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     (args.output / "evaluation-report.md").write_text(markdown_report("Evaluation report", report), encoding="utf-8")
+    if passed:
+        seal = create_evaluation_seal(master, config, report)
+        seal_path.write_text(json.dumps(seal, indent=2) + "\n", encoding="utf-8")
     print(
         f"evaluation {'PASS' if passed else 'FAIL'}: "
         f"decisive_precision={report['decisive_precision']}, "
@@ -100,6 +107,8 @@ def command_plan(args: argparse.Namespace) -> int:
     source_identifier = getattr(args, "source_identifier", None)
     holds = read_csv(holds_path) if holds_path else []
     source_profile = read_source_profile(source_profile_path) if source_profile_path else None
+    evaluation_seal = json.loads(args.evaluation_seal.read_text(encoding="utf-8"))
+    evaluation_report = json.loads(args.evaluation_report.read_text(encoding="utf-8"))
     if source_profile is None and (not source_title or not source_identifier):
         raise ValueError("provide --source-profile or both --source-title and --source-identifier")
     plan = build_catalog_plan(
@@ -110,6 +119,8 @@ def command_plan(args: argparse.Namespace) -> int:
         source_identifier or (source_profile or {}).get("id", ""),
         source_profile=source_profile,
         holds=holds,
+        evaluation_seal=evaluation_seal,
+        evaluation_report=evaluation_report,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
@@ -208,6 +219,27 @@ def command_apply_feedback(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_freshness(args: argparse.Namespace) -> int:
+    sample = read_csv(args.sample)
+    prior = []
+    for path in args.prior_feedback:
+        prior.extend(read_csv(path))
+    report = evaluate_freshness(
+        [row["uuid"] for row in sample],
+        [row["uuid"] for row in prior],
+        minimum_fresh_fraction=args.minimum_fresh_fraction,
+        require_disjoint=args.require_disjoint,
+    )
+    args.output.mkdir(parents=True, exist_ok=True)
+    (args.output / "freshness-report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    (args.output / "freshness-report.md").write_text(markdown_report("Freshness report", report), encoding="utf-8")
+    print(
+        f"freshness {'PASS' if report['passed'] else 'FAIL'}: "
+        f"fresh_fraction={report['fresh_fraction']}, reused={report['reused_count']}"
+    )
+    return 0 if report["passed"] else 2
+
+
 def command_demo(args: argparse.Namespace) -> int:
     root = Path(__file__).resolve().parents[2]
     workspace = args.workspace.resolve()
@@ -237,7 +269,14 @@ def command_demo(args: argparse.Namespace) -> int:
         )
     )
     practice_feedback(sample_path)
-    eval_code = command_evaluate(argparse.Namespace(config=config, feedback=sample_path, output=workspace / "reports"))
+    eval_code = command_evaluate(
+        argparse.Namespace(
+            config=config,
+            feedback=sample_path,
+            master=workspace / "manifests" / "proposed-master.csv",
+            output=workspace / "reports",
+        )
+    )
     validation_code = command_validate(
         argparse.Namespace(
             config=config,
@@ -255,6 +294,8 @@ def command_demo(args: argparse.Namespace) -> int:
             source_identifier="SYNTHETIC-ONLY",
             source_profile=source_profile_path,
             holds=workspace / "manifests" / "hold-sensitive.csv",
+            evaluation_seal=workspace / "reports" / "evaluation-seal.json",
+            evaluation_report=workspace / "reports" / "evaluation-report.json",
             output=workspace / "manifests" / "catalog-plan.json",
         )
     )
@@ -286,6 +327,7 @@ def parser() -> argparse.ArgumentParser:
 
     evaluation = sub.add_parser("evaluate", help="measure labeled evaluation feedback")
     evaluation.add_argument("--feedback", type=Path, required=True)
+    evaluation.add_argument("--master", type=Path, required=True, help="exact candidate being authorized")
     evaluation.add_argument("--config", type=Path, required=True)
     evaluation.add_argument("--output", type=Path, required=True)
     evaluation.set_defaults(func=command_evaluate)
@@ -305,6 +347,8 @@ def parser() -> argparse.ArgumentParser:
     plan.add_argument("--source-identifier")
     plan.add_argument("--source-profile", type=Path)
     plan.add_argument("--holds", type=Path)
+    plan.add_argument("--evaluation-seal", type=Path, required=True)
+    plan.add_argument("--evaluation-report", type=Path, required=True)
     plan.add_argument("--output", type=Path, required=True)
     plan.set_defaults(func=command_plan)
 
@@ -345,6 +389,14 @@ def parser() -> argparse.ArgumentParser:
     feedback.add_argument("--feedback", type=Path, required=True)
     feedback.add_argument("--output", type=Path, required=True)
     feedback.set_defaults(func=command_apply_feedback)
+
+    freshness = sub.add_parser("freshness", help="measure holdout reuse against prior tuning rounds")
+    freshness.add_argument("--sample", type=Path, required=True)
+    freshness.add_argument("--prior-feedback", type=Path, action="append", required=True)
+    freshness.add_argument("--minimum-fresh-fraction", type=float, default=1.0)
+    freshness.add_argument("--require-disjoint", action="store_true")
+    freshness.add_argument("--output", type=Path, required=True)
+    freshness.set_defaults(func=command_freshness)
     return root
 
 
