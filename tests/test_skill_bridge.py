@@ -35,8 +35,51 @@ DUPLICATE_SPEC = importlib.util.spec_from_file_location("cluster_perceptual_dupl
 duplicates = importlib.util.module_from_spec(DUPLICATE_SPEC)
 DUPLICATE_SPEC.loader.exec_module(duplicates)
 
+EVAL_VALIDATOR_SCRIPT = SCRIPT.parent / "validate_skill_evals.py"
+EVAL_VALIDATOR_SPEC = importlib.util.spec_from_file_location(
+    "validate_skill_evals", EVAL_VALIDATOR_SCRIPT
+)
+eval_validator = importlib.util.module_from_spec(EVAL_VALIDATOR_SPEC)
+EVAL_VALIDATOR_SPEC.loader.exec_module(eval_validator)
+
 
 class SkillBridgeTests(unittest.TestCase):
+    def test_skill_eval_bank_and_machine_grader(self):
+        eval_path = SCRIPT.parent.parent / "evals" / "evals.json"
+        evals = eval_validator.validate_bank(json.loads(eval_path.read_text(encoding="utf-8")))
+        self.assertEqual(len(evals), 16)
+        control = next(item for item in evals if item["name"] == "clean-editor-field-completion")
+        response = {
+            "decision": "complete",
+            "release_class": "editor-field-verified",
+            "controls": {
+                "photos_mutation_authorized": False,
+                "publication_authorized": False,
+                "source_revalidation_required": False,
+                "human_safety_review_required": False,
+                "fresh_visual_review_required": False,
+                "helper_compatibility_required": False,
+                "independent_verification_required": False,
+            },
+            "observed_facts": ["All gates passed."],
+            "unknowns": [],
+            "blocking_conditions": [],
+            "next_actions": ["Record completion."],
+            "prohibited_actions": ["Do not claim publication readiness."],
+            "claim_boundary": ["The field is editor-field-verified."],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            response_dir = root / f"eval-{control['id']:02d}-{control['name']}"
+            response_dir.mkdir()
+            (response_dir / "response.json").write_text(json.dumps(response), encoding="utf-8")
+            result = eval_validator.grade([control], root)
+        self.assertEqual(result["summary"]["pass_rate"], 1.0)
+        malformed = dict(response)
+        malformed.pop("claim_boundary")
+        with self.assertRaisesRegex(ValueError, "response fields"):
+            eval_validator.validate_response(malformed)
+
     def test_review_dependency_and_hamming_contract_load(self):
         self.assertEqual(duplicates.hamming(0b1010, 0b0011), 2)
 

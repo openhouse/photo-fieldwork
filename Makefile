@@ -16,6 +16,9 @@ check: test
 	python3 -m json.tool schemas/evaluation-report.schema.json >/dev/null
 	python3 -m json.tool schemas/snapshot-receipt.schema.json >/dev/null
 	python3 -m json.tool config/local-profile.example.json >/dev/null
+	python3 -m json.tool skills/curate-apple-photos/evals/evals.json >/dev/null
+	python3 -m json.tool skills/curate-apple-photos/evals/response.schema.json >/dev/null
+	python3 skills/curate-apple-photos/scripts/validate_skill_evals.py --evals skills/curate-apple-photos/evals/evals.json >/dev/null
 
 install-skill:
 	./bin/install-skill

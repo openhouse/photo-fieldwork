@@ -153,3 +153,16 @@ Install the local review dependency before using contact sheets or perceptual cl
 ```bash
 python3 -m pip install -e '.[review]'
 ```
+
+## Evaluate the skill safely
+
+The bundled skill includes sixteen synthetic decision drills covering source drift, interruption, safety, evaluation leakage, unsupported views, helper compatibility, preview integrity, publication boundaries, public-report privacy, topology, People context, configuration drift, circular evidence, uncertain dates, and conflicting feedback. The control case confirms that a fully evidenced editor field can complete instead of being reflexively blocked.
+
+Validate the bank without accessing Apple Photos:
+
+```bash
+python3 skills/curate-apple-photos/scripts/validate_skill_evals.py \
+  --evals skills/curate-apple-photos/evals/evals.json
+```
+
+See [the eval methodology and hill-climb results](skills/curate-apple-photos/evals/README.md).

@@ -10,6 +10,7 @@
 - Typed automated, human-review, human-clearance, and human-hold safety states.
 - Helper capability handshake, schema-2 Swift plans, keyed album receipts, resumable phase records, and next-action guidance.
 - Declared local-review dependencies, complete-link perceptual clusters, and expanded trust-boundary regression tests.
+- Sixteen synthetic skill decision drills, a typed response contract, and deterministic machine-control grading.
 
 ### Changed
 
@@ -17,6 +18,7 @@
 - Fresh precision excludes regression canaries; sample completion and master review fraction are separate metrics.
 - Plan generation requires holds and rejects unresolved safety states.
 - Independent verification recomputes source membership instead of relying on count equality.
+- The curation skill now makes source-drift invalidation, People-to-context expansion, fail-closed recovery, and publication review boundaries explicit.
 
 See [the Revision B migration guide](docs/revision-B.md) and [recommendations](recommendations-B.md).
 

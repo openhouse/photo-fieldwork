@@ -45,6 +45,7 @@ These are imagined product lenses, not quotations or endorsements.
 13. Pillow declared as an optional review dependency and installed in CI.
 14. Complete-link perceptual clustering with method, medoid, and distance fields.
 15. Regression tests for unresolved safety, duplicate judgments, canary inflation, source binding, plan integrity, and receipt mismatch.
+16. A synthetic decision-drill eval bank covering the highest-consequence operational and editorial boundaries, with recursive machine and human grading.
 
 ## Next editorial milestone
 

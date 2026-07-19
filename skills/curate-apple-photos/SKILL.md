@@ -28,6 +28,7 @@ python3 scripts/photo_archive_bridge.py doctor \
 ## Governing invariants
 
 - Resolve the source through a versioned source manifest. Use an explicitly named album or `visible-library-stills://v1`; verify its observed count and fingerprint before work.
+- Count equality is not source identity. If a current membership fingerprint differs, preserve the old run and begin a new versioned source-bound run. Repeat source-dependent retrieval, proposal freezing, evaluation, and plan generation; never edit the old manifest to fit current state.
 - Do not alter source albums, originals, metadata, faces, favorite status, dates, locations, or prior versions.
 - Never write Photos SQLite. The permissioned app may only inspect locally or create folders/albums and add existing membership.
 - Do not upload pixels, previews, OCR, faces, coordinates, or manifests.
@@ -55,6 +56,7 @@ python3 scripts/retrieve_candidates.py \
 ```
 
 2. Aim for 1.5-2.0 times the requested master size after metadata retrieval. Include named relationships, prior favorites/edits, person-free material context, and exploratory results.
+   When People associations are an entry point, expand outward to event neighbors, rooms, objects, tools, apparatus, and person-free scenes. Existing People and co-presence remain private retrieval context, not identity, relationship, consent, provenance, or public fact.
 3. Generate a local inspection plan with `photo_archive_bridge.py inspection-plan --source-manifest RUN/source-manifest.json`.
 4. Run the stable permissioned helper with `photo_archive_bridge.py run-plan`. Network access must remain false. Export 1280px previews into the private run workspace; raw OCR is never written.
 5. Merge the inspection JSONL into the candidate CSV using `merge_inspection.py`.
@@ -104,6 +106,19 @@ Do not claim success from Vision labels or metadata alone. The recursive loop re
 7. Independently verify every album and the source membership digest against the plan using read-only, immutable SQLite access.
 8. Use `photo_archive_bridge.py status` to inspect atomic phase transitions. Use `resume` for an interrupted recorded app plan and `mark-phase` for non-app phases. Write the completion report from receipts and verification.
 9. Before sharing any report publicly, run `lint_public_report.py`. A PASS does not replace human review.
+
+## Fail-closed recovery decisions
+
+- A missing receipt means unverified, not completed and not necessarily failed. Preserve the sealed plan, inspect durable phase evidence, measure current membership read-only, and resume only the identical plan after reconciliation.
+- Matching titles or counts do not prove source, plan, topology, or membership identity. Require fingerprints, semantic album keys, parent relationships, stable identifiers, exact memberships, and matching receipts.
+- A helper capability or revision mismatch blocks execution. Rebuilding or replacing the permissioned app is a separate, explicit human-approved operation.
+- A path is not a valid preview. Decode every promised preview. Duplicate, corrupt, conflicting, or out-of-plan checkpoint rows block resume until repaired with provenance.
+- Do not delete, rename, merge, or overwrite prior versions to make a rerun or verification pass.
+- Do not reopen a gate that the supplied, matching evidence already satisfies. Distinguish an outstanding requirement from a completed prerequisite, then report the next unmet gate or completion.
+
+## Publication boundary
+
+An editor field is a field of possibilities, not a publication selection. Before any image leaves the private workflow, create a separate purpose-specific shortlist and review every item for rights, consent, caption and claim provenance, contextual dignity, credit, accessibility description, crop suitability, destination, and final human approval. Resolve or exclude every safety and consent uncertainty. Record the publication decision and revisit date independently of the field's release class. Never infer publication permission from a score, People association, album membership, technical verification, or `editor-field-verified` status.
 
 The helper invocation may require a Codex permission approval for `open -W`; request a reusable approval scoped to `/Applications/Jamie Photo Archive.app`. The app's Photos permission itself should persist under its stable bundle identity.
 
