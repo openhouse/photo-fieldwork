@@ -530,6 +530,9 @@ final class ArchiveRunner {
     }
 
     func run() throws -> SnapshotReceipt {
+        guard plan.operation == "snapshot-membership" else {
+            throw ArchiveError.invalidPlan("unrecognized snapshot operation")
+        }
         guard plan.schema_version == 1 else {
             throw ArchiveError.invalidPlan("unsupported schema_version")
         }
@@ -802,12 +805,14 @@ do {
         )
         try encoder.encode(receipt).write(to: receiptURL, options: .atomic)
         runner.log("completed receipt=\(plan.receipt_path)")
-    } else {
+    } else if header.operation == "snapshot-membership" {
         let plan = try JSONDecoder().decode(SnapshotPlan.self, from: planData)
         let runner = ArchiveRunner(plan: plan)
         let receipt = try runner.run()
         try writeReceipt(receipt, to: plan.receipt_path)
         runner.log("completed receipt=\(plan.receipt_path)")
+    } else {
+        throw ArchiveError.invalidPlan("unrecognized operation")
     }
     exit(0)
 } catch {

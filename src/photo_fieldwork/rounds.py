@@ -24,13 +24,48 @@ def apply_feedback(
     *,
     round_id: str,
     allow_uninspected: bool = False,
+    prior_feedback: list[dict[str, str]] | None = None,
 ) -> tuple[list[dict[str, str]], list[dict]]:
-    decisions = {row["uuid"]: row for row in feedback if row.get("uuid")}
+    feedback_edges = [
+        (
+            row["uuid"],
+            str(row.get("view_id") or row.get("primary_view") or "").strip(),
+        )
+        for row in feedback
+        if row.get("uuid")
+    ]
+    if len(feedback_edges) != len(set(feedback_edges)):
+        raise ValueError("round feedback contains duplicate UUID/view decisions")
+    rejected_edges = {
+        (
+            row["uuid"],
+            str(row.get("view_id") or row.get("primary_view") or "").strip(),
+        )
+        for row in [*(prior_feedback or []), *feedback]
+        if row.get("uuid") and row.get("judgment", "").strip().lower() == "reject"
+    }
+
+    def eligible_views(row: dict[str, str]) -> list[str]:
+        views = split_values(row.get("candidate_views"))
+        primary = str(row.get("primary_view", "")).strip()
+        if primary and primary not in views:
+            views.insert(0, primary)
+        return list(dict.fromkeys(views))
+
     removed: list[dict[str, str]] = []
     retained: list[dict[str, str]] = []
     events: list[dict] = []
     for row in master:
-        decision = decisions.get(row["uuid"], {})
+        matching = [
+            decision
+            for decision in feedback
+            if decision.get("uuid") == row["uuid"]
+            and str(decision.get("view_id") or decision.get("primary_view") or "").strip()
+            in {"", row.get("primary_view", "")}
+        ]
+        if len(matching) > 1:
+            raise ValueError(f"round feedback contains conflicting decisions for {row['uuid']}")
+        decision = matching[0] if matching else {}
         judgment = decision.get("judgment", "").strip().lower()
         safety = decision.get("safety_status", "clear").strip().lower()
         if judgment == "reject" or not safety_clear({"safety_status": safety}):
@@ -42,7 +77,11 @@ def apply_feedback(
                     "previous_state": "selected",
                     "new_state": "rejected" if safety_clear({"safety_status": safety}) else safety,
                     "reason": decision.get("visible_reason") or decision.get("evaluation_note") or "round feedback",
-                    "payload": {"round_id": round_id, "primary_view": row.get("primary_view", "")},
+                    "payload": {
+                        "round_id": round_id,
+                        "primary_view": row.get("primary_view", ""),
+                        "image_view_key": f"{row['uuid']}:{row.get('primary_view', '')}",
+                    },
                 }
             )
         else:
@@ -63,14 +102,26 @@ def apply_feedback(
 
     replacements = []
     for outgoing in removed:
-        same_view = next(
-            (row for row in pool if row.get("primary_view") == outgoing.get("primary_view")),
+        outgoing_view = str(outgoing.get("primary_view", ""))
+        incoming = next(
+            (
+                row
+                for row in pool
+                if outgoing_view in eligible_views(row)
+                and (row["uuid"], outgoing_view) not in rejected_edges
+            ),
             None,
         )
-        incoming = same_view or (pool[0] if pool else None)
         if incoming is None:
-            raise ValueError(f"no inspected clear replacement available for {outgoing['uuid']}")
+            raise ValueError(
+                f"no inspected clear replacement available for {outgoing['uuid']} "
+                f"in view {outgoing_view}; rejected image-view edges cannot re-enter"
+            )
         pool.remove(incoming)
+        incoming["primary_view"] = outgoing_view
+        incoming["assignment_alternatives"] = ";".join(
+            view for view in eligible_views(incoming) if view != outgoing_view
+        )
         incoming["selection_reason"] = "; ".join(
             part for part in (
                 incoming.get("selection_reason", ""),
@@ -89,6 +140,7 @@ def apply_feedback(
                     "round_id": round_id,
                     "outgoing_uuid": outgoing["uuid"],
                     "primary_view": incoming.get("primary_view", ""),
+                    "image_view_key": f"{incoming['uuid']}:{incoming.get('primary_view', '')}",
                 },
             }
         )

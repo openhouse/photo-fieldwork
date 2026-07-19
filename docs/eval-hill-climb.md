@@ -43,11 +43,41 @@ attached hash-bound artifacts; sample hashing gained a canonical serialization;
 source and prior-version snapshots gained real digests and exact-set
 recomputation; helper operations gained one strict vocabulary.
 
+### Composite mutation
+
+Revision C then composed the strongest branch-family contracts into one
+executable release path. A first independent critic found nine high-severity
+gaps: writer authorization stopped before the real bridge, evaluation samples
+were not master-bound, release hashes omitted row-level safety state, exact
+assignment optimized cardinality rather than score, rejected image-view edges
+were not loaded from the ledger, artifact drift could be laundered by another
+reconcile, bridge initialization skipped the event ledger, multi-row sample
+hashing failed, and the composite eval did not execute its release mutations.
+Each became a regression test before repair.
+
+### Composite holdout mutation
+
+A second critic found four narrower paths: reusing feedback after changing the
+sampled master, score-losing diversity-floor swaps, self-checksummed writer
+plans that did not re-present release evidence, and silent supersession of a
+completed phase artifact. The sample gained a master-bound manifest; swaps now
+minimize score loss while preserving completion capacity; writer launch
+revalidates the current release bundle and membership scope; phase replacement
+requires an explicit compare-and-swap update.
+
+### Final mutation
+
+The next holdout found an unknown-operation fallthrough in both helper layers,
+a flexible-view floor-capacity trap, and an API path that allowed an explicit
+phase update without a revision. Python and Swift now reject every unknown
+operation, floor swaps look ahead to the remaining view capacity, and the state
+API itself requires `expected_revision` for phase updates.
+
 ### Convergence
 
-The final independent audit was limited to those four defects. It recomputed the
-hashes and set differences and returned `CONVERGED`: no remaining
-release-blocking contradiction in the synthetic eval scope.
+The final independent audit was limited to the last three defects and the
+previous release contracts. It returned `CONVERGED`: no remaining critical or
+high defect with a stable executable counterexample in the reviewed scope.
 
 ## Stop rule
 
@@ -58,11 +88,14 @@ preferences or to simulate every production detail.
 
 ## Current result
 
-- 11 skill evals with attached public-safe fixtures.
+- 12 skill evals with attached public-safe fixtures.
 - 1 executable fake-catalog positive path.
+- 1 executable composite path covering assignment, feedback lineage,
+  transactional recovery, release mutations, and zero-call writer preflight.
 - Exact release-blocking expectations for safety, mutation, verification,
   privacy, and publication boundaries.
-- 30 deterministic tests covering the bank, fixture hashes, fake-adapter order,
-  idempotence, fallback exclusions, safety states, and structured reconciliation.
+- 44 deterministic tests covering the bank, fixture hashes, fake-adapter order,
+  idempotence, fallback exclusions, safety states, sample/master binding,
+  overlap-aware assignment, release authorization, and transactional state.
 
 Run the full deterministic layer with `make check`.

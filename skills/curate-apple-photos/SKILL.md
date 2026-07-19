@@ -82,7 +82,11 @@ Read [evaluation-loop.md](references/evaluation-loop.md) before the first visual
   --output RUN
 ```
 
-2. Create a score-stratified sample from every view. For the first round, inspect at least 3 per view and at least 36 overall. Later rounds should normally inspect 60-100 images across low, middle, and high scores.
+2. Create a score-stratified sample from every view and preserve its generated
+   sample manifest. For the first round, inspect at least 3 per view and at
+   least 36 overall. Later rounds should normally inspect 60-100 images across
+   low, middle, and high scores. Evaluation must present the manifest; any
+   master change requires a fresh sample.
 3. Build contact sheets with `make_contact_sheets.py`. Use `view_image` to inspect every page. Open individual previews when context or safety is unclear.
 4. Speak briefly as the requested peers. If Jamie cannot review, role-play Jamie using the supplied brief and voice references, while marking the judgment as delegated editorial inference rather than eyewitness fact.
 5. Record `fit`, `reject`, or `uncertain`, one visible reason, a safety state, and an error category in the evaluation CSV.
@@ -107,17 +111,26 @@ Do not claim success from Vision labels or metadata alone. The recursive loop re
 
 1. Run `photo-fieldwork validate` with the latest evaluation report and candidate
    summary. Save the named-gate PASS report and read every waiver.
-2. Generate test and production plans with `photo_archive_bridge.py snapshot-plans`.
-3. Inspect the plans. Confirm the source count, target count, folder title, HOLD separation, and that operations are membership-only.
-4. Run the ten-item write test through the app. Build a compact WAL-aware
+2. Generate the core `photo-fieldwork plan` from the exact master, HOLD,
+   config, frozen source-membership CSV, evaluation report, and validation
+   report. This produces the candidate-bound editor-field release receipt;
+   `publication_clearance` remains false.
+3. Generate test and production plans with `photo_archive_bridge.py
+   snapshot-plans`, passing that release plan and the same six artifacts. The
+   bridge must reject any digest mismatch before producing a writer plan.
+4. Inspect the plans. Confirm the source count, target count, folder title, HOLD separation, and that operations are membership-only.
+5. Run the ten-item write test through the app, presenting the release plan and
+   all six bound artifacts again to `run-plan`. Build a compact WAL-aware
    verification snapshot, then independently verify it with
    `verify_photos_commit.py`.
-5. Run the production plan through the app. Rerun it once to confirm idempotence.
-6. Independently verify every album, source boundary, HOLD overlap, and parent
+6. Run the production plan through the app with the same current release
+   evidence. Rerun it once to confirm idempotence. A plan's self-hash alone is
+   never writer authorization.
+7. Independently verify every album, source boundary, HOLD overlap, and parent
    folder against the plan using the frozen read-only, immutable snapshot. Pass
    the exact master, HOLD, and config manifests to the verifier so their hashes
    are checked against the approved plan.
-7. Run `photo-fieldwork run reconcile` after every durable phase. Finalize only
+8. Run `photo-fieldwork run reconcile --expected-revision REVISION` after every durable phase. Finalize only
    after all artifact-backed phases pass; generate the completion report from
    state, hashes, receipts, evaluation results, privacy facts, and unresolved
    uncertainty. Structured JSON status and bound hashes authorize phases;

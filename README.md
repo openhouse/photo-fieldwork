@@ -58,10 +58,13 @@ profiles, preview decoding QA, and WAL-aware frozen Apple Photos verification.
 ./bin/photo-fieldwork sample \
   --master runs/my-run/manifests/proposed-master.csv \
   --output runs/my-run/manifests/eval-sample.csv \
+  --manifest runs/my-run/manifests/eval-sample-manifest.json \
   --per-view 3
 
 ./bin/photo-fieldwork evaluate \
+  --master runs/my-run/manifests/proposed-master.csv \
   --feedback runs/my-run/manifests/eval-sample.csv \
+  --sample-manifest runs/my-run/manifests/eval-sample-manifest.json \
   --config path/to/config.json \
   --output runs/my-run/reports
 
@@ -69,11 +72,16 @@ profiles, preview decoding QA, and WAL-aware frozen Apple Photos verification.
   --master runs/my-run/manifests/proposed-master.csv \
   --holds runs/my-run/manifests/hold-sensitive.csv \
   --config path/to/config.json \
+  --evaluation-report runs/my-run/reports/evaluation-report.json \
   --output runs/my-run/reports
 
 ./bin/photo-fieldwork plan \
   --master runs/my-run/manifests/proposed-master.csv \
+  --holds runs/my-run/manifests/hold-sensitive.csv \
   --config path/to/config.json \
+  --source-membership runs/my-run/manifests/frozen-source-membership.csv \
+  --evaluation-report runs/my-run/reports/evaluation-report.json \
+  --validation-report runs/my-run/reports/validation-report.json \
   --plan-id my-run-v01 \
   --source-title "Wide retrieval - do not edit" \
   --source-identifier SOURCE-ID \
@@ -108,8 +116,13 @@ photo-fieldwork ledger append \
   --new-state fit \
   --reason "Visible apparatus and working context"
 
-photo-fieldwork run reconcile --workspace runs/v01
+photo-fieldwork run reconcile --workspace runs/v01 --expected-revision 1
 ```
+
+The sample manifest binds feedback to the exact master that was sampled. A
+changed master requires a fresh sample. If a completed phase gains a reviewed
+replacement artifact, accept that transition explicitly with
+`--allow-phase-update PHASE` and the current expected revision.
 
 Apply reviewed feedback only when replacement candidates have local pixels and
 decodable previews:
@@ -119,11 +132,16 @@ photo-fieldwork round apply \
   --master runs/v01/manifests/proposed-master.csv \
   --inventory runs/v01/manifests/ready-candidates.csv \
   --feedback runs/v01/reports/round-01-feedback.csv \
+  --prior-feedback runs/v01/reports/round-00-feedback.csv \
   --round-id round-01 \
   --ledger runs/v01/decisions.sqlite \
   --run-id v01 \
   --output runs/v01/manifests/proposed-master-round-02.csv
 ```
+
+When `--ledger` is present, prior `reviewed-reject` image-view edges are loaded
+from it automatically. `--prior-feedback` is useful when importing older review
+history that has not yet been materialized in the ledger.
 
 See [run lifecycle](docs/run-lifecycle.md) and
 [decision ledger](docs/decision-ledger.md).

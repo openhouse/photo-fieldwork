@@ -6,12 +6,14 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import argparse
 from pathlib import Path
 
 from photo_fieldwork.ledger import append_event, connect, read_events
-from photo_fieldwork.pipeline import evaluate, select, validate
+from photo_fieldwork.cli import command_round_apply
+from photo_fieldwork.pipeline import evaluate, read_csv, select, validate, write_csv
 from photo_fieldwork.rounds import apply_feedback
-from photo_fieldwork.run_state import PHASES, finalize, initialize, reconcile
+from photo_fieldwork.run_state import PHASES, finalize, initialize, read_run_events, reconcile, recover
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -43,6 +45,97 @@ class LedgerTests(unittest.TestCase):
 
 
 class LifecycleTests(unittest.TestCase):
+    def test_reconcile_is_compare_and_swap_and_event_recoverable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory) / "run"
+            initialized = initialize(
+                workspace,
+                run_id="run-cas",
+                version="v01",
+                target_count=1,
+                source_identifier="SOURCE",
+                expected_source_count=1,
+            )
+            self.assertEqual(initialized["revision"], 1)
+            reconciled = reconcile(workspace, expected_revision=1)
+            self.assertEqual(reconciled["revision"], 2)
+            with self.assertRaisesRegex(ValueError, "revision conflict"):
+                reconcile(workspace, expected_revision=1)
+
+            (workspace / "run-state.json").write_text("{}\n")
+            recovered = recover(workspace)
+            self.assertEqual(recovered["revision"], 2)
+            self.assertEqual([event["revision"] for event in read_run_events(workspace)], [1, 2])
+
+    def test_completed_artifact_drift_blocks_reconciliation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory) / "run"
+            initialize(
+                workspace,
+                run_id="run-drift",
+                version="v01",
+                target_count=1,
+                source_identifier="SOURCE",
+                expected_source_count=1,
+            )
+            (workspace / "brief.md").write_text("approved brief\n")
+            (workspace / "retrieval.json").write_text("{}\n")
+            (workspace / "config.json").write_text("{}\n")
+            state = reconcile(workspace, expected_revision=1)
+            self.assertEqual(state["phases"]["brief"]["status"], "complete")
+
+            (workspace / "brief.md").write_text("mutated brief\n")
+            state = reconcile(workspace, expected_revision=2)
+
+            self.assertEqual(state["status"], "blocked")
+            self.assertEqual(state["phases"]["brief"]["status"], "blocked")
+            self.assertIn("SHA-256 changed", " ".join(state["phases"]["brief"]["errors"]))
+            original_artifacts = state["phases"]["brief"]["artifacts"]
+
+            state = reconcile(workspace, expected_revision=3)
+            self.assertEqual(state["phases"]["brief"]["status"], "blocked")
+            self.assertEqual(state["phases"]["brief"]["artifacts"], original_artifacts)
+
+    def test_completed_phase_supersession_requires_explicit_cas_update(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory) / "run"
+            initialize(
+                workspace,
+                run_id="run-supersession",
+                version="v01",
+                target_count=1,
+                source_identifier="SOURCE",
+                expected_source_count=1,
+            )
+            first = workspace / "reports" / "round-1" / "evaluation-report.json"
+            first.parent.mkdir()
+            first.write_text(json.dumps({"passed": True, "round": 1}))
+            state = reconcile(workspace, expected_revision=1)
+            original = state["phases"]["recursive_evaluation"]["artifacts"]
+
+            second = workspace / "reports" / "round-2" / "evaluation-report.json"
+            second.parent.mkdir()
+            second.write_text(json.dumps({"passed": True, "round": 2}))
+            state = reconcile(workspace, expected_revision=2)
+            phase = state["phases"]["recursive_evaluation"]
+            self.assertEqual(phase["status"], "blocked")
+            self.assertEqual(phase["artifacts"], original)
+
+            with self.assertRaisesRegex(ValueError, "require expected_revision"):
+                reconcile(
+                    workspace,
+                    allow_phase_updates=("recursive_evaluation",),
+                )
+
+            state = reconcile(
+                workspace,
+                expected_revision=3,
+                allow_phase_updates=("recursive_evaluation",),
+            )
+            phase = state["phases"]["recursive_evaluation"]
+            self.assertEqual(phase["status"], "complete")
+            self.assertEqual(phase["artifacts"][0]["path"], "reports/round-2/evaluation-report.json")
+
     def test_write_receipt_without_verification_remains_pending(self):
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory) / "run"
@@ -119,6 +212,114 @@ class LifecycleTests(unittest.TestCase):
 
 
 class RoundTests(unittest.TestCase):
+    def test_ledger_rejection_is_enforced_without_prior_feedback_csv(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            master = [{
+                "uuid": "OUT", "filename": "out.jpg", "primary_view": "01",
+                "score_total": "10", "selection_reason": "selected",
+            }]
+            inventory = master + [
+                {
+                    "uuid": "LEDGER-REJECT", "filename": "reject.jpg", "primary_view": "01",
+                    "candidate_views": "01", "score_total": "100", "selection_reason": "eligible",
+                    "safety_status": "clear", "pixel_available": "true", "preview_exported": "true",
+                },
+                {
+                    "uuid": "CLEAR", "filename": "clear.jpg", "primary_view": "01",
+                    "candidate_views": "01", "score_total": "9", "selection_reason": "eligible",
+                    "safety_status": "clear", "pixel_available": "true", "preview_exported": "true",
+                },
+            ]
+            feedback = [{"uuid": "OUT", "filename": "out.jpg", "primary_view": "01", "judgment": "reject"}]
+            master_path = root / "master.csv"
+            inventory_path = root / "inventory.csv"
+            feedback_path = root / "feedback.csv"
+            output_path = root / "updated.csv"
+            ledger = root / "decisions.sqlite"
+            write_csv(master_path, master)
+            write_csv(inventory_path, inventory)
+            write_csv(feedback_path, feedback)
+            append_event(
+                ledger,
+                run_id="run",
+                round_id="round-1",
+                asset_uuid="LEDGER-REJECT",
+                event_type="reviewed-reject",
+                actor="editor",
+                new_state="rejected",
+                payload={"primary_view": "01"},
+            )
+
+            command_round_apply(
+                argparse.Namespace(
+                    master=master_path,
+                    inventory=inventory_path,
+                    feedback=feedback_path,
+                    prior_feedback=[],
+                    output=output_path,
+                    round_id="round-2",
+                    ledger=ledger,
+                    run_id="run",
+                    actor="editor",
+                    config_hash=None,
+                    inspection_profile_hash=None,
+                    code_version=None,
+                    allow_uninspected=False,
+                )
+            )
+
+            self.assertEqual([row["uuid"] for row in read_csv(output_path)], ["CLEAR"])
+
+    def test_conflicting_feedback_cannot_erase_rejection(self):
+        master = [{
+            "uuid": "OUT", "filename": "out.jpg", "primary_view": "01",
+            "score_total": "10", "selection_reason": "selected",
+        }]
+        inventory = master + [{
+            "uuid": "CLEAR", "filename": "clear.jpg", "primary_view": "01",
+            "candidate_views": "01", "score_total": "9", "selection_reason": "eligible",
+            "safety_status": "clear", "pixel_available": "true", "preview_exported": "true",
+        }]
+        feedback = [
+            {"uuid": "OUT", "primary_view": "01", "judgment": "reject"},
+            {"uuid": "OUT", "primary_view": "02", "judgment": "fit"},
+        ]
+
+        updated, _ = apply_feedback(master, inventory, feedback, round_id="round-2")
+
+        self.assertEqual([row["uuid"] for row in updated], ["CLEAR"])
+    def test_prior_rejected_image_view_edge_cannot_reenter(self):
+        master = [{
+            "uuid": "OUT", "filename": "out.jpg", "primary_view": "01",
+            "score_total": "10", "selection_reason": "selected",
+        }]
+        inventory = master + [
+            {
+                "uuid": "REJECTED-EDGE", "filename": "rejected.jpg",
+                "primary_view": "01", "candidate_views": "01;02", "score_total": "100",
+                "selection_reason": "eligible", "safety_status": "clear",
+                "pixel_available": "true", "preview_exported": "true",
+            },
+            {
+                "uuid": "CLEAR-NEXT", "filename": "next.jpg", "primary_view": "01",
+                "candidate_views": "01", "score_total": "9", "selection_reason": "eligible",
+                "safety_status": "clear", "pixel_available": "true", "preview_exported": "true",
+            },
+        ]
+        current = [{"uuid": "OUT", "primary_view": "01", "judgment": "reject"}]
+        prior = [{"uuid": "REJECTED-EDGE", "primary_view": "01", "judgment": "reject"}]
+
+        updated, _ = apply_feedback(
+            master,
+            inventory,
+            current,
+            prior_feedback=prior,
+            round_id="round-3",
+        )
+
+        self.assertEqual([row["uuid"] for row in updated], ["CLEAR-NEXT"])
+
     def test_replacement_requires_inspected_clear_candidate(self):
         master = [
             {"uuid": "A", "filename": "a.jpg", "primary_view": "01", "score_total": "9", "selection_reason": "selected"},
@@ -224,6 +425,169 @@ class GateTests(unittest.TestCase):
 
 
 class ConstraintTests(unittest.TestCase):
+    def test_exact_assignment_maximizes_global_candidate_score(self):
+        config = {
+            "seed": 7,
+            "target_count": 3,
+            "unclassified_view": "A",
+            "quota_mode": "exact",
+            "views": [
+                {"id": view, "label": view, "quota": 1}
+                for view in ("A", "B", "C")
+            ],
+        }
+        inventory = [
+            {
+                "uuid": "TOP-FLEX", "filename": "top.jpg", "candidate_views": "A;B;C",
+                "favorite": "true", "edited": "true", "safety_status": "clear",
+            },
+            {
+                "uuid": "A-ONLY", "filename": "a.jpg", "candidate_views": "A",
+                "favorite": "true", "safety_status": "clear",
+            },
+            {
+                "uuid": "LOW-AB", "filename": "ab.jpg", "candidate_views": "A;B",
+                "visible_context": "material", "safety_status": "clear",
+            },
+            {
+                "uuid": "LOW-BC", "filename": "bc.jpg", "candidate_views": "B;C",
+                "safety_status": "clear",
+            },
+        ]
+
+        master, _, _ = select(inventory, config)
+
+        self.assertEqual({row["uuid"] for row in master}, {"TOP-FLEX", "A-ONLY", "LOW-AB"})
+
+    def test_diversity_floor_swap_minimizes_global_score_loss(self):
+        config = {
+            "seed": 7,
+            "target_count": 2,
+            "unclassified_view": "A",
+            "quota_mode": "exact",
+            "exploratory_fraction": 0.5,
+            "views": [
+                {"id": "A", "label": "A", "quota": 1},
+                {"id": "B", "label": "B", "quota": 1},
+            ],
+        }
+        inventory = [
+            {
+                "uuid": "A-HIGH", "filename": "a1.jpg", "candidate_views": "A",
+                "favorite": "true", "edited": "true", "evidence_confidence": "high",
+                "persons": "P", "visible_context": "material", "safety_status": "clear",
+            },
+            {
+                "uuid": "A-LOW", "filename": "a2.jpg", "candidate_views": "A",
+                "favorite": "true", "edited": "true", "evidence_confidence": "unknown",
+                "visible_context": "material", "safety_status": "clear",
+            },
+            {
+                "uuid": "B-HIGH", "filename": "b1.jpg", "candidate_views": "B",
+                "evidence_confidence": "high", "safety_status": "clear",
+            },
+            {
+                "uuid": "B-LOW", "filename": "b2.jpg", "candidate_views": "B",
+                "evidence_confidence": "unknown", "persons": "P",
+                "visible_context": "material", "safety_status": "clear",
+            },
+        ]
+
+        master, _, _ = select(inventory, config)
+
+        self.assertEqual({row["uuid"] for row in master}, {"A-HIGH", "B-LOW"})
+
+    def test_diversity_floor_lookahead_preserves_flexible_assignment_capacity(self):
+        config = {
+            "seed": 7,
+            "target_count": 2,
+            "unclassified_view": "A",
+            "quota_mode": "exact",
+            "exploratory_fraction": 1.0,
+            "views": [
+                {"id": "A", "label": "A", "quota": 1},
+                {"id": "B", "label": "B", "quota": 1},
+            ],
+        }
+        inventory = [
+            {
+                "uuid": "A-DONOR", "filename": "a.jpg", "candidate_views": "A",
+                "favorite": "true", "evidence_confidence": "medium",
+                "visible_context": "material", "safety_status": "clear",
+            },
+            {
+                "uuid": "B-DONOR", "filename": "b.jpg", "candidate_views": "B",
+                "favorite": "true", "edited": "true", "evidence_confidence": "high",
+                "safety_status": "clear",
+            },
+            {
+                "uuid": "X-FLEX", "filename": "x.jpg", "candidate_views": "A;B",
+                "favorite": "true", "edited": "true", "evidence_confidence": "unknown",
+                "visible_context": "material", "safety_status": "clear",
+            },
+            {
+                "uuid": "Y-A", "filename": "y.jpg", "candidate_views": "A",
+                "favorite": "true", "evidence_confidence": "unknown",
+                "visible_context": "material", "safety_status": "clear",
+            },
+        ]
+
+        master, _, _ = select(inventory, config)
+
+        self.assertEqual(
+            {row["uuid"]: row["primary_view"] for row in master},
+            {"Y-A": "A", "X-FLEX": "B"},
+        )
+
+    def test_overlap_aware_assignment_avoids_first_view_trap(self):
+        config = {
+            "seed": 7,
+            "target_count": 2,
+            "unclassified_view": "A",
+            "quota_mode": "exact",
+            "views": [
+                {"id": "A", "label": "A", "quota": 1},
+                {"id": "B", "label": "B", "quota": 1},
+            ],
+        }
+        inventory = [
+            {
+                "uuid": "FLEX", "filename": "flex.jpg", "candidate_views": "A;B",
+                "favorite": "true", "safety_status": "clear",
+            },
+            {
+                "uuid": "A-ONLY", "filename": "a.jpg", "candidate_views": "A",
+                "safety_status": "clear",
+            },
+        ]
+
+        master, _, summary = select(inventory, config)
+
+        self.assertEqual(
+            {row["uuid"]: row["primary_view"] for row in master},
+            {"A-ONLY": "A", "FLEX": "B"},
+        )
+        self.assertEqual(summary["assignment_capacity"]["status"], "PASS")
+
+    def test_infeasible_assignment_reports_view_deficits(self):
+        config = {
+            "seed": 7,
+            "target_count": 2,
+            "unclassified_view": "A",
+            "quota_mode": "exact",
+            "views": [
+                {"id": "A", "label": "A", "quota": 1},
+                {"id": "B", "label": "B", "quota": 1},
+            ],
+        }
+        inventory = [
+            {"uuid": "A1", "filename": "a1.jpg", "candidate_views": "A", "safety_status": "clear"},
+            {"uuid": "A2", "filename": "a2.jpg", "candidate_views": "A", "safety_status": "clear"},
+        ]
+
+        with self.assertRaisesRegex(ValueError, '"B": 1'):
+            select(inventory, config)
+
     def test_only_recognized_clear_safety_states_are_eligible(self):
         config = {
             "seed": 7,

@@ -177,6 +177,24 @@
         "The imported scan date is not used to claim participation in the dated project.",
         "The description distinguishes visible evidence, retrieval metadata, provenance, and what was not established."
       ]
+    },
+    {
+      "id": 12,
+      "name": "composite-assignment-lineage-and-release-transaction",
+      "tags": ["assignment", "feedback", "resumability", "integrity", "mutation-boundary", "publication"],
+      "prompt": "Execute the attached composite scenario from exact assignment through feedback, transactional reconciliation, and release authorization. Report every fail-closed boundary and writer count.",
+      "expected_output": "A deterministic exact assignment and replacement result followed by zero writer invocations whenever revision, receipt, source, or evaluated-candidate identity drifts.",
+      "files": ["evals/files/composite-release-scenario.json"],
+      "expectations": [
+        "The overlap-aware assignment is exactly A-ONLY to A and FLEX to B; first-candidate greedy assignment is not accepted.",
+        "A required diversity-floor swap preserves A-HIGH and selects B-LOW because that feasible replacement loses less total score than A-LOW plus B-HIGH.",
+        "The next master is exactly CLEAR-NEXT because REJECTED-EDGE plus view A remains rejected across rounds even though that asset has another eligible view.",
+        "Feedback is accepted only with a sample manifest bound to the exact current master; changing even a nonsampled master row requires a fresh sample.",
+        "The first reconciliation advances revision 1 to 2, and a writer presenting stale expected revision 1 receives a revision conflict without changing state.",
+        "A changed completed artifact or silently superseded phase blocks reconciliation, while an explicit compare-and-swap phase update and event-ledger recovery remain available.",
+        "Any master assignment, frozen source membership, evaluation, validation, or plan digest mismatch permits exactly zero writer invocations; self-rehashing a plan cannot authorize an outside asset.",
+        "A valid release remains class editor-field with publication_clearance false."
+      ]
     }
   ]
 }

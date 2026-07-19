@@ -16,6 +16,11 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(REPO_ROOT / "src"))
+
+from photo_fieldwork.run_state import initialize as initialize_run
+
 
 APP = Path("/Applications/Jamie Photo Archive.app")
 APP_EXECUTABLE = APP / "Contents/MacOS/JamiePhotoArchive"
@@ -45,6 +50,39 @@ def file_hash(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def canonical_json_sha256(value: object) -> str:
+    payload = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def semantic_rows_sha256(rows: list[dict[str, str]], *, view_order: bool = False) -> str:
+    payload = [
+        {
+            str(key): str(value)
+            for key, value in sorted(row.items())
+            if str(value) != ""
+        }
+        for row in rows
+    ]
+    if view_order:
+        payload.sort(key=lambda row: (row.get("primary_view", ""), row["uuid"]))
+    else:
+        payload.sort(key=lambda row: row["uuid"])
+    return canonical_json_sha256(payload)
+
+
+def membership_sha256(rows: list[dict[str, str]]) -> str:
+    payload = "".join(f"{uuid}\n" for uuid in sorted({str(row["uuid"]) for row in rows}))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def verify_plan_sha256(plan: dict) -> None:
+    recorded = str(plan.get("plan_sha256", ""))
+    unsigned = {key: value for key, value in plan.items() if key != "plan_sha256"}
+    if not recorded or canonical_json_sha256(unsigned) != recorded:
+        raise ValueError("plan SHA-256 is missing or does not match its exact contents")
 
 
 def resolve_source(args: argparse.Namespace) -> tuple[str, int]:
@@ -153,35 +191,14 @@ def command_init(args: argparse.Namespace) -> int:
     root = (args.workspace_root / f"{args.version}-{safe_slug(args.slug)}-{stamp}").resolve()
     if root.exists():
         raise ValueError(f"workspace already exists: {root}")
-    for name in ("inventory", "manifests", "reports", "logs", "previews", "contact-sheets", "scripts"):
-        (root / name).mkdir(parents=True, exist_ok=False)
-    state = {
-        "schema_version": 2,
-        "run_id": root.name,
-        "status": "initialized",
-        "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-        "version": args.version,
-        "target_count": args.target,
-        "source": {
-            "identifier": source_id,
-            "expected_count": source_count,
-        },
-        "phases": {
-            phase: {"status": "pending", "artifacts": []}
-            for phase in (
-                "brief",
-                "retrieval",
-                "local_inspection",
-                "recursive_evaluation",
-                "validation",
-                "write_test",
-                "production_commit",
-                "independent_verification",
-            )
-        },
-        "history": [],
-    }
-    dump_json(root / "run-state.json", state)
+    initialize_run(
+        root,
+        run_id=root.name,
+        version=args.version,
+        target_count=args.target,
+        source_identifier=source_id,
+        expected_source_count=source_count,
+    )
     (root / "README.md").write_text(
         f"# {args.version}: {args.slug}\n\n"
         f"- Target: {args.target:,} unique still photographs\n"
@@ -273,7 +290,7 @@ def album(title: str, parent: str, uuids: list[str]) -> dict:
 
 def snapshot_plan(args: argparse.Namespace, plan_id: str, folders: list[dict], albums: list[dict], receipt: str) -> dict:
     source_id, source_count = resolve_source(args)
-    return {
+    plan = {
         "operation": "snapshot-membership",
         "schema_version": 1,
         "plan_id": plan_id,
@@ -286,7 +303,84 @@ def snapshot_plan(args: argparse.Namespace, plan_id: str, folders: list[dict], a
         "folders": folders,
         "albums": albums,
         "manifest_hashes": args.manifest_hashes,
+        "authorization": args.authorization,
     }
+    plan["plan_sha256"] = canonical_json_sha256(plan)
+    return plan
+
+
+def release_authorization(args: argparse.Namespace, master_rows: list[dict[str, str]], hold_rows: list[dict[str, str]]) -> dict:
+    if not args.config:
+        raise ValueError("candidate-bound snapshot plans require a config")
+    release_plan = json.loads(args.release_plan.read_text(encoding="utf-8"))
+    verify_plan_sha256(release_plan)
+    evaluation_report = json.loads(args.evaluation_report.read_text(encoding="utf-8"))
+    validation_report = json.loads(args.validation_report.read_text(encoding="utf-8"))
+    config = json.loads(args.config.read_text(encoding="utf-8"))
+    source_rows = read_csv(args.source_membership)
+    source_ids = [base_identifier(row["uuid"]) for row in source_rows]
+    if len(source_ids) != len(set(source_ids)):
+        raise ValueError("release authorization source membership contains duplicate UUIDs")
+    source_id, source_count = resolve_source(args)
+    identity = release_plan.get("release_identity", {})
+    expected = {
+        "master_sha256": semantic_rows_sha256(master_rows, view_order=True),
+        "holds_sha256": semantic_rows_sha256(hold_rows),
+        "config_sha256": canonical_json_sha256(config),
+        "evaluation_report_sha256": canonical_json_sha256(evaluation_report),
+        "validation_report_sha256": canonical_json_sha256(validation_report),
+    }
+    for key, observed in expected.items():
+        if identity.get(key) != observed:
+            raise ValueError(f"release authorization {key} does not match supplied artifacts")
+    source = release_plan.get("source", {})
+    if source.get("identifier") != source_id:
+        raise ValueError("release authorization source identifier does not match writer source")
+    if source.get("expected_count") != source_count or len(source_rows) != source_count:
+        raise ValueError("release authorization source count does not match frozen membership")
+    if source.get("membership_sha256") != membership_sha256(source_rows):
+        raise ValueError("release authorization source membership SHA-256 does not match")
+    if not evaluation_report.get("passed") or validation_report.get("status") != "PASS":
+        raise ValueError("release authorization requires passing evaluation and validation")
+    if release_plan.get("release_class") != "editor-field":
+        raise ValueError("release authorization must be class editor-field")
+    if release_plan.get("publication_clearance") is not False:
+        raise ValueError("editor-field release must not claim publication clearance")
+    planned_master = next(
+        (album.get("asset_ids", []) for album in release_plan.get("albums", []) if album.get("key") == "master"),
+        None,
+    )
+    if planned_master != [row["uuid"] for row in master_rows]:
+        raise ValueError("release authorization master membership or ordering does not match")
+    return {
+        "release_plan_sha256": release_plan["plan_sha256"],
+        "proposal_id": release_plan.get("proposal_id"),
+        "release_class": "editor-field",
+        "publication_clearance": False,
+        "release_identity": identity,
+        "source": source,
+    }
+
+
+def verify_snapshot_membership_scope(
+    plan: dict,
+    master_rows: list[dict[str, str]],
+    hold_rows: list[dict[str, str]],
+) -> None:
+    master_ids = {base_identifier(row["uuid"]) for row in master_rows}
+    hold_ids = {base_identifier(row["uuid"]) for row in hold_rows}
+    for item in plan.get("albums", []):
+        asset_ids = {base_identifier(value) for value in item.get("asset_identifiers", [])}
+        outside = asset_ids - master_ids - hold_ids
+        if outside:
+            raise ValueError("snapshot writer plan contains assets outside the authorized master/HOLD set")
+        held = asset_ids & hold_ids
+        if held and (
+            item.get("parent_folder_key") != "private"
+            or "HOLD" not in str(item.get("title", "")).upper()
+            or not asset_ids <= hold_ids
+        ):
+            raise ValueError("snapshot writer plan may place HOLD assets only in the private HOLD album")
 
 
 def command_snapshot_plans(args: argparse.Namespace) -> int:
@@ -301,6 +395,7 @@ def command_snapshot_plans(args: argparse.Namespace) -> int:
         raise ValueError(f"master overlaps HOLD by {len(overlap)} IDs")
     if not all(row.get("selection_reason") or row.get("selection_reasons") or row.get("editorial_reasons") for row in master_rows):
         raise ValueError("every master row must have a selection reason")
+    args.authorization = release_authorization(args, master_rows, hold_rows)
     args.manifest_hashes = {
         "master_sha256": file_hash(args.master),
         "holds_sha256": file_hash(args.holds),
@@ -374,6 +469,45 @@ def command_snapshot_plans(args: argparse.Namespace) -> int:
 def command_run_plan(args: argparse.Namespace) -> int:
     plan_path = args.plan.resolve()
     plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    operation = plan.get("operation")
+    if operation not in {"inspect-local-images", "snapshot-membership"}:
+        raise ValueError(f"unrecognized helper plan operation: {operation}")
+    if operation == "snapshot-membership":
+        verify_plan_sha256(plan)
+        required_evidence = (
+            "master",
+            "holds",
+            "config",
+            "release_plan",
+            "evaluation_report",
+            "validation_report",
+            "source_membership",
+        )
+        missing = [name for name in required_evidence if not getattr(args, name, None)]
+        if missing:
+            raise ValueError(
+                "snapshot writer launch requires current release evidence: "
+                + ", ".join(missing)
+            )
+        master_rows = read_csv(args.master)
+        hold_rows = read_csv(args.holds)
+        authorization = release_authorization(args, master_rows, hold_rows)
+        if plan.get("authorization") != authorization:
+            raise ValueError("snapshot writer plan authorization does not match current release evidence")
+        expected_manifest_hashes = {
+            "master_sha256": file_hash(args.master),
+            "holds_sha256": file_hash(args.holds),
+            "config_sha256": file_hash(args.config),
+        }
+        if plan.get("manifest_hashes") != expected_manifest_hashes:
+            raise ValueError("snapshot writer plan manifest hashes do not match current files")
+        source_id, source_count = resolve_source(args)
+        if (
+            plan.get("source_album_identifier") != source_id
+            or plan.get("expected_source_count") != source_count
+        ):
+            raise ValueError("snapshot writer plan source does not match current release evidence")
+        verify_snapshot_membership_scope(plan, master_rows, hold_rows)
     receipt_path = Path(plan["receipt_path"])
     if not APP.is_dir():
         raise ValueError(f"permissioned app not found: {APP}")
@@ -438,6 +572,10 @@ def parser() -> argparse.ArgumentParser:
     plans.add_argument("--folder-title", required=True)
     plans.add_argument("--view-column", default="primary_view")
     plans.add_argument("--config", type=Path)
+    plans.add_argument("--release-plan", type=Path, required=True)
+    plans.add_argument("--evaluation-report", type=Path, required=True)
+    plans.add_argument("--validation-report", type=Path, required=True)
+    plans.add_argument("--source-membership", type=Path, required=True)
     plans.add_argument("--source-id", default=SOURCE_ID)
     plans.add_argument("--source-count", type=int, default=SOURCE_COUNT)
     plans.add_argument("--source-profile", type=Path)
@@ -446,6 +584,16 @@ def parser() -> argparse.ArgumentParser:
 
     run = sub.add_parser("run-plan", help="launch a plan through the stable permissioned app bundle")
     run.add_argument("--plan", type=Path, required=True)
+    run.add_argument("--master", type=Path)
+    run.add_argument("--holds", type=Path)
+    run.add_argument("--config", type=Path)
+    run.add_argument("--release-plan", type=Path)
+    run.add_argument("--evaluation-report", type=Path)
+    run.add_argument("--validation-report", type=Path)
+    run.add_argument("--source-membership", type=Path)
+    run.add_argument("--source-id", default=SOURCE_ID)
+    run.add_argument("--source-count", type=int, default=SOURCE_COUNT)
+    run.add_argument("--source-profile", type=Path)
     run.set_defaults(func=command_run_plan)
     return root
 

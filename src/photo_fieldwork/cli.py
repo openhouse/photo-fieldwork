@@ -7,13 +7,29 @@ import shutil
 import sys
 from pathlib import Path
 
-from .ledger import append_event, connect as connect_ledger, export_jsonl
-from .pipeline import build_catalog_plan, evaluate, make_sample, read_config, read_csv, select, validate, write_csv
+from .ledger import append_event, connect as connect_ledger, export_jsonl, read_events
+from .pipeline import (
+    build_catalog_plan,
+    canonical_json_sha256,
+    config_sha256,
+    evaluate,
+    evaluation_sample_sha256,
+    make_sample,
+    master_sha256,
+    membership_sha256,
+    read_config,
+    read_csv,
+    select,
+    validate,
+    write_csv,
+)
 from .practice import create_demo_inventory, practice_feedback, write_demo_readme
 from .rounds import apply_feedback, convergence
+from .run_state import PHASES
 from .run_state import finalize as finalize_run
 from .run_state import initialize as initialize_run
 from .run_state import read_json, reconcile as reconcile_run
+from .run_state import recover as recover_run
 
 
 def file_hash(path: Path) -> str:
@@ -55,14 +71,70 @@ def command_sample(args: argparse.Namespace) -> int:
     master = read_csv(args.master)
     sample = make_sample(master, args.per_view, args.seed)
     write_csv(args.output, sample)
+    manifest = {
+        "schema_version": 1,
+        "master_sha256": master_sha256(master),
+        "per_view": args.per_view,
+        "seed": args.seed,
+        "sample_count": len(sample),
+        "sample_sha256": evaluation_sample_sha256(sample),
+    }
+    args.manifest.parent.mkdir(parents=True, exist_ok=True)
+    args.manifest.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     print(f"wrote {len(sample)} evaluation rows to {args.output}")
+    print(f"bound sample manifest to {args.manifest}")
     return 0
 
 
 def command_evaluate(args: argparse.Namespace) -> int:
     config = read_config(args.config)
+    master = read_csv(args.master)
     feedback = read_csv(args.feedback)
+    sample_manifest = read_json(args.sample_manifest)
+    if sample_manifest.get("schema_version") != 1:
+        raise ValueError("evaluation sample manifest requires schema_version 1")
+    if sample_manifest.get("master_sha256") != master_sha256(master):
+        raise ValueError("evaluation sample manifest does not bind the current master")
+    master_edges = {(row["uuid"], row.get("primary_view", "")) for row in master}
+    feedback_edges = [(row["uuid"], row.get("primary_view", "")) for row in feedback]
+    if len(feedback_edges) != len(set(feedback_edges)):
+        raise ValueError("evaluation feedback contains duplicate UUID/view rows")
+    foreign_edges = set(feedback_edges) - master_edges
+    if foreign_edges:
+        raise ValueError(
+            "evaluation feedback contains UUID/view rows outside the bound master: "
+            + ", ".join(f"{uuid}:{view}" for uuid, view in sorted(foreign_edges))
+        )
+    observed_sample_sha256 = evaluation_sample_sha256(feedback)
+    if (
+        sample_manifest.get("sample_count") != len(feedback)
+        or sample_manifest.get("sample_sha256") != observed_sample_sha256
+    ):
+        raise ValueError("evaluation feedback does not match the bound sample manifest")
+    missing_views = {row.get("primary_view", "") for row in master} - {
+        row.get("primary_view", "") for row in feedback
+    }
+    if missing_views:
+        raise ValueError(
+            "evaluation feedback does not sample every selected view: "
+            + ", ".join(sorted(missing_views))
+        )
     report, passed = evaluate(feedback, config)
+    digest = master_sha256(master)
+    report.update(
+        {
+            "schema_version": 2,
+            "release_class": "editor-field",
+            "proposal_id": f"pfp-{digest[:16]}",
+            "master_sha256": digest,
+            "config_sha256": config_sha256(config),
+            "evaluation_sample_sha256": observed_sample_sha256,
+            "evaluation_sample_manifest_sha256": canonical_json_sha256(sample_manifest),
+            "feedback_sha256": canonical_json_sha256(
+                sorted(feedback, key=lambda row: (row["uuid"], row.get("primary_view", "")))
+            ),
+        }
+    )
     args.output.mkdir(parents=True, exist_ok=True)
     (args.output / "evaluation-report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     (args.output / "evaluation-report.md").write_text(markdown_report("Evaluation report", report), encoding="utf-8")
@@ -116,13 +188,23 @@ def command_run_status(args: argparse.Namespace) -> int:
 
 
 def command_run_reconcile(args: argparse.Namespace) -> int:
-    state = reconcile_run(args.workspace)
+    state = reconcile_run(
+        args.workspace,
+        expected_revision=args.expected_revision,
+        allow_phase_updates=tuple(args.allow_phase_update),
+    )
     print(json.dumps(state, indent=2))
     return 0
 
 
 def command_run_finalize(args: argparse.Namespace) -> int:
-    state = finalize_run(args.workspace)
+    state = finalize_run(args.workspace, expected_revision=args.expected_revision)
+    print(json.dumps(state, indent=2))
+    return 0
+
+
+def command_run_recover(args: argparse.Namespace) -> int:
+    state = recover_run(args.workspace)
     print(json.dumps(state, indent=2))
     return 0
 
@@ -167,12 +249,28 @@ def command_round_apply(args: argparse.Namespace) -> int:
     master = read_csv(args.master)
     inventory = read_csv(args.inventory)
     feedback = read_csv(args.feedback)
+    prior_feedback = [
+        row
+        for path in args.prior_feedback
+        for row in read_csv(path)
+    ]
+    if args.ledger and args.ledger.exists():
+        prior_feedback.extend(
+            {
+                "uuid": event["asset_uuid"],
+                "primary_view": str(event.get("payload", {}).get("primary_view", "")),
+                "judgment": "reject",
+            }
+            for event in read_events(args.ledger)
+            if event.get("event_type") == "reviewed-reject" and event.get("asset_uuid")
+        )
     updated, events = apply_feedback(
         master,
         inventory,
         feedback,
         round_id=args.round_id,
         allow_uninspected=args.allow_uninspected,
+        prior_feedback=prior_feedback,
     )
     write_csv(args.output, updated)
     if args.ledger:
@@ -206,7 +304,27 @@ def command_round_convergence(args: argparse.Namespace) -> int:
 def command_plan(args: argparse.Namespace) -> int:
     config = read_config(args.config)
     master = read_csv(args.master)
-    plan = build_catalog_plan(master, config, args.plan_id, args.source_title, args.source_identifier)
+    holds = read_csv(args.holds)
+    source_membership = read_csv(args.source_membership)
+    outside_source = {row["uuid"] for row in master} - {row["uuid"] for row in source_membership}
+    if outside_source:
+        raise ValueError(
+            f"catalog master contains {len(outside_source)} UUIDs outside frozen source membership"
+        )
+    evaluation_report = read_json(args.evaluation_report)
+    validation_report = read_json(args.validation_report)
+    plan = build_catalog_plan(
+        master,
+        holds,
+        config,
+        args.plan_id,
+        args.source_title,
+        args.source_identifier,
+        len(source_membership),
+        membership_sha256(source_membership),
+        evaluation_report,
+        validation_report,
+    )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
     print(f"wrote membership-only catalog plan to {args.output}")
@@ -228,12 +346,21 @@ def command_demo(args: argparse.Namespace) -> int:
         argparse.Namespace(
             master=workspace / "manifests" / "proposed-master.csv",
             output=sample_path,
+            manifest=workspace / "manifests" / "eval-sample-manifest.json",
             per_view=3,
             seed=20260710,
         )
     )
     practice_feedback(sample_path)
-    eval_code = command_evaluate(argparse.Namespace(config=config, feedback=sample_path, output=workspace / "reports"))
+    eval_code = command_evaluate(
+        argparse.Namespace(
+            config=config,
+            master=workspace / "manifests" / "proposed-master.csv",
+            feedback=sample_path,
+            sample_manifest=workspace / "manifests" / "eval-sample-manifest.json",
+            output=workspace / "reports",
+        )
+    )
     validation_code = command_validate(
         argparse.Namespace(
             config=config,
@@ -248,6 +375,10 @@ def command_demo(args: argparse.Namespace) -> int:
         argparse.Namespace(
             config=config,
             master=workspace / "manifests" / "proposed-master.csv",
+            holds=workspace / "manifests" / "hold-sensitive.csv",
+            source_membership=inventory,
+            evaluation_report=workspace / "reports" / "evaluation-report.json",
+            validation_report=workspace / "reports" / "validation-report.json",
             plan_id="synthetic-practice-plan",
             source_title="Synthetic practice corpus",
             source_identifier="SYNTHETIC-ONLY",
@@ -275,12 +406,15 @@ def parser() -> argparse.ArgumentParser:
     sample = sub.add_parser("sample", help="make a score-stratified evaluation sample")
     sample.add_argument("--master", type=Path, required=True)
     sample.add_argument("--output", type=Path, required=True)
+    sample.add_argument("--manifest", type=Path, required=True)
     sample.add_argument("--per-view", type=int, default=3)
     sample.add_argument("--seed", type=int, default=20260710)
     sample.set_defaults(func=command_sample)
 
     evaluation = sub.add_parser("evaluate", help="measure labeled evaluation feedback")
     evaluation.add_argument("--feedback", type=Path, required=True)
+    evaluation.add_argument("--sample-manifest", type=Path, required=True)
+    evaluation.add_argument("--master", type=Path, required=True)
     evaluation.add_argument("--config", type=Path, required=True)
     evaluation.add_argument("--output", type=Path, required=True)
     evaluation.set_defaults(func=command_evaluate)
@@ -296,7 +430,11 @@ def parser() -> argparse.ArgumentParser:
 
     plan = sub.add_parser("plan", help="build an adapter-neutral, membership-only catalog plan")
     plan.add_argument("--master", type=Path, required=True)
+    plan.add_argument("--holds", type=Path, required=True)
     plan.add_argument("--config", type=Path, required=True)
+    plan.add_argument("--source-membership", type=Path, required=True)
+    plan.add_argument("--evaluation-report", type=Path, required=True)
+    plan.add_argument("--validation-report", type=Path, required=True)
     plan.add_argument("--plan-id", required=True)
     plan.add_argument("--source-title", required=True)
     plan.add_argument("--source-identifier", required=True)
@@ -319,9 +457,20 @@ def parser() -> argparse.ArgumentParser:
         ("status", command_run_status),
         ("reconcile", command_run_reconcile),
         ("finalize", command_run_finalize),
+        ("recover", command_run_recover),
     ):
         command = run_sub.add_parser(name)
         command.add_argument("--workspace", type=Path, required=True)
+        if name in {"reconcile", "finalize"}:
+            command.add_argument("--expected-revision", type=int, required=True)
+        if name == "reconcile":
+            command.add_argument(
+                "--allow-phase-update",
+                action="append",
+                choices=PHASES,
+                default=[],
+                help="review and accept a changed artifact set for this completed phase",
+            )
         command.set_defaults(func=handler)
 
     ledger = sub.add_parser("ledger", help="append and export decision events")
@@ -355,6 +504,13 @@ def parser() -> argparse.ArgumentParser:
     round_apply.add_argument("--master", type=Path, required=True)
     round_apply.add_argument("--inventory", type=Path, required=True)
     round_apply.add_argument("--feedback", type=Path, required=True)
+    round_apply.add_argument(
+        "--prior-feedback",
+        type=Path,
+        action="append",
+        default=[],
+        help="prior review CSV; repeat to preserve rejected image-view edges across rounds",
+    )
     round_apply.add_argument("--output", type=Path, required=True)
     round_apply.add_argument("--round-id", required=True)
     round_apply.add_argument("--ledger", type=Path)
