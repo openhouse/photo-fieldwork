@@ -9,13 +9,20 @@ Catalog reader or filesystem scanner
        inventory.csv
               |
               v
- deterministic selector ---> hold-sensitive.csv
+ image-view evidence.csv ---> feedback ledger
+              |                    |
+              +---------+----------+
+                        v
+ exact constrained assignment ---> hold-sensitive.csv
               |
               v
-   proposed-master.csv
+ proposed-master.csv + capacity report
         |            |
         v            v
- evaluation loop   catalog-plan.json
+ cumulative evaluation   evaluated catalog-plan.json
+                         |
+                         v
+                    release seal
                          |
                          v
                  catalog writer adapter
@@ -26,7 +33,7 @@ Catalog reader or filesystem scanner
 
 ## Core
 
-The standard-library Python core reads a normalized CSV, applies immutable safety exclusions, reduces duplicate and burst clusters, assigns editor views, creates selection reasons, samples evaluations, measures results, validates invariants, and emits an adapter-neutral catalog plan.
+The standard-library Python core reads a normalized inventory and image-view evidence manifest, applies protected safety exclusions, reduces duplicate and burst clusters, solves exact overlap-aware view quotas, creates structured selection provenance, samples novel evaluations, measures overall and per-view results, validates invariants, and emits a content-hashed adapter-neutral catalog plan.
 
 The core does not read a Photos database, open images, call a model, or mutate a catalog.
 
@@ -48,7 +55,7 @@ An inspector may add local visible-context, technical-quality, and generalized s
 
 ## Writer adapters
 
-A writer consumes `catalog-plan.json`. It may create version folders, create albums, and add existing stable IDs. It must not invent selection logic. It must emit a receipt and be safe to rerun.
+A writer consumes a sealed `catalog-plan.json`. It may create version folders, create albums, and add existing stable IDs. It must not invent selection logic. Its receipt must carry the plan digest and writer build identity, and it must be safe to rerun.
 
 ## Verifier adapters
 

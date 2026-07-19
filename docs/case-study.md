@@ -21,3 +21,10 @@ The completed version contained exactly 8,000 unique stills. It preserved the so
 
 The transferable lesson is simple: metadata is excellent for constructing a field of attention. It is not a substitute for looking, provenance, or editorial judgment. A good workflow makes those differences operational.
 
+## v04-G: whole-library fieldwork
+
+The next production run widened the source from a pre-existing album to 603,137 visible, non-hidden, non-trashed still photographs. It required a fresh read-only inventory, multi-batch preview inspection, five substantial visual rounds, and overlap-aware assignment for an exact 4,000-photo editor field.
+
+Decisive precision improved from 0.1282 in the first inspected round to 0.8000 in the final round. The committed version contained 4,000 unique master IDs, 1,752 protected HOLD IDs, and two explicit uncertainties. A ten-item write test preceded production; an idempotent rerun and independent immutable SQLite verification found zero missing, unexpected, outside-source, or HOLD-overlap memberships.
+
+That run exposed the next architectural need: relevance belongs between an image and a view. The same photograph can fail one project hypothesis while remaining valuable elsewhere. This revision turns that lesson into first-class evidence edges, exact constrained assignment, cumulative feedback, protected uncertainty, and content-hashed release state.

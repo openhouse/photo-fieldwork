@@ -4,7 +4,7 @@
 
 1. Freeze the proposed master and assign a round ID.
 2. Sample low, median, and high scores from every view.
-3. Add known safety regressions and prior false positives.
+3. Add known safety regressions and prior false positives as `regression-canary` rows. Keep the newly sampled rows tagged `fresh`.
 4. Render contact sheets with stable UUID labels.
 5. Inspect all sheets with `view_image`; open individual previews when needed.
 6. Record decisions in CSV.
@@ -20,9 +20,12 @@
 - `judgment`: `fit`, `reject`, or `uncertain`
 - `visible_reason`
 - `safety_status`: `clear`, `hold`, or `needs-review`
+- `safety_clearance`: only `true` when an identified human reviewer explicitly clears a prior `needs-review` state; HOLD is permanent for the run
 - `error_category`
 - `round_id`
 - `reviewer_lens`
+- `sample_role`: `fresh`, `regression-canary`, `final-holdout-estimate`, or `final-holdout-supplemental`; canaries block on regression, supplements satisfy per-view floors only, and neither can increase aggregate precision
+- `config_sha256` and `evaluation_sample_sha256`: bind the judgments to the exact thresholds, UUIDs, views, sample roles, and estimate membership
 
 ## Error categories
 
@@ -40,6 +43,9 @@
 
 - Zero known identity-document or private-record regressions in the master.
 - Every view sampled.
+- No failed, uncertain, unreviewed, or safety-protected regression canary.
+- Duplicate image-view evaluation rows are rejected rather than counted twice.
+- Final holdout UUIDs and perceptual, duplicate, and burst clusters are disjoint from tuning and canaries; the PASS split audit is bound to the evaluated UUID set.
 - Coverage at or above configured minimum.
 - Overall decisive precision at or above configured minimum.
 - No material view remains below 0.65 decisive precision without being relabeled as uncertain/editor hypothesis.
@@ -50,4 +56,3 @@
 ## Stop conditions
 
 Run up to five substantial rounds. Stop earlier when all gates pass and failure review reveals no new systematic issue. Do not lower thresholds merely to finish. If the same genuine blocker recurs, preserve the run and explain exactly what input or permission is missing.
-
