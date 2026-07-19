@@ -73,6 +73,52 @@ class SkillBridgeTests(unittest.TestCase):
             self.assertEqual(json_path.suffix, ".json")
             self.assertEqual(markdown_path.suffix, ".md")
 
+    def test_snapshot_contract_binds_release_candidate_and_helper(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_profile = root / "source.json"
+            source_profile.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "id": "SOURCE",
+                        "catalog_identifier": "SOURCE/L0/040",
+                        "kind": "photos-album",
+                        "scope": "test",
+                        "actual_count": 2,
+                        "fingerprint": "sha256:" + "2" * 64,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            plan = bridge.snapshot_plan(
+                argparse.Namespace(
+                    source_profile=source_profile,
+                    source_id="SOURCE/L0/040",
+                    source_count=2,
+                    release_candidate={"catalog_plan_id": "CATALOG-1"},
+                    helper_requirement={"binary_sha256": "sha256:" + "1" * 64},
+                    batch_size=500,
+                    workspace=root,
+                ),
+                "SNAPSHOT-1",
+                bridge.folder_specs("Version", include_version=True),
+                [
+                    bridge.album(
+                        "Master",
+                        "version",
+                        ["A", "B"],
+                        key="master",
+                        role="editor-master",
+                        visibility="private-editor",
+                    )
+                ],
+                "receipt.json",
+            )
+            self.assertEqual(plan["schema_version"], 2)
+            self.assertEqual(plan["release_candidate"]["catalog_plan_id"], "CATALOG-1")
+            self.assertEqual(plan["helper_requirement"]["binary_sha256"], "sha256:" + "1" * 64)
+
 
 if __name__ == "__main__":
     unittest.main()

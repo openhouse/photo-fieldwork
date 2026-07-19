@@ -10,7 +10,7 @@ Write down what may be read, what may be created, where outputs live, and which 
 
 Give the broad retrieval corpus a stable source-profile ID, scope, count, and SHA-256 fingerprint of sorted UUID membership. Count alone cannot detect one removed asset and one added asset. Never alter the source during a versioned run. Preserve v00, v01, and later runs as separate folders so selection logic can be compared rather than overwritten.
 
-Initialize `events.jsonl` before retrieval. Record each phase transition with compare-and-swap revision checks. A completed phase requires an existing artifact and checksum; reconstruct `run-state.json` from the ledger after interruption.
+Initialize `events.jsonl` before retrieval. Record each phase transition with a unique attempt ID and compare-and-swap revision checks. A completed phase requires an existing artifact and checksum; every later transition rechecks prior artifacts. Reconstruct `run-state.json` from the ledger after interruption.
 
 ## 2. Build a compact inventory
 
@@ -44,18 +44,20 @@ Rows may support several views. Assign the exact configured quotas with determin
 
 Sample low, middle, and high-scoring images from each view. Bind feedback to UUIDs and the sample-manifest hash. Measure coverage, decisive precision, fit rate, reject rate, and uncertainty rate separately overall and by view. Read the rejected examples. Revise retrieval, scoring, holds, or labels, then rerun with the same seed. A metric without inspected failure cases is not enough.
 
+Before the final evaluation, audit holdout UUIDs plus perceptual, duplicate, and burst clusters against all tuning rounds and regression canaries. Keep raw overlap identifiers private by default.
+
 ## 9. Plan before writing
 
-Produce proposed-master, hold, membership, and decision manifests before touching the catalog. Every selected stable ID needs a reason. Each album needs a key, role, visibility, parent-folder key, and exact asset identifiers. The plan must be idempotent.
+Produce proposed-master, hold, membership, and decision manifests before touching the catalog. Every selected stable ID needs a reason. Each album needs a key, role, visibility, parent-folder key, and exact asset identifiers. Bind the plan to the passing evaluation and the installed helper's bundle, binary digest, capabilities, and supported schema.
 
 ## 10. Commit narrowly
 
-Write ten non-sensitive items to a uniquely named test album. Verify exact membership and rerun the test to prove idempotence. Only then create production folders and albums in moderate, resumable batches.
+Write ten non-sensitive items to a uniquely named test album. Verify exact membership. Only then create production folders and albums in moderate, resumable batches. Run production twice with distinct launch nonces; copied receipts do not prove idempotence.
 
 ## 11. Verify independently
 
-Use a read-only mechanism distinct from the writer to compare planned and actual membership. Report missing, unexpected, outside-source, and hold-overlap counts. Preserve receipts, configuration, scripts, and evaluation feedback with the version.
+Use a read-only mechanism distinct from the writer to compare planned and actual membership. First verify each receipt against the exact plan bytes, authorized helper, source, and folder/album topology. Then report missing, unexpected, outside-source, and hold-overlap counts. Preserve both execution receipts, configuration, scripts, and evaluation feedback with the version.
 
 ## 12. Hand off honestly
 
-Tell editors what the system did and did not do. The result is a contact field for human editing, not the final visual narrative.
+Tell editors what the system did and did not do. The result is a contact field for human editing, not the final visual narrative. When a public projection is requested, create it separately through an allowlist with opaque IDs and explicit rights, consent, claim, and publication states. Catalog membership is never publication clearance.

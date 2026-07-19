@@ -4,6 +4,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import tempfile
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -106,6 +107,7 @@ def materialize_state(events: list[dict]) -> dict:
         "metadata": dict(first.get("metadata", {})),
         "phases": {phase: "pending" for phase in first.get("phases", [])},
         "artifacts": {},
+        "attempt_ids": {},
     }
     for event in events:
         state["revision"] = int(event["revision"])
@@ -118,6 +120,8 @@ def materialize_state(events: list[dict]) -> dict:
                     "path": event["artifact"],
                     "sha256": event["artifact_sha256"],
                 }
+            if event.get("attempt_id"):
+                state["attempt_ids"][event["attempt_id"]] = phase
         state["updated_at"] = event["timestamp"]
     if state["phases"] and all(value in {"completed", "superseded"} for value in state["phases"].values()):
         state["status"] = "completed"
@@ -153,16 +157,39 @@ def transition_phase(
     expected_revision: int | None = None,
     artifact: Path | None = None,
     note: str = "",
+    attempt_id: str | None = None,
 ) -> dict:
     if status not in PHASE_STATUSES - {"pending"}:
         raise ValueError(f"invalid phase status: {status}")
     with run_lock(run):
         events = read_events(run)
         state = materialize_state(events)
+        for completed_phase, record in state["artifacts"].items():
+            completed_artifact = Path(record["path"])
+            if not completed_artifact.is_file():
+                raise ValueError(f"completed artifact missing for phase {completed_phase}")
+            if sha256_file(completed_artifact) != record["sha256"]:
+                raise ValueError(f"completed artifact changed for phase {completed_phase}")
         if phase not in state["phases"]:
             raise ValueError(f"unknown run phase: {phase}")
         if expected_revision is not None and state["revision"] != expected_revision:
             raise ValueError(f"revision conflict: expected {expected_revision}, found {state['revision']}")
+        phase_order = list(state["phases"])
+        phase_index = phase_order.index(phase)
+        incomplete = [
+            earlier
+            for earlier in phase_order[:phase_index]
+            if state["phases"][earlier] not in {"completed", "superseded"}
+        ]
+        if status in {"started", "completed"} and incomplete:
+            raise ValueError(
+                f"cannot advance {phase} before earlier phase completion: {', '.join(incomplete)}"
+            )
+        if attempt_id:
+            if attempt_id in state["attempt_ids"]:
+                raise ValueError(f"attempt_id already recorded: {attempt_id}")
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{3,127}", attempt_id):
+                raise ValueError("attempt_id is malformed")
         artifact_path = None
         artifact_sha256 = None
         if status == "completed":
@@ -181,6 +208,7 @@ def transition_phase(
             "note": note,
             "artifact": artifact_path,
             "artifact_sha256": artifact_sha256,
+            "attempt_id": attempt_id,
         }
         append_event(run / "events.jsonl", event)
         events.append(event)

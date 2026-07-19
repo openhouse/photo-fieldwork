@@ -13,6 +13,7 @@ from typing import Iterable
 from . import __version__
 from .feedback import JUDGMENTS, sample_fingerprint, validate_feedback
 from .integrity import verify_evaluation_seal
+from .release import REQUIRED_HELPER_CAPABILITIES, validate_helper_profile
 from .safety import may_enter_general_master, normalize_safety_state
 
 
@@ -545,9 +546,27 @@ def build_catalog_plan(
     holds: list[dict] | None = None,
     evaluation_seal: dict | None = None,
     evaluation_report: dict | None = None,
+    helper_profile: dict | None = None,
 ) -> dict:
     """Build an adapter-neutral, membership-only catalog plan."""
     view_labels = {view["id"]: view["label"] for view in config["views"]}
+    folders = [
+        {
+            "key": "root",
+            "title": str(config.get("catalog_root_title", "Photo Fieldwork")),
+            "parent_key": None,
+        },
+        {
+            "key": "version",
+            "title": str(config.get("catalog_version_title", plan_id)),
+            "parent_key": "root",
+        },
+        {
+            "key": "private",
+            "title": str(config.get("catalog_private_title", f"{plan_id} - PRIVATE")),
+            "parent_key": "root",
+        },
+    ]
     albums = [
         {
             "key": "master",
@@ -618,16 +637,31 @@ def build_catalog_plan(
             "evaluation_report_fingerprint": evaluation_seal["evaluation_report_fingerprint"],
         }
         required_verification.append("catalog plan matches the passing evaluation seal")
+    helper_requirement = None
+    if helper_profile is not None:
+        helper_errors = validate_helper_profile(helper_profile, REQUIRED_HELPER_CAPABILITIES, 2)
+        if helper_errors:
+            raise ValueError(f"helper profile cannot execute this plan: {'; '.join(helper_errors)}")
+        helper_requirement = {
+            "bundle_identifier": helper_profile["bundle_identifier"],
+            "binary_sha256": helper_profile["binary_sha256"],
+            "required_capabilities": list(REQUIRED_HELPER_CAPABILITIES),
+            "plan_schema_version": 2,
+        }
+        required_verification.append("execution receipt matches the authorized helper and exact plan digest")
     return {
         "schema_version": 2,
         "tool_version": __version__,
         "plan_id": plan_id,
+        "release_class": "editor-field",
         "created_at": datetime.now(timezone.utc).isoformat(),
         "safety_mode": "create-folders-albums-and-add-membership-only",
         "source": source,
         "candidate_binding": candidate_binding,
+        "helper_requirement": helper_requirement,
         "expected_master_count": len(master),
         "write_test_count": min(10, len(master)),
+        "folders": folders,
         "albums": albums,
         "required_verification": required_verification,
     }

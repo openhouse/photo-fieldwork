@@ -16,13 +16,19 @@ Catalog reader or filesystem scanner
    proposed-master.csv
         |            |
         v            v
- evaluation loop   catalog-plan.json
+ evaluation loop   catalog-plan.json + helper-profile.json
                          |
                          v
                  catalog writer adapter
                          |
                          v
+             execution receipts (two runs)
+                         |
+                         v
                   independent verifier
+                         |
+                         v
+               allowlisted public handoff
 ```
 
 ## Core
@@ -51,11 +57,15 @@ An inspector may add local visible-context, technical-quality, and generalized s
 
 ## Writer adapters
 
-A writer consumes `catalog-plan.json`. Albums carry stable keys, semantic roles, visibility, parent folders, and exact membership. A writer may create version folders, create albums, and add existing stable IDs. It must not invent selection logic. It must emit a receipt and be safe to rerun.
+A writer consumes `catalog-plan.json`. Albums carry stable keys, semantic roles, visibility, parent folders, and exact membership. The plan authorizes an exact helper binary and capability profile. A writer may create version folders, create albums, and add existing stable IDs. It must not invent selection logic. Each launch must emit a nonce-bound receipt for the exact plan bytes and be safe to rerun.
 
 ## Verifier adapters
 
 A verifier independently compares plan and catalog. It should be read-only and should not share mutation code with the writer. It verifies exact source fingerprints, master/HOLD separation, view subsets, and missing, unexpected, or outside-source memberships. It emits real JSON for machines and Markdown for people.
+
+## Public projection
+
+The editor field is private by default. `photo-fieldwork handoff` creates a separate allowlisted projection only for rows with specific publication clearance, owner-verified rights, resolved consent, and a bounded claim state. It replaces archive UUIDs with salted opaque IDs and lints public values for paths, identifiers, OCR markers, credentials, and precise coordinates. A catalog receipt never grants publication permission.
 
 ## Extension points
 

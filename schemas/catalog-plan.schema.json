@@ -2,10 +2,11 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Photo Fieldwork semantic catalog plan",
   "type": "object",
-  "required": ["schema_version", "plan_id", "source", "albums"],
+  "required": ["schema_version", "plan_id", "release_class", "source", "folders", "albums"],
   "properties": {
     "schema_version": {"const": 2},
     "plan_id": {"type": "string", "minLength": 1},
+    "release_class": {"const": "editor-field"},
     "source": {"$ref": "source-profile.schema.json"},
     "candidate_binding": {
       "type": ["object", "null"],
@@ -20,6 +21,35 @@
         "master_fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
         "config_fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
         "evaluation_report_fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+      }
+    },
+    "helper_requirement": {
+      "type": ["object", "null"],
+      "required": ["bundle_identifier", "binary_sha256", "required_capabilities", "plan_schema_version"],
+      "properties": {
+        "bundle_identifier": {"type": "string", "minLength": 1},
+        "binary_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "required_capabilities": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "plan_schema_version": {"const": 2}
+      },
+      "additionalProperties": false
+    },
+    "folders": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["key", "title", "parent_key"],
+        "properties": {
+          "key": {"type": "string", "minLength": 1},
+          "title": {"type": "string", "minLength": 1},
+          "parent_key": {"type": ["string", "null"]}
+        },
+        "additionalProperties": true
       }
     },
     "albums": {

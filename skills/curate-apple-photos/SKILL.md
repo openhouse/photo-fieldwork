@@ -16,7 +16,12 @@ Turn the user's brief into a locally inspected, recursively evaluated, versioned
 python3 scripts/photo_archive_bridge.py doctor
 ```
 
-3. Initialize a new run with `photo_archive_bridge.py init-run`. This creates an append-only `events.jsonl` and atomically materialized `run-state.json`. Do not edit either file by hand.
+3. Initialize a new run with `photo_archive_bridge.py init-run`. This creates an append-only `events.jsonl` and atomically materialized `run-state.json`. Do not edit either file by hand. Then bind the installed helper:
+
+```bash
+python3 scripts/photo_archive_bridge.py doctor \
+  --helper-profile-output RUN/inventory/helper-profile.json
+```
 4. Freeze the inventory used by the run:
 
 ```bash
@@ -98,7 +103,7 @@ Read [evaluation-loop.md](references/evaluation-loop.md) before the first visual
 5. Record `fit`, `reject`, or `uncertain`, one visible reason, a safety state, and an error category in the evaluation CSV.
 6. Keep the UUID and generated `sample_hash` on every decision. Never apply feedback by row order. Run `photo-fieldwork evaluate --master RUN/manifests/proposed-master.csv`, then `photo-fieldwork apply-feedback`. A passing evaluation writes `evaluation-seal.json`, binding the exact master, assignments, safety states, config, and evaluation report. Read all rejections and a stratified uncertainty sample.
 7. Change retrieval, assignments, penalties, quotas, or hold rules in response to observed errors. Keep the seed fixed. Save each round separately.
-8. Before the final gate, create a holdout sample and run `photo-fieldwork freshness` against every prior tuning-round feedback file. Require a disjoint holdout unless the completion report explicitly justifies a lower fresh-evidence floor.
+8. Before the final gate, create a holdout sample and run `photo-fieldwork split-audit` against every prior tuning-round feedback file and regression-canary set. Require UUID and perceptual/duplicate/burst-cluster disjointness. Keep the default report identifier-free; generate private details only for local diagnosis.
 9. Repeat until:
    - evaluation coverage, decisive precision, fit rate, and uncertainty gates meet `config.json`;
    - every material view meets its decisive-count, precision, and uncertainty gates;
@@ -114,13 +119,17 @@ Do not claim success from Vision labels or metadata alone. The recursive loop re
 ## Validate and commit
 
 1. Run `photo-fieldwork validate`. Save a PASS report.
-2. Generate the semantic catalog plan with the passing `evaluation-seal.json` and its exact `evaluation-report.json`. Plan generation must fail if the master or config changed after evaluation. Then generate test and production plans with `photo_archive_bridge.py snapshot-plans --source-profile RUN/inventory/source-profile.json`.
+2. Generate the semantic catalog plan with the passing `evaluation-seal.json`, its exact `evaluation-report.json`, and `--helper-profile RUN/inventory/helper-profile.json`. Plan generation must fail if the master, config, report, or authorized helper changed after evaluation. Then generate test and production plans with `photo_archive_bridge.py snapshot-plans --catalog-plan RUN/manifests/catalog-plan.json --source-profile RUN/inventory/source-profile.json`.
 3. Inspect the plans. Confirm the source count, target count, folder title, HOLD separation, and that operations are membership-only.
-4. Run the ten-item write test through the app. Independently verify it with `verify_photos_commit.py`.
-5. Run the production plan through the app. Rerun it once to confirm idempotence.
+4. Run the ten-item write test through the app. Verify its receipt against the exact plan bytes and helper profile, then independently verify it with `verify_photos_commit.py --helper-profile RUN/inventory/helper-profile.json`.
+5. Run the production plan twice through distinct helper launches. Save both nonce-bound receipts and run `photo-fieldwork compare-receipts`; a copied receipt is not idempotence evidence.
 6. Independently verify every album against the plan using read-only, immutable SQLite access. Emit both `verification-report.json` and `verification-report.md`; file extensions and content types must agree.
-7. After each phase succeeds, use `photo-fieldwork transition --status completed --artifact ARTIFACT --expected-revision REVISION`. Use `photo-fieldwork status RUN` to recover state from the event ledger after interruption. Never update `run-state.json` directly.
+7. After each phase succeeds, use `photo-fieldwork transition --status completed --artifact ARTIFACT --expected-revision REVISION --attempt-id UNIQUE_ID`. Transitions enforce phase order and rehash all prior completed artifacts. Use `photo-fieldwork status RUN` to recover state from the event ledger after interruption. Never update `run-state.json` directly.
 8. Write a completion report containing exact counts, identifiers, source fingerprint, evaluation denominators, privacy facts, and unresolved uncertainty.
+
+## Public projection
+
+An editor field is private and carries no publication permission. Only create a website handoff when explicitly requested. Use `photo-fieldwork handoff` with a private salt file and rows carrying independent `rights_status`, `consent_status`, `claim_status`, and `publication_status`. The command emits only allowlisted fields with opaque IDs and fails closed on private paths, archive identifiers, operational fields, account data, or precise coordinates. Human publication approval remains required.
 
 The helper invocation may require a Codex permission approval for `open -W`; request a reusable approval scoped to `/Applications/Jamie Photo Archive.app`. The app's Photos permission itself should persist under its stable bundle identity.
 

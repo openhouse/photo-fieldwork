@@ -8,12 +8,15 @@ import sys
 from pathlib import Path
 
 from . import __version__
+from .eval_split import audit_eval_split
 from .feedback import apply_feedback
+from .handoff import PUBLIC_FIELDS, build_public_handoff
 from .integrity import create_evaluation_seal, evaluate_freshness
 from .pipeline import build_catalog_plan, evaluate, make_sample, read_config, read_csv, select, validate, write_csv
 from .practice import create_demo_inventory, practice_feedback, write_demo_readme
+from .release import compare_execution_receipts, verify_execution_receipt
 from .source import build_source_profile, read_source_profile
-from .state import initialize_run, recover_state, transition_phase
+from .state import initialize_run, recover_state, sha256_file, transition_phase
 
 
 DEFAULT_PHASES = [
@@ -109,6 +112,7 @@ def command_plan(args: argparse.Namespace) -> int:
     source_profile = read_source_profile(source_profile_path) if source_profile_path else None
     evaluation_seal = json.loads(args.evaluation_seal.read_text(encoding="utf-8"))
     evaluation_report = json.loads(args.evaluation_report.read_text(encoding="utf-8"))
+    helper_profile = json.loads(args.helper_profile.read_text(encoding="utf-8"))
     if source_profile is None and (not source_title or not source_identifier):
         raise ValueError("provide --source-profile or both --source-title and --source-identifier")
     plan = build_catalog_plan(
@@ -121,6 +125,7 @@ def command_plan(args: argparse.Namespace) -> int:
         holds=holds,
         evaluation_seal=evaluation_seal,
         evaluation_report=evaluation_report,
+        helper_profile=helper_profile,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
@@ -180,6 +185,7 @@ def command_transition(args: argparse.Namespace) -> int:
         expected_revision=args.expected_revision,
         artifact=args.artifact.resolve() if args.artifact else None,
         note=args.note,
+        attempt_id=args.attempt_id,
     )
     print(json.dumps(state, indent=2))
     return 0
@@ -240,6 +246,78 @@ def command_freshness(args: argparse.Namespace) -> int:
     return 0 if report["passed"] else 2
 
 
+def command_split_audit(args: argparse.Namespace) -> int:
+    tuning = []
+    canaries = []
+    for path in args.tuning:
+        tuning.extend(read_csv(path))
+    for path in args.canary:
+        canaries.extend(read_csv(path))
+    report = audit_eval_split(
+        tuning,
+        read_csv(args.holdout),
+        canaries,
+        include_private_details=args.include_private_details,
+    )
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    print(f"split_audit={'PASS' if report['passed'] else 'FAIL'}")
+    print(f"report={args.output}")
+    return 0 if report["passed"] else 2
+
+
+def command_verify_receipt(args: argparse.Namespace) -> int:
+    receipt = json.loads(args.receipt.read_text(encoding="utf-8"))
+    plan = json.loads(args.plan.read_text(encoding="utf-8"))
+    helper = json.loads(args.helper_profile.read_text(encoding="utf-8"))
+    errors = verify_execution_receipt(receipt, plan, helper, sha256_file(args.plan))
+    report = {
+        "schema_version": 1,
+        "passed": not errors,
+        "errors": errors,
+        "plan_id": plan.get("plan_id"),
+    }
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    print(f"receipt_verification={'PASS' if report['passed'] else 'FAIL'}")
+    return 0 if report["passed"] else 2
+
+
+def command_compare_receipts(args: argparse.Namespace) -> int:
+    first = json.loads(args.first.read_text(encoding="utf-8"))
+    second = json.loads(args.second.read_text(encoding="utf-8"))
+    plan = json.loads(args.plan.read_text(encoding="utf-8"))
+    helper = json.loads(args.helper_profile.read_text(encoding="utf-8"))
+    report = compare_execution_receipts(first, second, plan, helper)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    print(f"idempotence={'PASS' if report['passed'] else 'FAIL'}")
+    return 0 if report["passed"] else 2
+
+
+def command_handoff(args: argparse.Namespace) -> int:
+    rows = read_csv(args.master)
+    salt = args.salt_file.read_text(encoding="utf-8").strip()
+    output, errors = build_public_handoff(rows, salt)
+    report = {
+        "schema_version": 1,
+        "passed": not errors,
+        "source_count": len(rows),
+        "public_count": len(output) if not errors else 0,
+        "blocked_error_count": len(errors),
+        "errors": errors,
+    }
+    args.report.parent.mkdir(parents=True, exist_ok=True)
+    args.report.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    if errors:
+        args.output.unlink(missing_ok=True)
+    else:
+        write_csv(args.output, output, fieldnames=list(PUBLIC_FIELDS))
+    print(f"public_handoff={'PASS' if report['passed'] else 'FAIL'}")
+    print(f"public_count={report['public_count']}")
+    return 0 if report["passed"] else 2
+
+
 def command_demo(args: argparse.Namespace) -> int:
     root = Path(__file__).resolve().parents[2]
     workspace = args.workspace.resolve()
@@ -255,6 +333,26 @@ def command_demo(args: argparse.Namespace) -> int:
         inventory=str(inventory),
     )
     source_profile_path.write_text(json.dumps(source_profile, indent=2) + "\n", encoding="utf-8")
+    helper_profile_path = workspace / "inventory" / "helper-profile.json"
+    helper_profile_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "bundle_identifier": "org.openhouse.synthetic-photo-helper",
+                "binary_sha256": "sha256:" + "1" * 64,
+                "capabilities": [
+                    "membership-only-write",
+                    "receipt-plan-digest",
+                    "launch-nonce",
+                    "exact-folder-topology",
+                ],
+                "supported_plan_schema_versions": [2],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     config.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(root / "config" / "starter.json", config)
     write_demo_readme(workspace / "README.md")
@@ -296,6 +394,7 @@ def command_demo(args: argparse.Namespace) -> int:
             holds=workspace / "manifests" / "hold-sensitive.csv",
             evaluation_seal=workspace / "reports" / "evaluation-seal.json",
             evaluation_report=workspace / "reports" / "evaluation-report.json",
+            helper_profile=helper_profile_path,
             output=workspace / "manifests" / "catalog-plan.json",
         )
     )
@@ -349,6 +448,7 @@ def parser() -> argparse.ArgumentParser:
     plan.add_argument("--holds", type=Path)
     plan.add_argument("--evaluation-seal", type=Path, required=True)
     plan.add_argument("--evaluation-report", type=Path, required=True)
+    plan.add_argument("--helper-profile", type=Path, required=True)
     plan.add_argument("--output", type=Path, required=True)
     plan.set_defaults(func=command_plan)
 
@@ -377,6 +477,7 @@ def parser() -> argparse.ArgumentParser:
     transition.add_argument("--expected-revision", type=int)
     transition.add_argument("--artifact", type=Path)
     transition.add_argument("--note", default="")
+    transition.add_argument("--attempt-id", required=True)
     transition.set_defaults(func=command_transition)
 
     status = sub.add_parser("status", help="recover and show run state from the event ledger")
@@ -397,6 +498,36 @@ def parser() -> argparse.ArgumentParser:
     freshness.add_argument("--require-disjoint", action="store_true")
     freshness.add_argument("--output", type=Path, required=True)
     freshness.set_defaults(func=command_freshness)
+
+    split = sub.add_parser("split-audit", help="audit final holdout UUID and relationship-cluster isolation")
+    split.add_argument("--tuning", type=Path, action="append", required=True)
+    split.add_argument("--holdout", type=Path, required=True)
+    split.add_argument("--canary", type=Path, action="append", default=[])
+    split.add_argument("--include-private-details", action="store_true")
+    split.add_argument("--output", type=Path, required=True)
+    split.set_defaults(func=command_split_audit)
+
+    receipt = sub.add_parser("verify-receipt", help="bind a helper receipt to an authorized release plan")
+    receipt.add_argument("--receipt", type=Path, required=True)
+    receipt.add_argument("--plan", type=Path, required=True)
+    receipt.add_argument("--helper-profile", type=Path, required=True)
+    receipt.add_argument("--output", type=Path, required=True)
+    receipt.set_defaults(func=command_verify_receipt)
+
+    idempotence = sub.add_parser("compare-receipts", help="verify two distinct equivalent executions")
+    idempotence.add_argument("--first", type=Path, required=True)
+    idempotence.add_argument("--second", type=Path, required=True)
+    idempotence.add_argument("--plan", type=Path, required=True)
+    idempotence.add_argument("--helper-profile", type=Path, required=True)
+    idempotence.add_argument("--output", type=Path, required=True)
+    idempotence.set_defaults(func=command_compare_receipts)
+
+    handoff = sub.add_parser("handoff", help="build an allowlisted, opaque-ID public projection")
+    handoff.add_argument("--master", type=Path, required=True)
+    handoff.add_argument("--salt-file", type=Path, required=True)
+    handoff.add_argument("--output", type=Path, required=True)
+    handoff.add_argument("--report", type=Path, required=True)
+    handoff.set_defaults(func=command_handoff)
     return root
 
 

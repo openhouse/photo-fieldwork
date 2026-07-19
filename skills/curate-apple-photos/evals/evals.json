@@ -110,6 +110,73 @@
         "Meets all configured quotas",
         "Completes within the documented local benchmark threshold"
       ]
+    },
+    {
+      "id": "cluster-clean-holdout",
+      "prompt": "A final holdout has fresh UUIDs but shares perceptual, duplicate, or burst clusters with tuning decisions and regression canaries.",
+      "expected_output": "Fail the holdout as contaminated while keeping private identifiers out of the default report.",
+      "files": [],
+      "assertions": [
+        "Audits UUID and relationship-cluster overlap",
+        "Rejects repeated relationship clusters inside the holdout",
+        "Treats tuning and regression canaries as separate prior evidence",
+        "Defaults to counts and digests rather than raw identifiers"
+      ]
+    },
+    {
+      "id": "ordered-release-attempts",
+      "prompt": "A worker tries to advance a later phase before its predecessors and later reuses an execution attempt identifier.",
+      "expected_output": "Reject both transitions and preserve the append-only run history.",
+      "files": [],
+      "assertions": [
+        "Enforces configured phase order",
+        "Rejects reused attempt identifiers",
+        "Retains compare-and-swap and checksummed completion evidence"
+      ]
+    },
+    {
+      "id": "helper-capability-negotiation",
+      "prompt": "The installed helper has the expected bundle identity but lacks membership-only writes or support for the plan schema.",
+      "expected_output": "Block release before Photos mutation and name the missing capability or schema support.",
+      "files": [],
+      "assertions": [
+        "Checks helper identity and binary digest",
+        "Negotiates required capabilities",
+        "Rejects unsupported plan schemas"
+      ]
+    },
+    {
+      "id": "plan-receipt-binding",
+      "prompt": "A plausible write receipt has matching counts but names a different plan, source, helper binary, or catalog topology.",
+      "expected_output": "Reject the receipt because it does not attest the exact authorized execution.",
+      "files": [],
+      "assertions": [
+        "Binds receipt to the exact plan digest",
+        "Binds source and helper identity",
+        "Checks folder and album topology rather than totals alone"
+      ]
+    },
+    {
+      "id": "distinct-idempotence-executions",
+      "prompt": "Two production receipts are copies or come from the same launch nonce, while another pair comes from distinct launches but resolves different catalog identifiers.",
+      "expected_output": "Reject both false idempotence claims and accept only distinct semantically equivalent executions.",
+      "files": [],
+      "assertions": [
+        "Requires distinct launch nonces and completion times",
+        "Requires the same authorized plan and helper",
+        "Requires equivalent resulting catalog topology"
+      ]
+    },
+    {
+      "id": "closed-public-handoff",
+      "prompt": "Build a website handoff from an editor field containing unknown rights, unresolved consent, unsupported captions, and private archive columns.",
+      "expected_output": "Emit only specifically cleared rows through an allowlist with opaque public IDs; keep the rest closed.",
+      "files": [],
+      "assertions": [
+        "Keeps editor-field membership separate from publication clearance",
+        "Requires rights, consent, and claim states independently",
+        "Excludes stable archive IDs, People data, OCR, locations, and local paths"
+      ]
     }
   ]
 }

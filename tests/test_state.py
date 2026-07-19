@@ -45,6 +45,57 @@ class RunStateTests(unittest.TestCase):
         on_disk = json.loads((self.run / "run-state.json").read_text(encoding="utf-8"))
         self.assertEqual(on_disk, recovered)
 
+    def test_phase_order_and_attempt_ids_are_enforced(self):
+        artifact = self.run / "artifact.json"
+        artifact.write_text("{}\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "earlier phase"):
+            transition_phase(
+                self.run,
+                "verify",
+                "completed",
+                expected_revision=1,
+                artifact=artifact,
+                attempt_id="attempt-0001",
+            )
+        state = transition_phase(
+            self.run,
+            "retrieve",
+            "completed",
+            expected_revision=1,
+            artifact=artifact,
+            attempt_id="attempt-0001",
+        )
+        with self.assertRaisesRegex(ValueError, "attempt_id already recorded"):
+            transition_phase(
+                self.run,
+                "verify",
+                "completed",
+                expected_revision=state["revision"],
+                artifact=artifact,
+                attempt_id="attempt-0001",
+            )
+
+    def test_completed_artifact_drift_blocks_later_transition(self):
+        artifact = self.run / "artifact.json"
+        artifact.write_text("{}\n", encoding="utf-8")
+        state = transition_phase(
+            self.run,
+            "retrieve",
+            "completed",
+            expected_revision=1,
+            artifact=artifact,
+            attempt_id="attempt-0001",
+        )
+        artifact.write_text('{"changed": true}\n', encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "completed artifact changed"):
+            transition_phase(
+                self.run,
+                "verify",
+                "started",
+                expected_revision=state["revision"],
+                attempt_id="attempt-0002",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

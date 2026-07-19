@@ -1,4 +1,4 @@
-# Roadmap after revision F
+# Roadmap after the preferred revision F composite
 
 Revision F makes the trustworthy production path substantially more native:
 
@@ -10,12 +10,15 @@ Revision F makes the trustworthy production path substantially more native:
 - explicit safety states and human-only clearance;
 - semantic catalog plans;
 - independent JSON and Markdown verification;
-- synthetic CI and expanded failure-mode tests.
+- synthetic CI and expanded failure-mode tests;
 - relational safety propagation across duplicate and burst groups;
 - decoded preview integrity reports;
-- final-holdout freshness gates;
+- final-holdout UUID and relationship-cluster isolation;
 - evaluation seals binding the reviewed candidate to catalog planning;
-- a ten-scenario executable eval suite with a 4,000-item benchmark.
+- helper capability negotiation and exact plan/receipt/topology binding;
+- distinct-execution idempotence evidence;
+- a closed public projection with opaque IDs and independent governance states;
+- a sixteen-scenario executable eval suite with a 4,000-item benchmark.
 
 The following recommendations remain deliberately separate. They should land as focused changes with production-scale evidence rather than being hidden inside this revision.
 
@@ -37,8 +40,8 @@ Standardize round bundles containing configuration, sampled-manifest hash, feedb
 
 ## Catalog concurrency
 
-Add an adapter-level exclusive writer lock and capability handshake. Read-only work may coexist; Photos mutation must have one active writer.
+Add an adapter-level exclusive writer lock. Helper capability negotiation now blocks incompatible writes; read-only work may coexist, but Photos mutation must still have one active writer.
 
 ## Generated handoffs and adapter conformance
 
-Generate editor and completion reports from structured receipts. Add synthetic conformance fixtures for readers, inspectors, writers, and verifiers, including idempotence and same-count source-drift failures.
+Generate editor and completion reports from structured receipts. Expand synthetic conformance fixtures across reader, inspector, writer, verifier, and public-projection adapters.

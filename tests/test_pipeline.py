@@ -20,6 +20,21 @@ from photo_fieldwork.practice import create_demo_inventory
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def helper_profile() -> dict:
+    return {
+        "schema_version": 1,
+        "bundle_identifier": "org.openhouse.synthetic-photo-helper",
+        "binary_sha256": "sha256:" + "1" * 64,
+        "capabilities": [
+            "membership-only-write",
+            "receipt-plan-digest",
+            "launch-nonce",
+            "exact-folder-topology",
+        ],
+        "supported_plan_schema_versions": [2],
+    }
+
+
 class PipelineTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -88,6 +103,35 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(plan["albums"][0]["role"], "editor-master")
         self.assertEqual(plan["albums"][0]["visibility"], "private-editor")
         self.assertEqual(len(plan["albums"][0]["asset_identifiers"]), 12)
+
+    def test_catalog_plan_binds_release_class_and_authorized_helper(self):
+        master, _, _ = select(self.inventory, self.config)
+        plan = build_catalog_plan(
+            master,
+            self.config,
+            "practice",
+            "Source",
+            "SOURCE-1",
+            helper_profile=helper_profile(),
+        )
+        self.assertEqual(plan["release_class"], "editor-field")
+        self.assertEqual({folder["key"] for folder in plan["folders"]}, {"root", "version", "private"})
+        self.assertEqual(
+            plan["helper_requirement"]["binary_sha256"],
+            helper_profile()["binary_sha256"],
+        )
+
+        invalid = helper_profile()
+        invalid["capabilities"].remove("launch-nonce")
+        with self.assertRaisesRegex(ValueError, "launch-nonce"):
+            build_catalog_plan(
+                master,
+                self.config,
+                "practice",
+                "Source",
+                "SOURCE-1",
+                helper_profile=invalid,
+            )
 
     def test_catalog_plan_binds_the_passing_evaluation_candidate(self):
         master, _, _ = select(self.inventory, self.config)

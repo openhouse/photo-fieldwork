@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Photo Fieldwork helper capability profile",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "bundle_identifier",
+    "binary_sha256",
+    "capabilities",
+    "supported_plan_schema_versions"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "bundle_identifier": {"type": "string", "minLength": 1},
+    "binary_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "capabilities": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "supported_plan_schema_versions": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "integer", "minimum": 1}
+    }
+  },
+  "additionalProperties": false
+}

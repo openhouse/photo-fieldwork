@@ -12,6 +12,7 @@
 8. Read every rejection and representative uncertainty.
 9. State the observed failure pattern and one system change.
 10. Rebuild deterministically and repeat.
+11. After tuning stops, audit the final holdout against all tuning rounds and regression canaries by UUID and perceptual, duplicate, and burst clusters.
 
 ## Required feedback fields
 
@@ -49,6 +50,7 @@
 - Exact target, unique IDs, stills only, HOLD disjoint, all pixels locally available unless historically exceptional and explicitly recorded.
 - Generic social scenes do not dominate work evidence.
 - Named relationships and person-free material context both remain visible.
+- Final holdout rows are cluster-independent from one another and disjoint from tuning and canary evidence.
 
 ## Stop conditions
 

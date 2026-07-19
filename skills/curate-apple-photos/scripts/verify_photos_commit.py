@@ -14,7 +14,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
+from photo_fieldwork.release import verify_execution_receipt  # noqa: E402
 from photo_fieldwork.source import fingerprint_identifiers  # noqa: E402
+from photo_fieldwork.state import sha256_file  # noqa: E402
 
 
 DEFAULT_DB = Path(
@@ -98,6 +100,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--plan", type=Path, required=True)
     parser.add_argument("--receipt", type=Path, required=True)
+    parser.add_argument("--helper-profile", type=Path, required=True)
     parser.add_argument("--report", type=Path)
     parser.add_argument("--report-json", type=Path)
     parser.add_argument("--report-md", type=Path)
@@ -107,6 +110,10 @@ def main() -> None:
 
     plan = json.loads(args.plan.read_text(encoding="utf-8"))
     receipt = json.loads(args.receipt.read_text(encoding="utf-8"))
+    helper_profile = json.loads(args.helper_profile.read_text(encoding="utf-8"))
+    receipt_errors = verify_execution_receipt(receipt, plan, helper_profile, sha256_file(args.plan))
+    if receipt_errors:
+        raise RuntimeError(f"receipt does not attest the authorized execution: {'; '.join(receipt_errors)}")
     expected_albums = plan["albums"]
     titles = [item["title"] for item in expected_albums]
     if len(titles) != len(set(titles)):
