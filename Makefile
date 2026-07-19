@@ -1,10 +1,16 @@
-.PHONY: demo test check integration-check privacy-check install-skill
+.PHONY: demo test evals check integration-check privacy-check install-skill
 
 demo:
 	./bin/photo-fieldwork demo --workspace runs/practice
 
 test:
 	PYTHONPATH=src python3 -m unittest discover -s tests -v
+
+evals:
+	PYTHONPATH=src python3 scripts/run_evals.py \
+		--suite evals/system-evals.json \
+		--max-depth 5 \
+		--output build/evals/revision-D.json
 
 privacy-check:
 	python3 scripts/check_public_repo.py
@@ -16,7 +22,7 @@ integration-check:
 		xcrun swiftc -module-cache-path build/swift-module-cache -typecheck integrations/jamie-photo-archive/JamiePhotoArchive.swift; \
 	fi
 
-check: test integration-check privacy-check
+check: test evals integration-check privacy-check
 
 install-skill:
 	./bin/install-skill

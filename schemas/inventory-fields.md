@@ -37,5 +37,7 @@ The selector accepts UTF-8 CSV. Unknown columns are preserved. Boolean values ma
 | `date` | Capture or import date. Treat as fallible provenance. |
 | `place` | Coarsened place only in editor-facing exports. |
 | `local_path` | Local preview or original path. Do not publish private paths. |
+| `evaluation_sample_sha256` | Frozen digest of the sample's canonical UUID and `primary_view` pairs. Preserve unchanged through review. |
+| `evaluation_sample_count` | Frozen number of rows in the evaluation sample. Preserve unchanged through review. |
 
 The selector writes `primary_view`, `score_total`, `selection_tier`, and `selection_reason` into the proposed master.

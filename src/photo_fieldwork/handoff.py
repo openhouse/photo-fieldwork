@@ -26,8 +26,10 @@ ALLOWED_KEYS = {
     "reviewed_at",
 }
 PRIVATE_PATTERNS = (
-    re.compile(r"/(?:Users|Volumes)/"),
+    re.compile(r"(?:/(?:Users|Volumes|home|private|tmp)/|~[/\\])"),
+    re.compile(r"\b[A-Za-z]:\\(?:[^\\\s]+\\)*[^\\\s]*"),
     re.compile(r"\b[A-F0-9]{8}(?:-[A-F0-9]{4}){3}-[A-F0-9]{12}\b", re.IGNORECASE),
+    re.compile(r"(?<!\d)(?:\+?1[\s.-]?)?(?:\(?\d{3}\)?[\s.-])\d{3}[\s.-]\d{4}(?!\d)"),
     re.compile(r"\b[^\s@]+@[^\s@]+\.[^\s@]+\b"),
 )
 
@@ -64,7 +66,7 @@ def validate_handoff(data: dict) -> list[dict]:
                 raise ValueError(f"evidence record {index} field {key} must be a string array")
         serialized = repr(record)
         if any(pattern.search(serialized) for pattern in PRIVATE_PATTERNS):
-            raise ValueError(f"evidence record {index} contains a private path, identifier, or email")
+            raise ValueError(f"evidence record {index} contains a private path, identifier, or contact detail")
     return records
 
 

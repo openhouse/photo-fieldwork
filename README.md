@@ -28,6 +28,14 @@ Run the tests:
 make check
 ```
 
+Run the recursive adversarial eval bank directly:
+
+```bash
+make evals
+```
+
+The eval runner starts from valid synthetic workflows, recursively applies harmless and unsafe mutations, and requires unsafe variants to fail closed. See [the evaluation system](docs/evals.md).
+
 ## Use it with your own inventory
 
 1. Copy `config/starter.json` and edit the views, quotas, and thresholds.
@@ -146,7 +154,7 @@ Those are different questions. Photo Fieldwork keeps them different.
 - Direct writes to Photos SQLite.
 - A claim that the generated corpus is the final edit.
 
-Read [the workflow](docs/workflow.md), [the architecture](docs/architecture.md), [the safety model](docs/safety.md), and [the Apple Photos guide](docs/apple-photos.md) before using a private archive.
+Read [the workflow](docs/workflow.md), [the architecture](docs/architecture.md), [the safety model](docs/safety.md), [the evaluation system](docs/evals.md), and [the Apple Photos guide](docs/apple-photos.md) before using a private archive.
 
 ## Use it as a Codex skill
 

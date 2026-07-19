@@ -17,6 +17,9 @@
     "minimum_person_free_fraction": {"type": "number", "minimum": 0, "maximum": 1},
     "minimum_novel_fraction": {"type": "number", "minimum": 0, "maximum": 1},
     "minimum_fresh_inspection_fraction": {"type": "number", "minimum": 0, "maximum": 1},
+    "require_explicit_safety_status": {"type": "boolean"},
+    "require_evaluation_binding": {"type": "boolean"},
+    "require_per_view_sufficiency": {"type": "boolean"},
     "allow_unclassified_fallback": {"type": "boolean"},
     "views": {
       "type": "array",

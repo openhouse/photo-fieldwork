@@ -80,14 +80,17 @@ def split_values(value: object) -> list[str]:
 
 
 def stable_noise(seed: int, uuid: str) -> float:
-    digest = hashlib.sha256(f"{seed}:{uuid}".encode()).digest()
+    digest = hashlib.sha256(f"{seed}:{base_identifier(uuid)}".encode()).digest()
     return int.from_bytes(digest[:8], "big") / 2**64
 
 
-def is_hold(row: dict[str, str]) -> bool:
+def is_hold(row: dict[str, str], config: dict | None = None) -> bool:
     hold_states = {"hold", "machine-suspected", "human-confirmed-hold"}
+    safety_status = str(row.get("safety_status", "")).strip().lower()
+    if config and config.get("require_explicit_safety_status") and safety_status != "clear":
+        return True
     return (
-        str(row.get("safety_status", "clear")).strip().lower() in hold_states
+        safety_status in hold_states
         or truthy(row.get("hidden"))
         or truthy(row.get("missing"))
     )
@@ -227,7 +230,7 @@ def assign_views(rows: list[dict[str, str]], config: dict) -> tuple[list[dict], 
         key=lambda row: (
             len(supported_views(row, config)),
             -float(row["score_total"]),
-            row["uuid"],
+            base_identifier(row["uuid"]),
         ),
     )
     source = 0
@@ -282,10 +285,10 @@ def assign_views(rows: list[dict[str, str]], config: dict) -> tuple[list[dict], 
 
 
 def select(inventory: list[dict[str, str]], config: dict) -> tuple[list[dict], list[dict], dict]:
-    holds = [dict(row) for row in inventory if is_hold(row)]
+    holds = [dict(row) for row in inventory if is_hold(row, config)]
     evaluation_exclusions = [dict(row) for row in inventory if truthy(row.get("evaluation_exclusion"))]
     eligible = cluster_representatives(
-        [dict(row) for row in inventory if not is_hold(row) and not truthy(row.get("evaluation_exclusion"))],
+        [dict(row) for row in inventory if not is_hold(row, config) and not truthy(row.get("evaluation_exclusion"))],
         config,
     )
     for row in eligible:
@@ -361,7 +364,13 @@ def select(inventory: list[dict[str, str]], config: dict) -> tuple[list[dict], l
         raise ValueError("candidate field cannot satisfy minimum_novel_fraction")
     if sum(truthy(row.get("freshly_inspected")) for row in selected) < fresh_floor:
         raise ValueError("candidate field cannot satisfy minimum_fresh_inspection_fraction")
-    selected.sort(key=lambda row: (row["primary_view"], -float(row["score_total"]), row["uuid"]))
+    selected.sort(
+        key=lambda row: (
+            row["primary_view"],
+            -float(row["score_total"]),
+            base_identifier(row["uuid"]),
+        )
+    )
     summary = {
         **assignment,
         "inventory_count": len(inventory),
@@ -381,6 +390,8 @@ def select(inventory: list[dict[str, str]], config: dict) -> tuple[list[dict], l
 
 
 def make_sample(master: list[dict[str, str]], per_view: int, seed: int) -> list[dict]:
+    if per_view < 1:
+        raise ValueError("per_view must be positive")
     grouped: dict[str, list[dict]] = defaultdict(list)
     for row in master:
         grouped[row.get("primary_view", "unknown")].append(row)
@@ -406,7 +417,24 @@ def make_sample(master: list[dict[str, str]], per_view: int, seed: int) -> list[
             item["round_id"] = ""
             item["reviewer_lens"] = ""
             sample.append(item)
+    sample_digest = evaluation_sample_sha256(sample)
+    for item in sample:
+        item["evaluation_sample_sha256"] = sample_digest
+        item["evaluation_sample_count"] = str(len(sample))
     return sample
+
+
+def evaluation_sample_sha256(rows: Iterable[dict[str, str]]) -> str:
+    """Bind evaluation membership to the view in which each asset is judged."""
+    identities = sorted({
+        (base_identifier(row.get("uuid", "")), str(row.get("primary_view", "")).strip())
+        for row in rows
+    })
+    digest = hashlib.sha256()
+    for identifier, view in identities:
+        digest.update(json.dumps([identifier, view], separators=(",", ":")).encode("utf-8"))
+        digest.update(b"\n")
+    return digest.hexdigest()
 
 
 def wilson_interval(successes: int, total: int, z: float = 1.96) -> tuple[float, float] | None:
@@ -419,20 +447,77 @@ def wilson_interval(successes: int, total: int, z: float = 1.96) -> tuple[float,
     return max(0.0, center - margin), min(1.0, center + margin)
 
 
+def evaluation_identity_errors(feedback: list[dict[str, str]], config: dict | None = None) -> tuple[list[str], int]:
+    config = config or {}
+    errors: list[str] = []
+    identifiers = [base_identifier(row.get("uuid", "")) for row in feedback]
+    if any(not identifier for identifier in identifiers):
+        errors.append("evaluation feedback contains a blank UUID")
+    if len(identifiers) != len(set(identifiers)):
+        errors.append("evaluation feedback contains duplicate canonical UUIDs")
+
+    declared_digests = {
+        str(row.get("evaluation_sample_sha256") or "").strip()
+        for row in feedback
+        if str(row.get("evaluation_sample_sha256") or "").strip()
+    }
+    declared_counts = {
+        str(row.get("evaluation_sample_count") or "").strip()
+        for row in feedback
+        if str(row.get("evaluation_sample_count") or "").strip()
+    }
+    binding_present = bool(declared_digests or declared_counts)
+    binding_required = bool(config.get("require_evaluation_binding"))
+    if binding_required and not binding_present:
+        errors.append("evaluation feedback is missing frozen sample identity")
+    if binding_present:
+        if any(not row.get("evaluation_sample_sha256") or not row.get("evaluation_sample_count") for row in feedback):
+            errors.append("evaluation feedback has incomplete sample identity fields")
+        if len(declared_digests) != 1:
+            errors.append("evaluation feedback contains inconsistent sample digests")
+        if len(declared_counts) != 1:
+            errors.append("evaluation feedback contains inconsistent sample counts")
+
+    expected_count = len(feedback)
+    if len(declared_counts) == 1:
+        try:
+            expected_count = int(next(iter(declared_counts)))
+        except ValueError:
+            errors.append("evaluation sample count is not an integer")
+        else:
+            if expected_count != len(feedback):
+                errors.append(
+                    f"evaluation feedback row count {len(feedback)} does not match frozen sample count {expected_count}"
+                )
+    if len(declared_digests) == 1:
+        actual_digest = evaluation_sample_sha256(feedback)
+        declared_digest = next(iter(declared_digests))
+        if actual_digest != declared_digest:
+            errors.append("evaluation feedback membership does not match frozen sample digest")
+    return errors, expected_count
+
+
 def evaluate(feedback: list[dict[str, str]], config: dict) -> tuple[dict, bool]:
+    integrity_errors, expected_sample_count = evaluation_identity_errors(feedback, config)
     allowed = {"fit", "reject", "uncertain"}
     judged = [row for row in feedback if row.get("judgment", "").strip().lower() in allowed]
     fit = sum(row["judgment"].strip().lower() == "fit" for row in judged)
     reject = sum(row["judgment"].strip().lower() == "reject" for row in judged)
     uncertain = sum(row["judgment"].strip().lower() == "uncertain" for row in judged)
-    coverage = len(judged) / len(feedback) if feedback else 0.0
+    coverage = len(judged) / expected_sample_count if expected_sample_count else 0.0
     precision = fit / (fit + reject) if fit + reject else 0.0
     decisive_count = fit + reject
     interval = wilson_interval(fit, decisive_count)
     minimum_decisive = int(config.get("minimum_decisive_per_view", 3))
     minimum_view_precision = float(config.get("minimum_view_precision", 0.65))
+    configured_views = {
+        str(view["id"])
+        for view in config.get("views", [])
+        if int(view.get("quota", 0)) > 0
+    }
+    observed_views = {row.get("primary_view", "unknown") for row in feedback}
     by_view = {}
-    for view in sorted({row.get("primary_view", "unknown") for row in feedback}):
+    for view in sorted(configured_views | observed_views):
         rows = [row for row in judged if row.get("primary_view", "unknown") == view]
         decisive = [row for row in rows if row["judgment"].strip().lower() in {"fit", "reject"}]
         view_fit = sum(row["judgment"].strip().lower() == "fit" for row in decisive)
@@ -454,13 +539,27 @@ def evaluate(feedback: list[dict[str, str]], config: dict) -> tuple[dict, bool]:
         and item["precision"] is not None
         and item["precision"] < minimum_view_precision
     ]
+    insufficient_views = [
+        view for view in sorted(configured_views)
+        if by_view[view]["decisive"] < minimum_decisive
+    ]
+    missing_views = [view for view in sorted(configured_views) if not any(
+        row.get("primary_view", "unknown") == view for row in feedback
+    )]
     passed = (
-        coverage >= float(config.get("minimum_eval_coverage", 0.8))
+        not integrity_errors
+        and coverage >= float(config.get("minimum_eval_coverage", 0.8))
         and precision >= float(config.get("minimum_eval_precision", 0.75))
         and not material_view_failures
+        and not missing_views
+        and (
+            not config.get("require_per_view_sufficiency")
+            or not insufficient_views
+        )
     )
     report = {
-        "sample_count": len(feedback),
+        "sample_count": expected_sample_count,
+        "submitted_count": len(feedback),
         "judged_count": len(judged),
         "fit": fit,
         "reject": reject,
@@ -474,6 +573,9 @@ def evaluate(feedback: list[dict[str, str]], config: dict) -> tuple[dict, bool]:
         "minimum_view_precision": minimum_view_precision,
         "minimum_decisive_per_view": minimum_decisive,
         "material_view_failures": material_view_failures,
+        "insufficient_views": insufficient_views,
+        "missing_views": missing_views,
+        "integrity_errors": integrity_errors,
         "error_categories": dict(sorted(Counter(row.get("error_category", "unlabeled") or "unlabeled" for row in judged).items())),
         "safety_review_counts": dict(sorted(Counter(row.get("safety_status", "unreviewed") or "unreviewed" for row in judged).items())),
         "public_suitability_counts": dict(sorted(Counter(row.get("public_suitability", "unreviewed") or "unreviewed" for row in judged).items())),
@@ -486,12 +588,13 @@ def evaluate(feedback: list[dict[str, str]], config: dict) -> tuple[dict, bool]:
 def validate(master: list[dict[str, str]], holds: list[dict[str, str]], config: dict) -> tuple[list[str], dict]:
     errors: list[str] = []
     ids = [row["uuid"] for row in master]
-    hold_ids = {row["uuid"] for row in holds}
+    canonical_ids = [base_identifier(value) for value in ids]
+    hold_ids = {base_identifier(row["uuid"]) for row in holds}
     if len(master) != int(config["target_count"]):
         errors.append(f"expected {config['target_count']} selected rows, found {len(master)}")
-    if len(ids) != len(set(ids)):
-        errors.append("master contains duplicate UUIDs")
-    overlap = set(ids) & hold_ids
+    if len(canonical_ids) != len(set(canonical_ids)):
+        errors.append("master contains duplicate canonical UUIDs")
+    overlap = set(canonical_ids) & hold_ids
     if overlap:
         errors.append(f"master overlaps safety holds by {len(overlap)} rows")
     if any(not row.get("selection_reason") for row in master):
@@ -512,10 +615,14 @@ def validate(master: list[dict[str, str]], holds: list[dict[str, str]], config: 
         errors.append(f"view quota mismatch: {json.dumps(quota_mismatches, sort_keys=True)}")
     if any(row.get("publication_status", "not-approved") not in {"not-approved", "unreviewed"} for row in master):
         errors.append("proposed master contains a publication-approved state")
+    if config.get("require_explicit_safety_status") and any(
+        str(row.get("safety_status", "")).strip().lower() != "clear" for row in master
+    ):
+        errors.append("proposed master contains an uncleared safety state")
     metrics = {
         "status": "PASS" if not errors else "FAIL",
         "master_count": len(master),
-        "unique_count": len(set(ids)),
+        "unique_count": len(set(canonical_ids)),
         "hold_count": len(holds),
         "hold_overlap": len(overlap),
         "represented_views": sorted(represented),

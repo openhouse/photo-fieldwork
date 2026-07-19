@@ -12,6 +12,31 @@
     "brief_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "profile_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "privacy": {"type": "object"},
-    "phases": {"type": "object", "minProperties": 1}
+    "phases": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["status", "completed_at", "artifacts"],
+        "properties": {
+          "status": {"enum": ["pending", "complete"]},
+          "completed_at": {"type": ["string", "null"]},
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["path", "size", "sha256"],
+              "properties": {
+                "path": {"type": "string", "minLength": 1},
+                "size": {"type": "integer", "minimum": 0},
+                "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
   }
 }

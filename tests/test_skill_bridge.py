@@ -75,6 +75,61 @@ class SkillBridgeTests(unittest.TestCase):
             for shard in shards:
                 bridge.verify_plan_digest(shard)
 
+    def test_combine_inspection_rejects_substituted_membership(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_digest = bridge.membership_sha256(["A", "B", "C"])
+            plan = bridge.attach_plan_digest({
+                "operation": "inspect-local-images",
+                "schema_version": 1,
+                "plan_id": "shard-01",
+                "source_album_identifier": "SOURCE",
+                "expected_source_count": 3,
+                "source_membership_sha256": source_digest,
+                "asset_identifiers": ["A/L0/001", "B/L0/001"],
+                "output_jsonl_path": str(root / "inspection.jsonl"),
+                "receipt_path": str(root / "receipt.json"),
+            })
+            plan_path = root / "plan.json"
+            plan_path.write_text(json.dumps(plan), encoding="utf-8")
+            Path(plan["output_jsonl_path"]).write_text(
+                json.dumps({"asset_identifier": "A/L0/001"}) + "\n" +
+                json.dumps({"asset_identifier": "OUTSIDE/L0/001"}) + "\n",
+                encoding="utf-8",
+            )
+            Path(plan["receipt_path"]).write_text(json.dumps({
+                "plan_id": plan["plan_id"],
+                "plan_sha256": plan["plan_sha256"],
+                "source_count": 3,
+                "source_membership_sha256": source_digest,
+                "requested_count": 2,
+                "completed_count": 2,
+                "network_access_allowed": False,
+                "external_uploads_performed": False,
+            }), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "membership mismatch"):
+                bridge.command_combine_inspection(argparse.Namespace(
+                    plan=[plan_path],
+                    output=root / "combined.jsonl",
+                    receipt=root / "combined-receipt.json",
+                    expected=2,
+                ))
+            Path(plan["output_jsonl_path"]).write_text(
+                json.dumps({"asset_identifier": "A/L0/001"}) + "\n" +
+                json.dumps({"asset_identifier": "B/L0/001"}) + "\n",
+                encoding="utf-8",
+            )
+            receipt = json.loads(Path(plan["receipt_path"]).read_text(encoding="utf-8"))
+            receipt["source_count"] = 99
+            Path(plan["receipt_path"]).write_text(json.dumps(receipt), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "source count"):
+                bridge.command_combine_inspection(argparse.Namespace(
+                    plan=[plan_path],
+                    output=root / "combined.jsonl",
+                    receipt=root / "combined-receipt.json",
+                    expected=2,
+                ))
+
     def test_snapshot_plan_binds_profile_inventory_and_album_digests(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -279,10 +279,23 @@ def command_combine_inspection(args: argparse.Namespace) -> int:
     for plan_path in args.plan:
         plan = json.loads(plan_path.read_text(encoding="utf-8"))
         verify_plan_digest(plan)
+        planned_identifiers = [local_identifier(value) for value in plan.get("asset_identifiers") or []]
+        if not planned_identifiers or len(planned_identifiers) != len(set(planned_identifiers)):
+            raise ValueError(f"inspection shard has empty or duplicate planned membership: {plan_path}")
         receipt_path = Path(plan["receipt_path"])
         receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        if receipt.get("plan_id") != plan.get("plan_id"):
+            raise ValueError(f"receipt does not match plan ID: {receipt_path}")
         if receipt.get("plan_sha256") != plan["plan_sha256"]:
             raise ValueError(f"receipt does not match plan digest: {receipt_path}")
+        if receipt.get("source_membership_sha256") != plan.get("source_membership_sha256"):
+            raise ValueError(f"receipt does not match frozen source digest: {receipt_path}")
+        if receipt.get("source_count") != plan.get("expected_source_count"):
+            raise ValueError(f"receipt source count does not match shard plan: {receipt_path}")
+        if receipt.get("requested_count") != len(planned_identifiers):
+            raise ValueError(f"receipt requested count does not match shard plan: {receipt_path}")
+        if receipt.get("completed_count") != len(planned_identifiers):
+            raise ValueError(f"receipt completed count does not match shard plan: {receipt_path}")
         identity = (
             receipt.get("source_count"),
             plan.get("source_album_identifier"),
@@ -295,11 +308,24 @@ def command_combine_inspection(args: argparse.Namespace) -> int:
         if receipt.get("network_access_allowed") or receipt.get("external_uploads_performed"):
             raise ValueError("inspection receipt reports network access or external upload")
         inspection_path = Path(plan["output_jsonl_path"])
+        shard_rows = []
+        shard_identifiers = []
         for line in inspection_path.read_text(encoding="utf-8").splitlines():
             if not line.strip():
                 continue
             row = json.loads(line)
-            identifier = row.get("asset_identifier") or row.get("uuid")
+            identifier = local_identifier(row.get("asset_identifier") or row.get("uuid") or "")
+            shard_identifiers.append(identifier)
+            shard_rows.append(row)
+        if len(shard_identifiers) != len(set(shard_identifiers)):
+            raise ValueError(f"duplicate inspection identifier within shard: {inspection_path}")
+        missing = set(planned_identifiers) - set(shard_identifiers)
+        unexpected = set(shard_identifiers) - set(planned_identifiers)
+        if missing or unexpected:
+            raise ValueError(
+                f"inspection shard membership mismatch: missing={len(missing)} unexpected={len(unexpected)}"
+            )
+        for row, identifier in zip(shard_rows, shard_identifiers, strict=True):
             if identifier in identifiers:
                 raise ValueError(f"duplicate inspection identifier across shards: {identifier}")
             identifiers.add(identifier)

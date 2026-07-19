@@ -13,3 +13,6 @@
 - Add Wilson intervals, small-sample warnings, hard-negative feedback, and version comparison.
 - Add a static offline review workspace and a public-safe visual corroboration handoff.
 - Expand synthetic regression coverage across core, skill bridge, privacy, and plan integrity.
+- Add qualitative skill eval prompts and a recursive adversarial system-eval frontier.
+- Bind feedback to frozen sample identity and fail closed on missing or underpowered views.
+- Revalidate completed checkpoint artifacts and exact inspection-shard membership and source identity before advancing.

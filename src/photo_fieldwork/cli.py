@@ -9,8 +9,18 @@ from collections import Counter
 from pathlib import Path
 
 from .handoff import render_handoff
-from .integrity import membership_sha256
-from .pipeline import build_catalog_plan, evaluate, make_sample, read_config, read_csv, select, validate, write_csv
+from .integrity import base_identifier, membership_sha256
+from .pipeline import (
+    build_catalog_plan,
+    evaluate,
+    evaluation_identity_errors,
+    make_sample,
+    read_config,
+    read_csv,
+    select,
+    validate,
+    write_csv,
+)
 from .practice import create_demo_inventory, practice_feedback, write_demo_readme
 from .review import render_review_workspace
 from .runstate import checkpoint, initialize_run, next_phase, load_state
@@ -107,11 +117,25 @@ def command_plan(args: argparse.Namespace) -> int:
 
 def command_apply_feedback(args: argparse.Namespace) -> int:
     inventory = read_csv(args.inventory)
-    feedback = {row["uuid"].split("/", 1)[0]: row for row in read_csv(args.feedback)}
+    feedback_rows = read_csv(args.feedback)
+    integrity_errors, _ = evaluation_identity_errors(
+        feedback_rows,
+        {"require_evaluation_binding": True},
+    )
+    inventory_ids = [base_identifier(row["uuid"]) for row in inventory]
+    if len(inventory_ids) != len(set(inventory_ids)):
+        integrity_errors.append("inventory contains duplicate canonical UUIDs")
+    feedback_ids = [base_identifier(row["uuid"]) for row in feedback_rows]
+    unknown = sorted(set(feedback_ids) - set(inventory_ids))
+    if unknown:
+        integrity_errors.append(f"feedback contains {len(unknown)} UUIDs outside the inventory")
+    if integrity_errors:
+        raise ValueError("; ".join(integrity_errors))
+    feedback = dict(zip(feedback_ids, feedback_rows, strict=True))
     excluded = 0
     held = 0
     for row in inventory:
-        item = feedback.get(row["uuid"].split("/", 1)[0])
+        item = feedback.get(base_identifier(row["uuid"]))
         if not item:
             row.setdefault("evaluation_exclusion", "false")
             continue
@@ -139,8 +163,8 @@ def command_apply_feedback(args: argparse.Namespace) -> int:
 def command_compare(args: argparse.Namespace) -> int:
     before = read_csv(args.before)
     after = read_csv(args.after)
-    before_by_id = {row["uuid"].split("/", 1)[0]: row for row in before}
-    after_by_id = {row["uuid"].split("/", 1)[0]: row for row in after}
+    before_by_id = {base_identifier(row["uuid"]): row for row in before}
+    after_by_id = {base_identifier(row["uuid"]): row for row in after}
     retained = set(before_by_id) & set(after_by_id)
     report = {
         "before_count": len(before_by_id),

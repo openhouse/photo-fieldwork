@@ -59,3 +59,5 @@ Tell editors what the system did and did not do. The result is a contact field f
 ## 13. Checkpoint and project carefully
 
 Checkpoint every completed phase with artifact digests so the run can resume without trusting ambient state. Keep the private editor handoff separate from any public-safe visual corroboration note. Neither one makes an image publication-approved by default.
+
+Revision D checkpoints store a workspace-relative path, byte size, and SHA-256 for every artifact, and revalidate the complete prior chain before advancing. Older receipts without a path cannot be revalidated and therefore fail closed. Start a new run, or migrate only after independently locating and verifying every recorded artifact; never infer a legacy artifact from its filename alone.

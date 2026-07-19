@@ -21,7 +21,13 @@ Revision D turns lessons from a private whole-library production run into reusab
 - static offline review workspace with CSV feedback export;
 - version comparison reports;
 - public-safe visual corroboration handoff with prohibited-field checks;
-- synthetic tests, Swift type checking, JSON checks, and public-repository privacy scanning.
+- synthetic tests, Swift type checking, JSON checks, and public-repository privacy scanning;
+- realistic skill prompts plus a recursively mutated executable eval bank;
+- frozen asset-and-view evaluation identity and fail-closed per-view sufficiency;
+- canonical UUID validation across master, HOLD, and feedback boundaries;
+- full checkpoint-chain revalidation before phase advancement;
+- exact inspection-shard membership, source identity, and receipt reconciliation;
+- synthetic GitHub Actions enforcement through `make check`.
 
 ## Preserved boundaries
 

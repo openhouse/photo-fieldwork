@@ -1,0 +1,95 @@
+{
+  "skill_name": "curate-apple-photos",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Use my whole Apple Photos library to create a fresh, versioned 4,000-photo editor field. Inspect new candidates instead of recycling the previous field. Preserve every prior version and carry the work through a ten-item write test, production commit, rerun, and independent verification.",
+      "expected_output": "A private whole-library run bound to an exact source membership, with fresh visual evidence, exact quotas, protected safety states, a digest-bound write, and independent verification of a 4,000-item master.",
+      "files": [],
+      "assertions": [
+        "The run freezes the current visible-still membership digest rather than trusting a historical count.",
+        "The candidate and inspection reports distinguish previous selection, previous inspection, and fresh inspection.",
+        "No production write occurs before passing evaluation, validation, a ten-item test write, and independent test verification.",
+        "The production rerun is idempotent and the final receipt matches independent read-only membership verification."
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Resume an interrupted curation workspace. Local inspection may have completed, evaluation may be partial, and a helper receipt may or may not exist. Do not repeat completed work and do not mutate Photos until you can prove the next safe phase.",
+      "expected_output": "A recoverability-first audit that verifies checkpoint artifacts, rejects stale or altered evidence, identifies the next unmet gate, and performs no premature catalog write.",
+      "files": [],
+      "assertions": [
+        "The skill reads durable run state and verifies completed artifact digests before advancing.",
+        "Completed inspection shards are checked for exact planned membership, uniqueness, source identity, and receipt binding.",
+        "A receipt without matching plan identity and independent verification cannot advance the run."
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Build a private 1,200-image editor field about family, domestic life, grief, health, and community work. The archive includes children, private homes, correspondence, identity documents, and public event flyers containing addresses.",
+      "expected_output": "A local-only field with fail-closed safety handling, explicit human review provenance, generalized reasons, and no automatic publication clearance.",
+      "files": [],
+      "assertions": [
+        "Unknown, needs-review, machine-suspected, hidden, missing, and held records cannot enter the master automatically.",
+        "Machine suspicion is never rewritten as human confirmation without an identified human decision.",
+        "Clearing one false positive does not weaken the generalized rule and does not grant publication permission.",
+        "No pixels, raw OCR, exact private locations, People associations, or private identifiers enter a public handoff."
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "The proposed field reports strong overall precision, but one project-specific view has only one decisive review and another view disappeared from the returned feedback file. Decide whether evaluation passes.",
+      "expected_output": "A failed evaluation that reports sample-integrity errors, missing or underpowered views, exact denominators, and no write eligibility.",
+      "files": [],
+      "assertions": [
+        "Feedback is bound to the frozen sample membership rather than evaluated from the rows that happen to remain.",
+        "Every configured nonzero view meets the minimum decisive sample and its own precision threshold.",
+        "An aggregate score cannot conceal a missing, underpowered, or weak view."
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "A visual-review CSV was sorted in a spreadsheet. One UUID was duplicated, one was replaced by an unknown UUID, and another sampled row vanished. Apply the feedback safely.",
+      "expected_output": "A rejected feedback import with explicit duplicate, unknown, and membership-mismatch diagnostics; no inventory or safety state is changed.",
+      "files": [],
+      "assertions": [
+        "Feedback joins by canonical asset identity and is invariant to row order.",
+        "Duplicate, unknown, substituted, or missing identities fail before any output is written.",
+        "A reject is image-view evidence while a safety hold remains a separate state with separate provenance."
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "Combine four completed local-inspection shards. Their row counts add up correctly, but one shard contains a substituted asset and another receipt reports the wrong source fingerprint.",
+      "expected_output": "A failed combination that identifies the shard membership or source-identity mismatch and emits no trusted combined receipt.",
+      "files": [],
+      "assertions": [
+        "Each shard output exactly equals its planned asset membership, not merely its expected count.",
+        "Every receipt binds to its exact plan and source digest.",
+        "The combined receipt is written only after completeness, uniqueness, and source consistency pass."
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "The brief requests a project-proof album, but no inspected candidate meets both visible-fit and provenance requirements. Finish the editor field honestly.",
+      "expected_output": "An editor-ready field that omits or relabels the unsupported proof view, preserves relevant uncertainty, and records the gap without treating absence as nonexistence.",
+      "files": [],
+      "assertions": [
+        "Unsupported project claims are not manufactured to fill a quota.",
+        "Unclassified or editor-hypothesis material remains available without being presented as proof.",
+        "The report distinguishes not recovered from did not exist."
+      ]
+    },
+    {
+      "id": 8,
+      "prompt": "Prepare a public-safe knowledge-bank handoff from reviewed photographs. A draft note accidentally contains a phone number, a local file path, a Photos local identifier, and language implying that album membership grants publication rights.",
+      "expected_output": "A blocked handoff with private-marker diagnostics and an explicit statement that photographs may corroborate but do not establish authorship, outcomes, consent, credit, or publication rights.",
+      "files": [],
+      "assertions": [
+        "Private paths, emails, phone numbers, asset identifiers, raw OCR, coordinates, and People data are rejected.",
+        "No automated or editorial state grants publication approval.",
+        "The public note describes only reviewed, public-safe observations and their evidentiary limits."
+      ]
+    }
+  ]
+}

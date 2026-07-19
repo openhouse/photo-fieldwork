@@ -75,8 +75,8 @@ photo-fieldwork select \
 2. Create a score-stratified sample from every view. For the first round, inspect at least 3 per view and at least 36 overall. Later rounds should normally inspect 60-100 images across low, middle, and high scores.
 3. Build contact sheets with `make_contact_sheets.py`, or create a static offline workspace with `photo-fieldwork review-pack`. Use `view_image` to inspect every contact-sheet page. Open individual previews when context or safety is unclear.
 4. Speak briefly as the requested peers. If Jamie cannot review, role-play Jamie using the supplied brief and voice references, while marking the judgment as delegated editorial inference rather than eyewitness fact.
-5. Record `fit`, `reject`, or `uncertain`, one visible reason, a safety state, public-suitability state, provenance state, and error category. These are separate decisions.
-6. Run `photo-fieldwork evaluate`. Read all rejections and a stratified uncertainty sample.
+5. Record `fit`, `reject`, or `uncertain`, one visible reason, a safety state, public-suitability state, provenance state, and error category. These are separate decisions. Preserve the frozen sample digest and count in every exported feedback row.
+6. Run `photo-fieldwork evaluate`. Missing, duplicate, substituted, or underpowered per-view feedback must fail before aggregate precision is considered. Read all rejections and a stratified uncertainty sample.
 7. Run `photo-fieldwork apply-feedback` so rejects become reusable hard negatives and safety findings enter human-confirmed HOLD. Change retrieval, assignments, penalties, quotas, or hold rules in response to observed errors. Keep the seed fixed. Save each round separately.
 8. Repeat until:
    - evaluation coverage and precision meet `config.json`;
@@ -97,7 +97,7 @@ Do not claim success from Vision labels or metadata alone. The recursive loop re
 4. Run the ten-item write test through the app. Independently verify it with `verify_photos_commit.py`.
 5. Run the production plan through the app. Rerun it once to confirm idempotence.
 6. Independently verify every album against the plan using read-only, immutable SQLite access.
-7. Use `photo-fieldwork checkpoint` after every phase. A checkpoint records artifact digests and is idempotent; it refuses changed evidence for an already completed phase.
+7. Use `photo-fieldwork checkpoint` after every phase. A checkpoint records workspace-relative artifact paths and digests, revalidates the full completed chain before advancing, and refuses changed or missing evidence.
 8. Optionally generate a public-safe knowledge-bank note with `photo-fieldwork evidence-handoff`. Never include asset IDs, people, paths, coordinates, raw OCR, or publication approval in that handoff.
 9. Write a completion report containing exact counts, identifiers, evaluation results, privacy facts, and unresolved uncertainty.
 

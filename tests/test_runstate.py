@@ -6,7 +6,7 @@ from pathlib import Path
 
 from photo_fieldwork.cli import command_apply_feedback
 from photo_fieldwork.handoff import render_handoff
-from photo_fieldwork.pipeline import read_csv, write_csv
+from photo_fieldwork.pipeline import evaluation_sample_sha256, read_csv, write_csv
 from photo_fieldwork.runstate import PHASES, checkpoint, initialize_run, load_state, next_phase
 from photo_fieldwork.review import render_review_workspace
 
@@ -59,6 +59,18 @@ class RunStateTests(unittest.TestCase):
         receipt.write_text('{"changed": true}\n', encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "different artifact digests"):
             checkpoint(self.workspace, PHASES[0], [receipt])
+
+    def test_later_checkpoint_revalidates_prior_artifacts(self):
+        initialize_run(self.workspace, self.brief, self.profile, "v-test", 10)
+        first = self.workspace / "reports" / "doctor.json"
+        first.write_text("{}\n", encoding="utf-8")
+        state, _ = checkpoint(self.workspace, PHASES[0], [first])
+        self.assertEqual(state["phases"][PHASES[0]]["artifacts"][0]["path"], "reports/doctor.json")
+        first.write_text('{"altered": true}\n', encoding="utf-8")
+        second = self.workspace / "reports" / "source.json"
+        second.write_text("{}\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "different artifact digests"):
+            checkpoint(self.workspace, PHASES[1], [second])
 
     def test_checkpoint_requires_prior_phase_and_receipt(self):
         initialize_run(self.workspace, self.brief, self.profile, "v-test", 10)
@@ -119,8 +131,24 @@ class HandoffTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unsupported fields"):
             render_handoff(data)
 
+    def test_handoff_rejects_phone_and_windows_path(self):
+        for marker in ("Call 212-555-0199.", "Stored at C:\\Private\\photo.jpg."):
+            data = self.record()
+            data["records"][0]["public_safe_observation"] += " " + marker
+            with self.subTest(marker=marker):
+                with self.assertRaisesRegex(ValueError, "contact detail|private path"):
+                    render_handoff(data)
+
 
 class FeedbackTests(unittest.TestCase):
+    def write_bound_feedback(self, path: Path, rows: list[dict[str, str]]) -> None:
+        rows = [{**row, "primary_view": row.get("primary_view", "00")} for row in rows]
+        digest = evaluation_sample_sha256(rows)
+        for row in rows:
+            row["evaluation_sample_sha256"] = digest
+            row["evaluation_sample_count"] = str(len(rows))
+        write_csv(path, rows)
+
     def test_feedback_preserves_machine_and_human_safety_provenance(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -134,7 +162,7 @@ class FeedbackTests(unittest.TestCase):
                     {"uuid": "HUMAN", "filename": "human.jpg"},
                 ],
             )
-            write_csv(
+            self.write_bound_feedback(
                 feedback,
                 [
                     {
@@ -155,6 +183,37 @@ class FeedbackTests(unittest.TestCase):
             rows = {row["uuid"]: row for row in read_csv(output)}
             self.assertEqual(rows["MACHINE"]["safety_status"], "machine-suspected")
             self.assertEqual(rows["HUMAN"]["safety_status"], "human-confirmed-hold")
+
+    def test_feedback_rejects_duplicate_or_unknown_identity(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            inventory = root / "inventory.csv"
+            feedback = root / "feedback.csv"
+            output = root / "updated.csv"
+            write_csv(inventory, [
+                {"uuid": "A", "filename": "a.jpg"},
+                {"uuid": "B", "filename": "b.jpg"},
+            ])
+            cases = (
+                ([{"uuid": "A", "filename": "a.jpg"}, {"uuid": "A/L0/001", "filename": "b.jpg"}], "duplicate"),
+                ([{"uuid": "A", "filename": "a.jpg"}, {"uuid": "UNKNOWN", "filename": "b.jpg"}], "outside"),
+            )
+            for rows, message in cases:
+                self.write_bound_feedback(feedback, rows)
+                with self.subTest(message=message):
+                    with self.assertRaisesRegex(ValueError, message):
+                        command_apply_feedback(Namespace(inventory=inventory, feedback=feedback, output=output))
+
+    def test_feedback_rejects_missing_sample_binding(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            inventory = root / "inventory.csv"
+            feedback = root / "feedback.csv"
+            output = root / "updated.csv"
+            write_csv(inventory, [{"uuid": "A", "filename": "a.jpg"}])
+            write_csv(feedback, [{"uuid": "A", "filename": "a.jpg", "judgment": "fit"}])
+            with self.assertRaisesRegex(ValueError, "missing frozen sample identity"):
+                command_apply_feedback(Namespace(inventory=inventory, feedback=feedback, output=output))
 
 
 class ReviewWorkspaceTests(unittest.TestCase):

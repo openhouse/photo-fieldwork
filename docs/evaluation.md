@@ -2,6 +2,10 @@
 
 The goal is not to prove the selector is intelligent. The goal is to discover where it is wrong before its outputs become editorial assumptions or public claims.
 
+The evaluation CSV is a frozen manifest, not an informal collection of returned rows. Every sampled row carries the same `evaluation_sample_sha256` and `evaluation_sample_count`. The digest binds each canonical UUID to its `primary_view`; missing, substituted, duplicate, or relabeled rows invalidate the evaluation before quality metrics are considered.
+
+When `require_per_view_sufficiency` is enabled, every configured nonzero view must meet `minimum_decisive_per_view`. Aggregate precision cannot waive a missing, underpowered, or weak view.
+
 ## Minimum loop
 
 1. Sample at least three items per view: low, middle, and high score.

@@ -121,6 +121,44 @@ def next_phase(state: dict) -> str | None:
     return next((phase for phase in PHASES if state["phases"][phase]["status"] != "complete"), None)
 
 
+def artifact_receipt(workspace: Path, artifact: Path) -> dict:
+    workspace = workspace.resolve()
+    path = artifact.resolve()
+    if not path.is_file():
+        raise ValueError(f"checkpoint artifact not found: {path}")
+    try:
+        relative = path.relative_to(workspace)
+    except ValueError as error:
+        raise ValueError("checkpoint artifacts must remain inside the private run workspace") from error
+    return {
+        "path": relative.as_posix(),
+        "size": path.stat().st_size,
+        "sha256": file_sha256(path),
+    }
+
+
+def verify_completed_artifacts(workspace: Path, state: dict, phases: tuple[str, ...]) -> None:
+    for phase in phases:
+        phase_state = state["phases"][phase]
+        if phase_state["status"] != "complete":
+            continue
+        for receipt in phase_state["artifacts"]:
+            relative = receipt.get("path")
+            if not relative:
+                raise ValueError(f"completed phase {phase} has an unlocatable legacy artifact receipt")
+            path = (workspace / relative).resolve()
+            try:
+                path.relative_to(workspace.resolve())
+            except ValueError as error:
+                raise ValueError(f"completed phase {phase} has an artifact outside the workspace") from error
+            if (
+                not path.is_file()
+                or path.stat().st_size != receipt.get("size")
+                or file_sha256(path) != receipt.get("sha256")
+            ):
+                raise ValueError(f"completed phase {phase} has different artifact digests")
+
+
 def checkpoint(workspace: Path, phase: str, artifacts: list[Path]) -> tuple[dict, bool]:
     if phase not in PHASES:
         raise ValueError(f"unknown phase: {phase}")
@@ -135,16 +173,15 @@ def checkpoint(workspace: Path, phase: str, artifacts: list[Path]) -> tuple[dict
     if incomplete_prior:
         raise ValueError(f"cannot complete {phase}; prior phases pending: {', '.join(incomplete_prior)}")
 
-    receipts = []
-    for artifact in artifacts:
-        path = artifact.resolve()
-        if not path.is_file():
-            raise ValueError(f"checkpoint artifact not found: {path}")
-        receipts.append({"name": path.name, "size": path.stat().st_size, "sha256": file_sha256(path)})
-    receipts.sort(key=lambda item: item["name"])
+    verify_completed_artifacts(workspace, state, PHASES[:phase_index])
+    receipts = [artifact_receipt(workspace, artifact) for artifact in artifacts]
+    receipts.sort(key=lambda item: item["path"])
+    if len({item["path"] for item in receipts}) != len(receipts):
+        raise ValueError("checkpoint contains duplicate artifact paths")
 
     current = state["phases"][phase]
     if current["status"] == "complete":
+        verify_completed_artifacts(workspace, state, (phase,))
         if current["artifacts"] != receipts:
             raise ValueError(f"completed phase {phase} has different artifact digests")
         return state, False
