@@ -8,7 +8,9 @@ Write down what may be read, what may be created, where outputs live, and which 
 
 ## 1. Freeze a source corpus
 
-Give the broad retrieval corpus a stable name and count. Never alter it during a versioned run. Preserve v00, v01, and later runs as separate folders so selection logic can be compared rather than overwritten.
+Give the broad retrieval corpus a stable identifier, exact count, and sorted-membership SHA-256. Never alter it during a versioned run. Preserve v00, v01, and later runs as separate folders so selection logic can be compared rather than overwritten.
+
+Reserve the semantic version before work. Keep experiments as rounds inside one run; do not create competing authoritative folders with the same version.
 
 ## 2. Build a compact inventory
 
@@ -17,6 +19,8 @@ Capture stable IDs, filenames, albums, existing people associations, dates, plac
 ## 3. Retrieve broadly with metadata
 
 Use albums, people, keywords, dates, places, labels, and prior attention to create candidate views. Call these retrieval hypotheses. Metadata can find possible relevance; it cannot establish what a photograph visibly proves.
+
+Failure to recover qualifying photographs is an evidence gap, not proof that they do not exist. Report `not recovered`, preserve the search boundary, and keep editor hypotheses distinct from provenance.
 
 ## 4. Calibrate before scaling
 
@@ -28,7 +32,7 @@ After metadata has reduced the corpus, inspect local previews for technical avai
 
 ## 6. Quarantine, do not erase
 
-Potential identity documents, private correspondence, contact details, financial records, medical information, credentials, and other sensitive material belong in HOLD. A hold is not deletion. It is a protected review state that can never enter the master automatically.
+Potential identity documents, private correspondence, contact details, financial records, medical information, credentials, and other sensitive material belong in HOLD. A hold is not deletion. It is a protected review state that can never enter the master automatically. Propagate it through known duplicate, perceptual, and burst relations before ranking.
 
 ## 7. Select with uncertainty
 
@@ -38,21 +42,26 @@ People associations are first-class archive structure. Preserve named relationsh
 
 ## 8. Evaluate and loop
 
-Sample low, middle, and high-scoring images from each view. Measure coverage and precision. Read the rejected examples. Revise retrieval, scoring, holds, or labels, then rerun with the same seed. A metric without inspected failure cases is not enough.
+Sample low, middle, and high-scoring images from each view. Keep tuning, canaries, and an untouched holdout separate at both UUID and relation-cluster level. Measure coverage and precision. Read the rejected examples. Revise retrieval, scoring, holds, or labels, then rerun with the same seed. A metric without inspected failure cases is not enough.
+
+Persist known visual rejects and historical holds so they cannot return through another label. After the field is frozen, audit the actual selection and every replacement.
 
 ## 9. Plan before writing
 
-Produce proposed-master, hold, membership, and decision manifests before touching the catalog. Every selected stable ID needs a reason. The plan must be idempotent.
+Produce proposed-master, hold, membership, and decision manifests before touching the catalog. Every selected stable ID needs a reason. Bind the release plan to the exact source membership, proposal, master assignments, config, final feedback, passing final evaluation, passing validation, and the plan's own content digest.
 
 ## 10. Commit narrowly
 
-Write ten non-sensitive items to a uniquely named test album. Verify exact membership and rerun the test to prove idempotence. Only then create production folders and albums in moderate, resumable batches.
+Write ten non-sensitive items to a uniquely named test album and verify exact membership. Then execute two distinct production plans in moderate, resumable batches. Preserve each complete receipt before comparing album identities and counts for idempotence.
 
 ## 11. Verify independently
 
 Use a read-only mechanism distinct from the writer to compare planned and actual membership. Report missing, unexpected, outside-source, and hold-overlap counts. Preserve receipts, configuration, scripts, and evaluation feedback with the version.
 
+For WAL-backed catalogs, extract compact evidence through a WAL-aware read-only transaction before immutable verification.
+
 ## 12. Hand off honestly
 
 Tell editors what the system did and did not do. The result is a contact field for human editing, not the final visual narrative.
 
+Generate the status and completion report from append-only phase receipts. Before trusting a recorded phase, recheck every artifact's recorded byte size and SHA-256. Do not mark a run complete by editing status text manually.

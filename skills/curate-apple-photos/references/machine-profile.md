@@ -1,48 +1,45 @@
-# Jamie's local photo system
+# Local machine profile
 
-Use these as defaults, then verify them live.
+Production settings belong in a validated local profile outside Git.
 
-## Permissioned helper
+## Create the profile
 
-- App: `/Applications/Jamie Photo Archive.app`
-- Executable: `/Applications/Jamie Photo Archive.app/Contents/MacOS/JamiePhotoArchive`
-- Bundle identifier: `art.jamieburkart.jamiephotoarchive`
-- Installed app version reported on 2026-07-10: 1.0. Capabilities and stable bundle identifier are authoritative; do not replace the app merely for a version-label mismatch.
-- Supported operations:
-  - `inspect-local-images`: local PhotoKit image retrieval, Vision labels, face counts, ephemeral OCR-based safety flags, optional private previews;
-  - snapshot plans: create folders/albums and add existing asset membership only.
+Copy `config/machine-profile.example.json` to:
 
-Always launch plans through the app bundle so macOS uses its stable Photos permission identity:
-
-```bash
-open -W -n "/Applications/Jamie Photo Archive.app" --args --plan /absolute/path/plan.json
+```text
+~/.config/photo-fieldwork/profile.json
 ```
 
-## Immutable wide source
+Replace every placeholder. Never commit the populated file.
 
-- Album title: `00 MASTER — PHOTO EDITORS — TARGET 5K`
-- Local identifier: `360ED78F-FB05-490A-8FFD-F3CB951D0D0A/L0/040`
-- Verified 2026-07-10 count: 124,484 unique still photographs
-- Shared compact inventory: `/Users/jburkart/Documents/Jamie-Photo-Archive-2026/shared/wide-corpus.sqlite`
-- Inventory contains existing people, albums, labels, places, search text, favorite/edit status, duplicate and burst data, and Apple aesthetic fields.
-- The shared inventory is a snapshot. Rebuild or reconcile it when source count or Photos metadata materially changes.
+The profile records:
 
-## Photos database
+- a private, local, non-File-Provider workspace root;
+- the Photos database path used read-only;
+- the stable permissioned helper app path and bundle identifier;
+- one or more source identifiers, expected counts, and compact inventories;
+- existing protected root, private-review, and audit folder identifiers.
 
-- Library: `/Volumes/apple-photos-8tb-external-ssd/Photos Library.photoslibrary`
-- Database: `/Volumes/apple-photos-8tb-external-ssd/Photos Library.photoslibrary/database/Photos.sqlite`
-- Verification access must use SQLite URI `mode=ro&immutable=1` and `PRAGMA query_only=ON`.
-- Never issue `INSERT`, `UPDATE`, `DELETE`, schema changes, or a non-read-only connection.
+## Preflight
 
-## Existing protected folders
+Run both checks before retrieval:
 
-- Root: `JAMIE PHOTO EDIT — 2026`, identifier `92BBCF49-B077-478D-B9EE-DD94FAAFEAB5/L0/020`
-- Private review: `90 PRIVATE REVIEW — DO NOT SHARE`, identifier `1095845F-B6FA-41D0-8A22-D156C3071631/L0/020`
-- Audit: `99 WRITE TESTS / AUDIT`, identifier `7F9EB400-C06D-412C-9443-300A2C47CCE7/L0/020`
+```bash
+photo-fieldwork profile check
+python3 scripts/photo_archive_bridge.py doctor
+python3 scripts/photo_archive_bridge.py probe
+```
 
-## Workspaces
+`profile check` validates local paths and free space. `doctor` validates the adapter files and inventory contract. `probe` launches the stable app for an operational, read-only Photos authorization and source-count check with network access disabled.
 
-- Durable root: `/Users/jburkart/Documents/Jamie-Photo-Archive-2026`
-- Workflow source: `/Volumes/16TB_SSD/Sites/photo-fieldwork`
-- Reviewed helper source: `/Volumes/16TB_SSD/Sites/photo-fieldwork/integrations/jamie-photo-archive`
-- Preserve every version as its own durable workspace and Photos folder.
+Do not rebuild, rename, or replace an installed helper during a production run. macOS permission follows the signed app identity, not the source directory.
+
+## Source contracts
+
+Use a named profile source. A source may be a Photos album identifier or `visible-library-stills://v1`. Record the live source count in preflight and refuse a mismatch later.
+
+## Verification boundary
+
+Verification opens the live Photos database in a WAL-aware, read-only transaction, extracts only relevant source checks and target album memberships into compact evidence, then reopens that evidence with `mode=ro&immutable=1` and `PRAGMA query_only=ON`.
+
+Never issue `INSERT`, `UPDATE`, `DELETE`, or schema changes against Photos SQLite.

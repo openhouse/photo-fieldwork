@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Photo Fieldwork local machine profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "name",
+    "workspace_root",
+    "photos_database",
+    "helper",
+    "default_writer_adapter",
+    "default_source",
+    "sources",
+    "protected_folders"
+  ],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schema_version": {"const": 1},
+    "name": {"type": "string", "minLength": 1},
+    "workspace_root": {"type": "string", "minLength": 1},
+    "photos_database": {"type": "string", "minLength": 1},
+    "helper": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["app_path", "bundle_id"],
+      "properties": {
+        "app_path": {"type": "string", "minLength": 1},
+        "bundle_id": {"type": "string", "minLength": 1}
+      }
+    },
+    "default_writer_adapter": {"enum": ["photokit", "applescript"]},
+    "applescript_writer": {"type": ["string", "null"]},
+    "default_source": {"type": "string", "minLength": 1},
+    "sources": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "identifier", "expected_count", "inventory_db"],
+        "properties": {
+          "title": {"type": "string", "minLength": 1},
+          "identifier": {"type": "string", "minLength": 1},
+          "expected_count": {"type": ["integer", "null"], "minimum": 1},
+          "inventory_db": {"type": ["string", "null"]}
+        }
+      }
+    },
+    "protected_folders": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root", "private", "audit"],
+      "properties": {
+        "root": {"$ref": "#/$defs/folder"},
+        "private": {"$ref": "#/$defs/folder"},
+        "audit": {"$ref": "#/$defs/folder"}
+      }
+    }
+  },
+  "$defs": {
+    "folder": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "identifier"],
+      "properties": {
+        "title": {"type": "string", "minLength": 1},
+        "identifier": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

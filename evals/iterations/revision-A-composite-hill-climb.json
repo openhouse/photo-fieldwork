@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "branch": "feature/revision-A",
+  "method": "Compose compatible branch-family contracts, establish a failing baseline, repair general contracts, mutate the evaluator, and rerun the full deterministic bank without weakening assertions.",
+  "iterations": [
+    {
+      "iteration": 1,
+      "eval_count": 27,
+      "passed": 19,
+      "failed": 8,
+      "duration_seconds": 0.230,
+      "new_pressure": "Relation holds, holdout independence, human provenance, exact config and feedback identity, typed eval oracles, publication clearance, and complete idempotence receipts",
+      "failures": [
+        "Related clear siblings could escape a protected duplicate or burst.",
+        "A final evaluation could pass without identified-human decision provenance.",
+        "Changed feedback could be reused after evaluation.",
+        "Release plans did not bind config, feedback, or the publication boundary.",
+        "Typed eval-bank, holdout, publication, and execution validators were absent."
+      ]
+    },
+    {
+      "iteration": 2,
+      "eval_count": 27,
+      "passed": 27,
+      "failed": 0,
+      "duration_seconds": 0.265,
+      "new_pressure": "General contract implementation",
+      "changes": [
+        "Transitive relation-aware HOLD propagation",
+        "Identified-human final decision provenance",
+        "Config and feedback digests across evaluation, validation, and release",
+        "Typed eval bank, holdout audit, publication register, and execution attempt validators"
+      ]
+    },
+    {
+      "iteration": 3,
+      "eval_count": 31,
+      "passed": 31,
+      "failed": 0,
+      "duration_seconds": 0.224,
+      "new_pressure": "Evaluator mutations plus clean positive controls",
+      "changes": [
+        "Bank fails when its PROCEED control, holdout dimension, or counterfactual is removed.",
+        "Independent holdout passes without exposing identifiers.",
+        "Publication remains default closed but accepts complete identified-human evidence.",
+        "Two distinct complete bound attempts pass idempotence while duplicate or incomplete attempts fail."
+      ],
+      "stop_reason": "The evaluator mutations and positive controls passed, then an implementation reread exposed one more attempt-comparison weakness."
+    },
+    {
+      "iteration": 4,
+      "eval_count": 31,
+      "passed": 31,
+      "failed": 0,
+      "duration_seconds": 0.321,
+      "new_pressure": "Same-title, same-count production plans with different image membership",
+      "changes": [
+        "Snapshot plans carry a content SHA-256 echoed by the helper receipt.",
+        "Each attempt validates the exact plan digest before receipt comparison.",
+        "Idempotence compares exact authorized memberships, not only album titles and counts."
+      ],
+      "stop_reason": "Exact same-count membership substitution failed after the repair; one final representation audit remained."
+    },
+    {
+      "iteration": 5,
+      "eval_count": 31,
+      "passed": 31,
+      "failed": 0,
+      "duration_seconds": 0.254,
+      "new_pressure": "Empty holdout and malformed structured eval fields",
+      "changes": [
+        "An empty holdout cannot claim independence.",
+        "Unsafe shortcuts and assertions must be nonempty structured lists, not caution-sounding strings.",
+        "The full macOS check also covers 24 unit tests and Swift typechecking."
+      ],
+      "stop_reason": "All 31 executable cases and 13 typed semantic cases pass; evaluator mutations fail as intended; same-count membership substitution and empty holdout fail; the 4,000-item case remains fast; the synthetic demo and Swift contract pass separately."
+    }
+  ]
+}

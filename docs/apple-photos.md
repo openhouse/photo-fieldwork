@@ -1,6 +1,8 @@
 # Apple Photos integration
 
-The included practice CLI does not read or write Apple Photos. Production integration should be implemented as adapters around the same manifests and invariants.
+The included practice CLI does not read or write Apple Photos. Production integration uses a populated local machine profile and adapters around the same manifests and invariants.
+
+Machine-specific paths, source counts, app identities, and protected folder identifiers must remain outside Git.
 
 ## Recommended read path
 
@@ -29,7 +31,7 @@ Existing named-person associations represent years of archive labor and can be c
 
 ## Write path
 
-Use PhotoKit, PhotoScript, AppleScript, or a documented `osxphotos` album-writing interface. Never issue SQL mutations against the Photos database.
+Use a reviewed PhotoKit, PhotoScript, AppleScript, or documented `osxphotos` album-writing adapter. Select the adapter during preflight and record its capability version. Never issue SQL mutations against the Photos database.
 
 The only default writes are:
 
@@ -41,11 +43,11 @@ Keep the wide source album and every earlier version unchanged.
 
 ## Reusable permission helper
 
-For repeated local work, a small signed macOS application with a stable bundle identifier can request Photos permission once and execute reviewed album-membership plans. Renaming or changing the bundle identifier creates a new permission identity. The helper must display the plan ID, source count, intended mutations, and final receipt.
+For repeated local work, a small signed macOS application with a stable bundle identifier can request Photos permission once and execute reviewed album-membership plans. Renaming or changing the bundle identifier creates a new permission identity. The helper must support an operational read-only probe, declare its capability version, and emit an exact receipt.
 
 ## Verification
 
-After writing, compare planned and actual memberships through an independent read-only query. Verify:
+After writing, open the live database in one WAL-aware, read-only transaction and extract only relevant source checks and target memberships into a compact evidence database. Reopen that evidence with `mode=ro&immutable=1` and `PRAGMA query_only=ON`, then verify:
 
 - exact album counts;
 - no missing IDs;
@@ -53,4 +55,6 @@ After writing, compare planned and actual memberships through an independent rea
 - no members outside the source;
 - no HOLD overlap;
 - source count unchanged.
+- plan and receipt file checksums;
 
+This avoids treating an immutable connection to a live WAL-backed database as current, and avoids copying the entire Photos database for each verification.

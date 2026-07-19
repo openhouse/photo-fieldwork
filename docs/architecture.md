@@ -24,9 +24,11 @@ Catalog reader or filesystem scanner
                   independent verifier
 ```
 
+Every production phase also emits an append-only receipt. `run-state.json` and the completion report are derived views of those receipts.
+
 ## Core
 
-The standard-library Python core reads a normalized CSV, applies immutable safety exclusions, reduces duplicate and burst clusters, assigns editor views, creates selection reasons, samples evaluations, measures results, validates invariants, and emits an adapter-neutral catalog plan.
+The standard-library Python core reads a normalized CSV, applies immutable safety exclusions, reduces duplicate and burst clusters, jointly assigns multi-view candidates through deterministic capacity max-flow, creates selection reasons, samples evaluations, measures results, validates invariants, and emits an adapter-neutral catalog plan.
 
 The core does not read a Photos database, open images, call a model, or mutate a catalog.
 
@@ -50,9 +52,25 @@ An inspector may add local visible-context, technical-quality, and generalized s
 
 A writer consumes `catalog-plan.json`. It may create version folders, create albums, and add existing stable IDs. It must not invent selection logic. It must emit a receipt and be safe to rerun.
 
+Plan schema 2 binds the exact source membership, proposed-master membership and assignments, config, final feedback, exact passing final-evaluation and validation reports, and plan content. Snapshot plan schema 2 adds a distinct attempt identity and content digest. A writer receipt echoes that attempt, exact snapshot-plan digest, complete release binding, stable helper bundle identity, folder identities, album identities, and counts.
+
+Idempotence is computed only after two preserved production attempts validate independently. Equal but incomplete receipts are not evidence.
+
 ## Verifier adapters
 
 A verifier independently compares plan and catalog. It should be read-only and should not share mutation code with the writer.
+
+For Apple Photos, the verifier first opens the live catalog in one WAL-aware, read-only transaction and extracts only relevant source checks and target memberships into compact evidence. Verification then reopens that evidence with immutable and query-only flags.
+
+Publication review is outside the writer. Its register defaults closed and records item-level human decisions without changing editor-field membership.
+
+## Machine profiles
+
+User-specific paths, source counts, stable app identities, and protected Photos identifiers live in a validated local profile outside Git. Public code consumes the profile but does not carry live machine topology.
+
+## Run state
+
+Semantic versions are reserved before work. Phase receipts contain checksums for declared input and output files. State derivation rechecks those artifacts; missing or changed evidence blocks the workspace. Later phases cannot pass while prerequisites are incomplete. Repeated evaluation receipts are allowed; the latest passing receipt determines phase state only while receipt integrity holds.
 
 ## Extension points
 

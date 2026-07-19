@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "branch": "feature/revision-A",
+  "method": "Run the executable release-contract bank, repair general contracts rather than assertions, add adversarial variants, and rerun the whole bank.",
+  "iterations": [
+    {
+      "iteration": 1,
+      "eval_count": 11,
+      "passed": 4,
+      "failed": 7,
+      "duration_seconds": 0.012,
+      "new_pressure": "Initial field-derived contract bank",
+      "failures": [
+        "Feasible overlapping quotas failed under first-match assignment.",
+        "Infeasibility did not expose structured deficits.",
+        "Catalog plans were not bound to final evaluation, validation, source membership, or master identity.",
+        "Receipt artifact drift did not block state or later phases."
+      ]
+    },
+    {
+      "iteration": 2,
+      "eval_count": 11,
+      "passed": 11,
+      "failed": 0,
+      "duration_seconds": 0.013,
+      "new_pressure": "Targeted contract repair",
+      "changes": [
+        "Capacity-aware exact assignment",
+        "Release-bound plan identity",
+        "Receipt artifact integrity checks"
+      ]
+    },
+    {
+      "iteration": 3,
+      "eval_count": 19,
+      "passed": 17,
+      "failed": 2,
+      "duration_seconds": 147.935,
+      "new_pressure": "Mixed identities, stale validation, plan tampering, missing artifacts, event caps, and 4,000-item production shape",
+      "failures": [
+        "Partially missing evaluation identity was accepted.",
+        "Validation did not reject a stale evaluation identity."
+      ],
+      "performance_observation": "The production-shaped test passed but unit-at-a-time minimum-cost flow made the ordinary eval loop too slow."
+    },
+    {
+      "iteration": 4,
+      "eval_count": 19,
+      "passed": 19,
+      "failed": 0,
+      "duration_seconds": 0.436,
+      "new_pressure": "The 4,000-item case was strengthened from dedicated rows to overlapping cross-view candidates.",
+      "changes": [
+        "Complete evaluation identity required whenever identity is present.",
+        "Validation binds the final evaluation to the frozen master.",
+        "Deterministic evidence-ranked capacity max-flow replaces unit-at-a-time minimum-cost flow."
+      ]
+    },
+    {
+      "iteration": 5,
+      "eval_count": 19,
+      "passed": 19,
+      "failed": 0,
+      "duration_seconds": 0.223,
+      "new_pressure": "Exact evaluation and validation report digests plus semantically rehashed release-plan tampering",
+      "changes": [
+        "Catalog plans retain the exact evaluation and validation report SHA-256 digests.",
+        "The bridge independently checks plan semantics, counts, master membership, and every release identity after content-hash verification."
+      ],
+      "stop_reason": "The expanded deterministic bank passed without weakening assertions, the paired agent bank reached 12/12, and the production-shaped case remained fast enough for every check run."
+    }
+  ]
+}

@@ -5,15 +5,15 @@
   <key>CFBundleDevelopmentRegion</key>
   <string>en</string>
   <key>CFBundleExecutable</key>
-  <string>JamiePhotoArchive</string>
+  <string>PhotoFieldworkHelper</string>
   <key>CFBundleIdentifier</key>
-  <string>art.jamieburkart.jamiephotoarchive</string>
+  <string>org.example.photo-fieldwork.helper</string>
   <key>CFBundleName</key>
-  <string>Jamie Photo Archive</string>
+  <string>Photo Fieldwork Helper</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>2.0</string>
+  <string>2.0.0</string>
   <key>CFBundleVersion</key>
   <string>2</string>
   <key>LSMinimumSystemVersion</key>

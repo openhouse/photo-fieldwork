@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://photo-fieldwork.local/schemas/publication-clearance.schema.json",
+  "title": "Photo Fieldwork item-level publication clearance",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": [
+      "uuid",
+      "publication_cleared",
+      "rights_status",
+      "consent_status",
+      "collaborator_approval",
+      "caption",
+      "caption_provenance",
+      "credit",
+      "alt_text",
+      "public_destination",
+      "reviewer_actor",
+      "reviewer_kind",
+      "review_date"
+    ],
+    "properties": {
+      "uuid": {"type": "string", "minLength": 1},
+      "publication_cleared": {"enum": ["true", "false"]},
+      "reviewer_kind": {"enum": ["", "human"]}
+    }
+  }
+}

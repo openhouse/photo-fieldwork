@@ -12,6 +12,7 @@ Non-negotiable invariants:
 - Treat project labels as retrieval hypotheses until visible evidence or external provenance supports them.
 - Use aesthetic scores only to choose among near-identical burst or duplicate-cluster members.
 - Require a small write test and read-only post-write verification before declaring a catalog commit complete.
+- Keep user-specific machine profiles, live Photos identifiers, and absolute private paths outside Git.
+- Derive completion status from append-only phase receipts.
 
 Run `make check` after changes. Keep the standard-library-only practice workflow working on a fresh Python 3.11+ installation.
-
