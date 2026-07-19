@@ -1,9 +1,32 @@
 import Foundation
 import AppKit
+import CryptoKit
 import Photos
 import Vision
 
 let visibleLibraryStillsSourceIdentifier = "visible-library-stills://v1"
+
+func baseIdentifier(_ value: String) -> String {
+    String(value.split(separator: "/", maxSplits: 1).first ?? Substring(value))
+}
+
+func membershipSHA256(_ fetch: PHFetchResult<PHAsset>) -> String {
+    var identifiers: [String] = []
+    identifiers.reserveCapacity(fetch.count)
+    fetch.enumerateObjects { asset, _, _ in
+        identifiers.append(baseIdentifier(asset.localIdentifier))
+    }
+    let payload = identifiers.sorted().joined(separator: "\n") + "\n"
+    return SHA256.hash(data: Data(payload.utf8))
+        .map { String(format: "%02x", $0) }
+        .joined()
+}
+
+func dataSHA256(_ data: Data) -> String {
+    SHA256.hash(data: data)
+        .map { String(format: "%02x", $0) }
+        .joined()
+}
 
 func fetchSourceAssets(identifier: String) throws -> (PHFetchResult<PHAsset>, String) {
     if identifier == visibleLibraryStillsSourceIdentifier {
@@ -77,9 +100,14 @@ struct SnapshotPlan: Codable {
     let operation: String?
     let schema_version: Int
     let plan_id: String
+    let execution_kind: String
+    let catalog_plan_sha256: String
+    let adapter_plan_sha256: String
+    let execution_nonce: String
     let safety_mode: String
     let source_album_identifier: String
     let expected_source_count: Int
+    let source_membership_sha256: String
     let batch_size: Int
     let log_path: String
     let receipt_path: String
@@ -94,6 +122,7 @@ struct InspectionPlan: Codable {
     let safety_mode: String
     let source_album_identifier: String
     let expected_source_count: Int
+    let source_membership_sha256: String
     let asset_identifiers: [String]
     let output_jsonl_path: String
     let receipt_path: String
@@ -131,6 +160,7 @@ struct InspectionReceipt: Codable {
     let plan_id: String
     let source_album_identifier: String
     let source_count: Int
+    let source_membership_sha256: String
     let requested_count: Int
     let completed_count: Int
     let pixel_available_count: Int
@@ -155,10 +185,17 @@ struct AlbumReceipt: Codable {
 }
 
 struct SnapshotReceipt: Codable {
+    let status: String
     let completed_at: String
     let plan_id: String
+    let execution_kind: String
+    let execution_nonce: String
+    let plan_sha256: String
+    let adapter_plan_sha256: String
+    let runtime_plan_sha256: String
     let source_album_identifier: String
     let source_count: Int
+    let source_membership_sha256: String
     let safety_mode: String
     let writer: String
     let source_verified_by_writer: Bool
@@ -290,6 +327,7 @@ final class PreflightRunner {
                 "preflight-read-only",
                 "inspect-local-images",
                 "snapshot-membership",
+                "candidate-bound-snapshot-v2",
                 "visible-library-stills-v1",
                 "resumable-inspection-jsonl",
             ],
@@ -378,6 +416,10 @@ final class InspectionRunner {
                 sourceFetch.count
             )
         }
+        let sourceDigest = membershipSHA256(sourceFetch)
+        guard sourceDigest == plan.source_membership_sha256 else {
+            throw ArchiveError.invalidPlan("inspection source membership digest mismatch")
+        }
         var sourceIdentifiers = Set<String>()
         sourceFetch.enumerateObjects { asset, _, _ in
             sourceIdentifiers.insert(asset.localIdentifier)
@@ -452,6 +494,7 @@ final class InspectionRunner {
             plan_id: plan.plan_id,
             source_album_identifier: plan.source_album_identifier,
             source_count: sourceFetch.count,
+            source_membership_sha256: sourceDigest,
             requested_count: plan.asset_identifiers.count,
             completed_count: completedCount,
             pixel_available_count: pixelAvailableCount,
@@ -664,10 +707,12 @@ final class InspectionRunner {
 final class ArchiveRunner {
     private let library = PHPhotoLibrary.shared()
     private let plan: SnapshotPlan
+    private let runtimePlanSHA256: String
     private var folderByKey: [String: PHCollectionList] = [:]
 
-    init(plan: SnapshotPlan) {
+    init(plan: SnapshotPlan, runtimePlanSHA256: String) {
         self.plan = plan
+        self.runtimePlanSHA256 = runtimePlanSHA256
     }
 
     func log(_ message: String) {
@@ -693,6 +738,27 @@ final class ArchiveRunner {
         guard plan.schema_version == 1 else {
             throw ArchiveError.invalidPlan("unsupported schema_version")
         }
+        guard plan.catalog_plan_sha256.range(
+            of: "^[0-9a-f]{64}$",
+            options: .regularExpression
+        ) != nil else {
+            throw ArchiveError.invalidPlan("invalid catalog_plan_sha256")
+        }
+        guard ["write-test", "production"].contains(plan.execution_kind) else {
+            throw ArchiveError.invalidPlan("invalid execution_kind")
+        }
+        guard plan.adapter_plan_sha256.range(
+            of: "^[0-9a-f]{64}$",
+            options: .regularExpression
+        ) != nil else {
+            throw ArchiveError.invalidPlan("invalid adapter_plan_sha256")
+        }
+        guard plan.execution_nonce.range(
+            of: "^[0-9a-f]{32}$",
+            options: .regularExpression
+        ) != nil else {
+            throw ArchiveError.invalidPlan("invalid execution_nonce")
+        }
         guard plan.safety_mode == "create-folders-albums-and-add-membership-only" else {
             throw ArchiveError.invalidPlan("unrecognized safety_mode")
         }
@@ -708,6 +774,10 @@ final class ArchiveRunner {
                 plan.expected_source_count,
                 sourceCount
             )
+        }
+        let sourceDigest = membershipSHA256(sourceFetch)
+        guard sourceDigest == plan.source_membership_sha256 else {
+            throw ArchiveError.invalidPlan("writer source membership digest mismatch")
         }
         log("verified_source count=\(sourceCount)")
 
@@ -745,10 +815,17 @@ final class ArchiveRunner {
         }
 
         return SnapshotReceipt(
+            status: "completed",
             completed_at: ISO8601DateFormatter().string(from: Date()),
             plan_id: plan.plan_id,
+            execution_kind: plan.execution_kind,
+            execution_nonce: plan.execution_nonce,
+            plan_sha256: plan.catalog_plan_sha256,
+            adapter_plan_sha256: plan.adapter_plan_sha256,
+            runtime_plan_sha256: runtimePlanSHA256,
             source_album_identifier: plan.source_album_identifier,
             source_count: sourceCount,
+            source_membership_sha256: sourceDigest,
             safety_mode: plan.safety_mode,
             writer: "PhotoKit membership adapter",
             source_verified_by_writer: true,
@@ -974,8 +1051,22 @@ do {
         try encoder.encode(receipt).write(to: receiptURL, options: .atomic)
         runner.log("completed receipt=\(plan.receipt_path)")
     } else {
+        guard let digestIndex = arguments.firstIndex(of: "--plan-sha256"),
+              arguments.indices.contains(digestIndex + 1) else {
+            throw ArchiveError.invalidPlan("snapshot execution requires --plan-sha256")
+        }
+        let authorizedPlanSHA256 = arguments[digestIndex + 1]
+        guard authorizedPlanSHA256.range(
+            of: "^[0-9a-f]{64}$",
+            options: .regularExpression
+        ) != nil else {
+            throw ArchiveError.invalidPlan("invalid --plan-sha256")
+        }
+        guard dataSHA256(planData) == authorizedPlanSHA256 else {
+            throw ArchiveError.invalidPlan("runtime plan bytes do not match --plan-sha256")
+        }
         let plan = try JSONDecoder().decode(SnapshotPlan.self, from: planData)
-        let runner = ArchiveRunner(plan: plan)
+        let runner = ArchiveRunner(plan: plan, runtimePlanSHA256: authorizedPlanSHA256)
         let receipt = try runner.run()
         try writeReceipt(receipt, to: plan.receipt_path)
         runner.log("completed receipt=\(plan.receipt_path)")

@@ -12,6 +12,8 @@
     "minimum_eval_precision": {"type": "number", "minimum": 0, "maximum": 1},
     "minimum_eval_coverage": {"type": "number", "minimum": 0, "maximum": 1},
     "minimum_view_sampling_coverage": {"type": "number", "minimum": 0, "maximum": 1},
+    "minimum_view_precision": {"type": "number", "minimum": 0, "maximum": 1},
+    "minimum_view_decisions": {"type": "integer", "minimum": 1},
     "minimum_final_wilson_lower_bound": {"type": "number", "minimum": 0, "maximum": 1},
     "minimum_named_people_fraction": {"type": "number", "minimum": 0, "maximum": 1},
     "minimum_person_free_fraction": {"type": "number", "minimum": 0, "maximum": 1},

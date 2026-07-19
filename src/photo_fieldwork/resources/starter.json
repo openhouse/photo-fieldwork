@@ -8,6 +8,8 @@
   "minimum_eval_precision": 0.75,
   "minimum_eval_coverage": 0.8,
   "minimum_view_sampling_coverage": 1.0,
+  "minimum_view_precision": 0.65,
+  "minimum_view_decisions": 1,
   "minimum_final_wilson_lower_bound": 0.75,
   "minimum_named_people_fraction": 0.35,
   "minimum_person_free_fraction": 0.2,

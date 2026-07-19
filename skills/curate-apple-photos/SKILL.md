@@ -26,13 +26,28 @@ source, match its frozen count, or fetch one local sample with network disabled.
    - `config.json`, defining target, quotas, seed, uncertainty view, and evaluation thresholds.
 4. Route explicitly:
    - For a fresh version, create a new private inventory and initialize a
-     uniquely named, mode-`0700` run with `photo_archive_bridge.py init-run`.
+     uniquely named, mode-`0700` run with `photo_archive_bridge.py init-run`,
+     passing the observed source count and sorted-membership SHA-256. The bridge
+     must delegate to `photo-fieldwork run init` so `run-events.jsonl` exists
+     from revision 1.
      Never reuse or overwrite an earlier run.
    - For an interrupted version, do not initialize again. Read
-     `run-state.json`, verify recorded artifact hashes and any `run-lock.json`,
-     inspect existing plans and receipts, and resume only the next incomplete phase.
+     the append-only `run-events.jsonl`, verify its sequence and hash linkage,
+     and compare its materialized state with `run-state.json`. If materialized
+     state is truncated, use `photo-fieldwork run recover`; never hand-edit it.
+     Verify every completed artifact and any `run-lock.json`, inspect existing
+     plans and receipts, and resume only the next incomplete phase. If recovery
+     reports recorded artifact drift, use `photo-fieldwork run invalidate` at
+     the earliest affected phase with the recovered numeric `revision` as
+     `--expected-revision` (not the hexadecimal ledger head). This governed
+     exception records the drift, marks
+     dependent completed attempts invalidated in the new materialized state, and
+     appends one event without editing prior ledger events. Then repair and rerun
+     from that phase.
 5. Phase changes must be recorded through `photo-fieldwork run transition`; do
-   not hand-edit `run-state.json`.
+   not hand-edit `run-state.json`. Supply `--expected-revision` when multiple
+   processes could act. A transition appends a new event; it never rewrites
+   prior history or skips an unfinished required predecessor.
 
 When resuming inspection, validate every existing JSONL row and its membership
 before appending only missing identifiers. Final receipt counters are cumulative:
@@ -47,8 +62,12 @@ and the final holdout pass, the master is frozen, and validation passes.
   default; explicit whole-library work uses `visible-library-stills://v1`.
   Every fresh version receives a new versioned inventory. Derive and freeze the
   observed count and sorted-membership SHA-256 rather than relying on a compiled
-  or previous count. Source-count drift blocks retrieval until a new inventory
-  and source freeze are recorded; never silently relabel a stale freeze.
+  or previous count. Drift in either value blocks retrieval until a new inventory
+  and source freeze are recorded. Equal counts do not excuse changed membership;
+  never silently relabel a stale or substituted freeze. Invalidate every
+  candidate, inspection, sample, evaluation, master, and plan derived from it.
+  Neither a catalog write nor a public projection may proceed from the
+  substituted source, even when its downstream artifacts agree with one another.
 - Do not alter source albums, originals, metadata, faces, favorite status, dates, locations, or prior versions.
 - Never write Photos SQLite. The permissioned app may only inspect locally or create folders/albums and add existing membership.
 - Do not upload pixels, previews, OCR, faces, coordinates, or manifests.
@@ -72,8 +91,39 @@ and the final holdout pass, the master is frozen, and validation passes.
 - Any selected UUID, assignment, quota, or HOLD change after final freeze
   invalidates the lock, final evaluation, and catalog plans. Refreeze, draw and
   inspect a fresh untouched final holdout, validate, and only then create new plans.
+- Bind every release artifact to one candidate: source count and membership
+  digest, config digest, proposal ID, master membership and assignments,
+  evaluation report, validation report, run lock, and catalog-plan digest.
+  Recompute identities at each gate; a self-consistent report from another
+  candidate is not transferable evidence.
 
 Read [safety.md](references/safety.md) whenever a brief concerns private homes, minors, health, legal strategy, financial records, identity documents, or vulnerable collaborators.
+
+## Decision-response completeness
+
+When asked for an operational decision, state every applicable gate and its
+recorded evidence in the answer itself. In particular:
+
+- An assignment decision must say that an infeasible solve stops before the
+  master and emits actual per-view eligibility, assigned counts, deficits,
+  overlap pressure, and configured caps, even when the observed case is known
+  to be feasible after a correct joint solve. State that candidate views remain
+  retrieval hypotheses until the joint solve records one primary assignment.
+- A ledger-repair decision must first run `photo-fieldwork run recover` without
+  an expected-revision option. When recovery detects artifact drift, run
+  `photo-fieldwork run invalidate --expected-revision CURRENT` before ordinary
+  transitions. It appends the next event, invalidates dependent completion
+  claims in materialized state, and leaves earlier events unchanged. Name the
+  before and after revisions and do not attach the option to `run recover`.
+- A post-freeze candidate change invalidates the old evaluation, validation,
+  lock, and plan. Their replacements must all bind the same newly frozen master
+  and the same unchanged source count and membership digest before replanning.
+  Say explicitly that the new final evaluation, validation, run lock, and
+  registered plan all carry both identities; merely recording the source beside
+  them is insufficient.
+- A canary decision must say explicitly that canaries remain separate and count
+  toward neither fresh coverage nor fresh precision. A passing canary may never
+  compensate for a weak fresh view.
 
 ## Build the candidate field
 
@@ -96,11 +146,21 @@ python3 scripts/retrieve_candidates_stream.py \
 
 2. Aim for 1.5-2.0 times the requested master size after metadata retrieval. Include named relationships, prior favorites/edits, person-free material context, and exploratory results.
 3. Generate a local inspection plan with `photo_archive_bridge.py inspection-plan`.
-4. Run the stable permissioned helper with `photo_archive_bridge.py run-plan`. Network access must remain false. Export 1280px previews into the private run workspace; raw OCR is never written.
+4. Run the stable permissioned helper with
+   `photo_archive_bridge.py run-plan --backend photokit`. Read-only inspection
+   receives no execution nonce. Network access must remain false. Export 1280px
+   previews into the private run workspace; raw OCR is never written.
 5. Run `verify_preview_exports.py`. A filename or non-empty directory is not
    proof that every preview decodes. Unavailable or corrupt rows remain
    protected and require freshly inspected replacements.
 6. Merge the inspection JSONL into the candidate CSV using `merge_inspection.py`.
+
+Treat `candidate_views` as retrieval hypotheses. Assign overlapping candidates
+with one deterministic capacity solve: each asset at most once, every active
+view at its exact quota, and every per-view event-cluster cap preserved. Do not
+use first-match assignment or silently rebalance intent. If no feasible solution
+exists, stop before emitting a master and report per-view eligibility, assigned
+counts, deficits, overlap groups, and configured caps.
 
 ## Select, look, evaluate, recurse
 
@@ -121,18 +181,30 @@ photo-fieldwork select \
    `photo-fieldwork review-build`; it must remain private and make no external
    requests. The workbench copies only sampled previews into its private served
    root. Its export must preserve `sample_role`, `estimate_included`,
-   `sample_seed`, `population_count`, `full_master_count`, and
+   `master_sha256`, `proposal_id`, `perceptual_cluster`, `duplicate_group`,
+   `burst_group`, `sample_seed`, `population_count`, `full_master_count`, and
    `view_population_count`; otherwise a final evaluation is blocked. Before
    repairing feedback by UUID, verify the frozen master and `run-lock.json`. If
    that identity cannot be verified, discard the damaged export and draw a fresh
-   holdout rather than reconstructing one.
+   holdout rather than reconstructing one. Relation identifiers are part of the
+   holdout sample digest; changing or dropping one invalidates the leakage
+   report. Reject every prior-feedback file that lacks any required relation
+   column rather than treating absent relationships as empty.
 4. Speak briefly as the requested peers. If Jamie cannot review, role-play Jamie using the supplied brief and voice references, while marking the judgment as delegated editorial inference rather than eyewitness fact.
 5. Record `fit`, `reject`, or `uncertain`, one visible reason, a safety state, and an error category in the evaluation CSV.
-6. Run `photo-fieldwork evaluate`. Read all rejections and a stratified uncertainty sample.
+6. Run `photo-fieldwork evaluate`. Reject duplicate image-view judgments before
+   computing metrics. Keep regression canaries separate from fresh evidence:
+   canaries may block on regression but never increase fresh coverage,
+   precision, sample sufficiency, or a confidence interval. Read all rejections
+   and a stratified uncertainty sample. A failed material view blocks release
+   even when the aggregate score passes. Repair with genuinely fresh evidence;
+   never weaken a configured threshold to turn the same failure into a pass.
 7. Change retrieval, assignments, penalties, quotas, or hold rules in response to observed errors. Keep the seed fixed. Save each round separately and record each effective-config decision.
-   Recheck event-cluster caps during every diversity-floor swap. Prefer a
-   compatible incoming/donor pair deterministically; if caps and floors are
-   jointly infeasible, fail before emitting a proposed master.
+   Solve diversity floors as a joint constraint problem. Backtrack through
+   deterministic alternating asset/view assignments when a direct swap would
+   strand a later floor. Preserve exact quotas, unique assets, prior floors, and
+   event-cluster caps; if the joint search is infeasible, fail before emitting a
+   proposed master and report the floor deficits.
 8. Repeat until:
    - review completion, view sampling coverage, and decisive fit rate meet `config.json`;
    - every view has been visually sampled;
@@ -158,22 +230,81 @@ of the field they helped create.
    reallocation must be an explicit hash-linked config decision replayed before
    the freeze.
 2. Draw a new `final-holdout` sample after the freeze. Exclude every prior
-   feedback row. For a 4,000-photo field, begin with at least 200 uniform
-   estimation rows. Supplemental rows may bring each material view to at least
-   15, but they must not enter the aggregate Wilson interval.
+   feedback row and every recorded relation through UUID, perceptual cluster,
+   duplicate group, and burst group. UUID-only freshness is insufficient. Save
+   the machine-readable leakage report, including each collision and each
+   replacement UUID, then replace every collision from the frozen master and
+   re-audit the replacements before review. For a 4,000-photo field, begin with at least 200
+   uniform estimation rows. Supplemental rows may bring each material view to
+   at least 15, but they must not enter the aggregate Wilson interval.
 3. Inspect every final-holdout preview. Report review completion, view sampling
    coverage, decisive fit rate, field audit rate, and the 95% Wilson interval.
    Run a separate risk-stratified safety audit.
 4. Run `photo-fieldwork validate` with the effective final config. Save a PASS report.
-5. Generate test and production plans with `photo_archive_bridge.py snapshot-plans`.
-6. Inspect the plans. Confirm the source count, target count, folder title, HOLD separation, and that operations are membership-only.
-7. Run the ten-item write test through the PhotoKit helper. Independently verify it with `verify_photos_commit.py`.
+5. Build the candidate-bound catalog plan only from the passing final-holdout
+   and validation reports, verified run lock, and exact source membership.
+   Recompute its content digest, then register the plan with
+   `photo-fieldwork release register`. Any edit after registration invalidates it.
+   Registration recomputes the locked master, effective config, and recorded
+   evaluation, leakage, and validation identities. If a registered candidate is
+   later invalidated and fully repaired, retain the old registration and append
+   a governed supersession only after refreeze and fresh evidence; never delete
+   governance state to make a replacement plan fit.
+   Reject empty or duplicate catalog album keys before comparing album
+   memberships; never allow a map conversion to hide an ambiguous membership.
+6. Generate adapter plans with `photo_archive_bridge.py snapshot-plans`, passing
+   the registered catalog plan with `--catalog-plan`. Inspect the plans. Confirm
+   the source count and membership digest, target count, folder title, HOLD
+   separation, candidate identity, and that operations are membership-only.
+7. Run the ten-item write test through the PhotoKit helper. Independently verify
+   it with `verify_photos_commit.py`, writing a `.json` report. Complete the
+   write-test nonce, then record both its immutable receipt and the passing,
+   identity-bound verification report as `write_test` outputs. A phase status or
+   arbitrary evidence file cannot open production.
 8. If PhotoKit is unavailable after live preflight, stop and record the failure.
    Use `applescript_writer.py` only as an explicit adapter change against the
    same frozen plan. Render first, inspect the script hash and plan, then execute.
-9. Run the production plan. Rerun it once to confirm idempotence.
-10. Independently verify every album against the plan using read-only, immutable SQLite access.
-11. Record each phase transition automatically and write a completion report containing exact counts, identifiers, evaluation results, privacy facts, backend identity, and unresolved uncertainty.
+9. Before each writer launch, run `photo-fieldwork release begin` with
+   `--adapter-plan` to create a distinct execution nonce bound to the unchanged
+   registered plan and those exact adapter-plan bytes. Pass that exact nonce to
+   `photo_archive_bridge.py run-plan --execution-nonce`, pass the run containing
+   the hash-linked authorization as `--release-workspace`, and name
+   `--backend photokit` or `--backend applescript` explicitly. Record the
+   resulting receipt with `photo-fieldwork release complete`. Complete each
+   attempt with its own immutable nonce-bearing receipt. A copied receipt,
+   reused nonce, or changed plan cannot establish idempotence.
+   The release gate rehashes the run lock and completed phase artifacts before
+   issuing each nonce. Every adapter album carries one unique semantic role;
+   the complete role-to-membership map must exactly equal the catalog-plan roles
+   plus explicitly locked candidate-derived auxiliary roles. Equal memberships
+   do not collapse distinct roles, and extra copies fail. Parse, validate, and
+   hash one immutable adapter byte buffer before recording authorization. A
+   bridge-generated nonce-bearing runtime plan has a second digest passed to
+   the writer out of band. The writer reads that plan once, verifies the
+   supplied digest before mutation, executes from the same captured content,
+   and records the runtime digest in its receipt. The AppleScript backend
+   executes its in-memory rendered script with identifiers embedded from that
+   verified content rather than reopening membership files. Independent
+   verification rehashes the runtime plan against the immutable receipt. A
+   completion receipt must identify the plan and execution kind and report every
+   planned folder and album with concrete identifiers and exact counts.
+   The helper must also confirm immediately before mutation that the nonce
+   belongs to the current registration and intact registered run lineage, with
+   no later candidate invalidation or supersession.
+10. Run the production plan twice. Use `photo-fieldwork release idempotence` to
+    verify two distinct completed attempts against one catalog plan and one
+    identical content-addressed adapter plan. Different album titles, folder
+    topology, or other adapter bytes are not an idempotence repeat.
+11. Independently verify every album against the plan using a fresh read-only,
+    immutable SQLite snapshot. Verify the frozen source membership digest,
+    folder and album topology, and exact membership. A writer receipt is a claim
+    about execution, not verification of any of those three facts.
+12. Record every phase transition through the run-state CLI and write a completion report containing exact counts, identifiers, evaluation results, privacy facts, backend identity, and unresolved uncertainty.
+
+A fully green chain should proceed to its next bounded production gate; do not
+reward refusal-only behavior. Even verified editor-field completion grants no
+rights, consent, claim support, or publication clearance. Those remain separate
+asset- and destination-specific human decisions.
 
 Helper or AppleScript invocation may require a Codex permission approval. Scope
 approval to the reviewed app or exact writer command. Never rebuild, clone,
@@ -191,6 +322,15 @@ archive UUIDs, People associations, paths, exact or named private places, OCR,
 HOLD membership, safety reasons, raw evidence, and every field not in the public
 schema. Unknown clearance excludes a row; it does not become a warning attached
 to a public row.
+
+## Maintain the eval bank
+
+An eval bank that passes by refusing everything is defective. Include at least
+one valid `PROCEED` case. Map every critical dimension to a runnable case, and
+give each case a decision oracle, concrete evidence requirements, and unsafe
+shortcuts that must fail. Mutation-test the auditor by removing a runnable case,
+orphaning a documented dimension, and weakening an expectation; all three
+degradations must be detected before trusting a perfect score.
 
 ## Final response
 

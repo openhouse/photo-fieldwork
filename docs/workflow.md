@@ -12,10 +12,17 @@ count, local sample pixels, schema compatibility, or disk access fails, stop
 before expensive work.
 
 If the user supplies an interrupted workspace, do not initialize a replacement
-run. Verify its recorded artifacts, plans, receipts, and lock, then resume only
-the next incomplete phase. Existing inspection rows remain part of the evidence
+run. Validate the sequence and hash linkage of `run-events.jsonl`; recover
+`run-state.json` from that ledger when needed. Rehash its recorded artifacts,
+plans, receipts, and lock. When a recorded artifact has drifted, append a
+CAS-guarded `run invalidate` event at the earliest affected phase before repair;
+do not hand-edit state or overwrite the prior event. Then resume only the next
+incomplete phase with the expected ledger revision. Required phases cannot be skipped. Existing inspection rows remain part of the evidence
 and of every cumulative receipt counter. A successful resume does not authorize
 a write: evaluation, final freeze and holdout, and validation must still pass.
+For a schema-v2 workspace created before the event ledger existed, preserve the
+materialized state in one explicitly marked migration genesis event; do not
+invent prior transitions.
 
 ## 1. Freeze a source corpus
 
@@ -58,6 +65,15 @@ Potential identity documents, private correspondence, contact details, financial
 
 Balance high-confidence evidence, stratified diversity, and exploratory retrieval. Preserve `Unclassified / Editor Field`. A useful corpus does not need every image to support a named project claim.
 
+Treat candidate views as hypotheses and solve overlapping assignments jointly.
+Preserve exact active-view quotas and per-view event caps. Infeasibility
+produces capacity diagnostics, not silent quota changes. Among feasible
+solutions, maximize the deterministic total candidate benefit globally rather
+than committing flexible assets by first match. Prune only provably dominated
+uncapped-view edges and report graph sizes; retain the full graph for views with
+event caps. Satisfy diversity floors jointly with deterministic alternating
+path backtracking so an early floor choice cannot strand a later feasible one.
+
 People associations are first-class archive structure. Preserve named relationships already curated by the archive owner, but never identify unnamed faces or infer sensitive traits.
 
 ## 8. Evaluate and loop
@@ -83,6 +99,13 @@ Draw an untouched final holdout after the freeze. Report review completion,
 view sampling coverage, decisive fit rate, field audit rate, and a 95% Wilson
 interval. Run safety auditing separately.
 
+Audit holdout separation from all prior tuning and canary evidence across UUID,
+perceptual cluster, duplicate group, and burst group. Keep regression canaries
+outside fresh coverage and precision metrics. Duplicate image-view judgments
+and failed material views block release.
+Offline review exports must preserve the opaque relation identifiers plus the
+master and proposal identities needed to rerun that audit.
+
 Any selected UUID, assignment, quota, or HOLD change invalidates the final lock,
 holdout, evaluation, and plans. Refreeze, inspect a fresh untouched holdout, and
 validate before generating replacement plans.
@@ -91,12 +114,44 @@ validate before generating replacement plans.
 
 Produce proposed-master, hold, membership, and decision manifests before touching the catalog. Every selected stable ID needs a reason. The plan must be idempotent.
 
+Bind the catalog plan to one source, config, proposal, master, final evaluation,
+relation-clean holdout report, validation, and the current workspace run lock.
+Register its content digest before launch. Each writer attempt receives a
+distinct nonce authorizing one exact adapter plan; post-registration mutation,
+kind substitution, and copied receipts fail closed.
+The bridge reads the authorized adapter once, creates the nonce-bearing runtime
+plan as an exclusive private file, and passes its digest to the writer out of
+band. The writer verifies that digest against one read before mutation and
+records it in the receipt. Independent verification rehashes the runtime plan
+against that immutable receipt, so replacing a plan pathname cannot substitute
+memberships.
+At registration and before every nonce, rehash the run lock and every completed
+phase artifact. Validate every adapter album against a catalog membership or an
+explicitly locked, candidate-derived auxiliary set. Completion receipts must
+match plan ID, execution kind, folders, albums, identifiers, and counts.
+Reject duplicate catalog album keys before mapping memberships. Immediately
+before mutation, the bridge must reject any nonce whose registration was
+invalidated or superseded.
+
+If a registered candidate is invalidated, keep the old registration and
+execution history. After governed repair, refreeze, and fresh candidate-bound
+evaluation and validation, append a supersession event and atomically
+materialize the replacement registration.
+
 ## 11. Commit narrowly
 
-Write ten non-sensitive items to a uniquely named test album. Verify exact membership and rerun the test to prove idempotence. Only then create production folders and albums in moderate, resumable batches.
+Write ten non-sensitive items to a uniquely named test album. Verify source,
+topology, and exact membership independently, then record the completed
+`write_test` phase with both the completed nonce receipt and a machine-readable
+PASS report bound to that receipt, catalog plan, adapter plan, source, and
+execution nonce, including the writer-verified runtime-plan digest. Only then
+may the release ledger issue a production nonce.
+Create production folders and albums in moderate, resumable batches.
 
 The preferred PhotoKit writer and explicit AppleScript fallback must consume the
 same frozen plan. A backend change must be recorded and cannot be silent.
+The second production attempt must reuse the identical adapter-plan bytes;
+different titles or topology do not establish idempotence.
 
 ## 12. Verify independently
 

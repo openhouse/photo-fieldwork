@@ -33,8 +33,14 @@ def validate(plan: dict) -> None:
         raise ValueError("AppleScript adapter accepts snapshot-membership plans only")
     if plan.get("schema_version") != 1:
         raise ValueError("unsupported plan schema_version")
+    if plan.get("execution_kind") not in {"write-test", "production"}:
+        raise ValueError("invalid execution_kind")
     if plan.get("safety_mode") != "create-folders-albums-and-add-membership-only":
         raise ValueError("unsafe or unrecognized plan safety_mode")
+    if not re.fullmatch(r"[0-9a-f]{64}", str(plan.get("catalog_plan_sha256", ""))):
+        raise ValueError("invalid catalog_plan_sha256")
+    if not re.fullmatch(r"[0-9a-f]{64}", str(plan.get("source_membership_sha256", ""))):
+        raise ValueError("invalid source_membership_sha256")
     if not 1 <= int(plan.get("batch_size", 0)) <= 500:
         raise ValueError("AppleScript batch_size must be within 1...500")
     folder_keys = [folder["key"] for folder in plan.get("folders", [])]
@@ -57,7 +63,7 @@ def validate(plan: dict) -> None:
             raise ValueError(f"non-asset identifier in {album['title']}")
 
 
-def render(plan: dict, id_directory: Path) -> str:
+def render(plan: dict, id_directory: Path, *, inline_identifiers: bool = False) -> str:
     validate(plan)
     id_directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     id_directory.chmod(0o700)
@@ -117,7 +123,19 @@ def render(plan: dict, id_directory: Path) -> str:
                 "        else",
                 "            set targetAlbum to item 1 of matchingAlbums",
                 "        end if",
-                f"        set targetIDs to read POSIX file {quote(str(id_path.resolve()))} using delimiter linefeed",
+            ]
+        )
+        if inline_identifiers:
+            lines.append("        set targetIDs to {}")
+            for start in range(0, len(ids), 100):
+                values = ", ".join(quote(value) for value in ids[start : start + 100])
+                lines.append(f"        set targetIDs to targetIDs & {{{values}}}")
+        else:
+            lines.append(
+                f"        set targetIDs to read POSIX file {quote(str(id_path.resolve()))} using delimiter linefeed"
+            )
+        lines.extend(
+            [
                 "        set existingIDs to id of media items of targetAlbum",
                 "        repeat with existingID in existingIDs",
                 "            if targetIDs does not contain (existingID as text) then",
@@ -166,12 +184,20 @@ def parse_output(output: str) -> tuple[list[dict], list[dict]]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--plan", type=Path, required=True)
+    parser.add_argument("--plan-sha256")
     parser.add_argument("--script", type=Path, required=True)
     parser.add_argument("--id-directory", type=Path, required=True)
     parser.add_argument("--execute", action="store_true", help="explicitly run the rendered script")
     args = parser.parse_args()
-    plan = json.loads(args.plan.read_text(encoding="utf-8"))
-    script = render(plan, args.id_directory)
+    plan_bytes = args.plan.read_bytes()
+    runtime_plan_sha256 = hashlib.sha256(plan_bytes).hexdigest()
+    if args.execute:
+        if not re.fullmatch(r"[0-9a-f]{64}", str(args.plan_sha256 or "")):
+            raise ValueError("execution requires --plan-sha256")
+        if args.plan_sha256 != runtime_plan_sha256:
+            raise ValueError("runtime plan bytes do not match --plan-sha256")
+    plan = json.loads(plan_bytes)
+    script = render(plan, args.id_directory, inline_identifiers=args.execute)
     args.script.parent.mkdir(parents=True, exist_ok=True)
     args.script.write_text(script, encoding="utf-8")
     args.script.chmod(0o700)
@@ -182,11 +208,17 @@ def main() -> int:
         print("execution_requested=false")
         return 0
 
+    if not re.fullmatch(r"[0-9a-f]{32}", str(plan.get("execution_nonce", ""))):
+        raise ValueError("execution requires a valid execution_nonce")
+    if not re.fullmatch(r"[0-9a-f]{64}", str(plan.get("adapter_plan_sha256", ""))):
+        raise ValueError("execution requires a valid adapter_plan_sha256")
+
     completed = subprocess.run(
-        ["/usr/bin/osascript", str(args.script.resolve())],
+        ["/usr/bin/osascript", "-"],
         check=False,
         capture_output=True,
         text=True,
+        input=script,
     )
     if completed.returncode:
         raise SystemExit(completed.stderr.strip() or f"osascript exited {completed.returncode}")
@@ -194,10 +226,17 @@ def main() -> int:
     if len(folders) != len(plan["folders"]) or len(albums) != len(plan["albums"]):
         raise SystemExit("AppleScript output did not contain every planned folder and album")
     receipt = {
+        "status": "completed",
         "completed_at": datetime.now(timezone.utc).isoformat(),
         "plan_id": plan["plan_id"],
+        "execution_kind": plan["execution_kind"],
+        "execution_nonce": plan["execution_nonce"],
+        "plan_sha256": plan["catalog_plan_sha256"],
+        "adapter_plan_sha256": plan["adapter_plan_sha256"],
+        "runtime_plan_sha256": runtime_plan_sha256,
         "source_album_identifier": plan["source_album_identifier"],
         "source_count": plan["expected_source_count"],
+        "source_membership_sha256": plan["source_membership_sha256"],
         "source_verified_by_writer": False,
         "safety_mode": plan["safety_mode"],
         "writer": "Photos AppleScript membership adapter",

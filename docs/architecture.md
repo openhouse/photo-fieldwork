@@ -1,5 +1,7 @@
 # Architecture
 
+Revision L's composite contracts are summarized in [composite-L.md](composite-L.md).
+
 Photo Fieldwork keeps archive-specific access separate from archive-independent judgment.
 
 ```text

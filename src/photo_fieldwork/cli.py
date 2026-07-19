@@ -7,7 +7,14 @@ from importlib.resources import files
 from pathlib import Path
 
 from . import __version__
+from .evals import audit_paths
 from .handoff import PUBLIC_FIELDS, build_public_handoff
+from .integrity import (
+    RELATION_FIELDS,
+    evaluation_sample_sha256,
+    membership_sha256,
+    relation_leakage_report,
+)
 from .pipeline import (
     build_catalog_plan,
     effective_final_config,
@@ -22,13 +29,18 @@ from .pipeline import (
     write_csv,
 )
 from .practice import create_demo_inventory, practice_feedback, write_demo_readme
+from .release import begin_execution, complete_execution, idempotence_report, register_plan
 from .review import build_review_workbench, serve_review
 from .run_state import (
     append_config_decision,
     atomic_json,
     freeze_lock,
     initialize,
+    record_invalidation,
     record_transition,
+    recover_state,
+    read_state,
+    sha256_file,
     verify_lock,
 )
 
@@ -64,15 +76,41 @@ def command_sample(args: argparse.Namespace) -> int:
     master = read_csv(args.master)
     if args.mode == "final-holdout":
         excluded_ids: set[str] = set()
+        prior_rows: list[dict[str, str]] = []
         for path in args.exclude_feedback:
-            excluded_ids.update(row["uuid"] for row in read_csv(path))
+            rows = read_csv(path)
+            missing_relations = set(RELATION_FIELDS) - set(rows[0])
+            if missing_relations:
+                raise ValueError(
+                    f"prior feedback {path} lacks relation columns: "
+                    + ", ".join(sorted(missing_relations))
+                )
+            prior_rows.extend(rows)
+            excluded_ids.update(row["uuid"] for row in rows)
+        candidate_leakage = relation_leakage_report(master, prior_rows)
         sample = make_final_holdout(
             master,
             args.sample_size,
             args.minimum_per_view,
             args.seed,
             excluded_ids,
+            prior_rows,
         )
+        final_leakage = relation_leakage_report(sample, prior_rows)
+        leakage = {
+            **final_leakage,
+            "sample_sha256": evaluation_sample_sha256(sample),
+            "excluded_candidate_count": len(
+                {item["sample_uuid"] for item in candidate_leakage["collisions"]}
+            ),
+            "excluded_candidate_collisions": candidate_leakage["collisions"],
+            "replacement_uuids": sorted(row["uuid"] for row in sample),
+            "replacement_relation_audit": final_leakage["status"],
+        }
+        leakage_path = args.output.with_suffix(".leakage.json")
+        atomic_json(leakage_path, leakage)
+        if leakage["status"] != "PASS":
+            raise ValueError(f"final holdout relation leakage: {leakage_path}")
     else:
         sample = make_sample(master, args.per_view, args.seed)
     write_csv(args.output, sample)
@@ -83,7 +121,22 @@ def command_sample(args: argparse.Namespace) -> int:
 def command_evaluate(args: argparse.Namespace) -> int:
     config = read_config(args.config)
     feedback = read_csv(args.feedback)
-    report, passed = evaluate(feedback, config)
+    leakage = None
+    if feedback and all(
+        row.get("sample_role", "").startswith("final-holdout")
+        or row.get("sample_role", "") == "regression-canary"
+        for row in feedback
+    ):
+        leakage_path = getattr(args, "leakage_report", None) or args.feedback.with_suffix(
+            ".leakage.json"
+        )
+        if not leakage_path.is_file():
+            raise ValueError(f"final holdout requires leakage report: {leakage_path}")
+        leakage = json.loads(leakage_path.read_text(encoding="utf-8"))
+        fresh = [row for row in feedback if row.get("sample_role") != "regression-canary"]
+        if leakage.get("sample_sha256") != evaluation_sample_sha256(fresh):
+            raise ValueError("final holdout leakage report does not match the evaluated sample")
+    report, passed = evaluate(feedback, config, leakage)
     args.output.mkdir(parents=True, exist_ok=True)
     (args.output / "evaluation-report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     (args.output / "evaluation-report.md").write_text(markdown_report("Evaluation report", report), encoding="utf-8")
@@ -113,9 +166,48 @@ def command_validate(args: argparse.Namespace) -> int:
 def command_plan(args: argparse.Namespace) -> int:
     config = read_config(args.config)
     master = read_csv(args.master)
-    plan = build_catalog_plan(master, config, args.plan_id, args.source_title, args.source_identifier)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
+    evaluation_report = json.loads(args.evaluation_report.read_text(encoding="utf-8"))
+    validation_report = json.loads(args.validation_report.read_text(encoding="utf-8"))
+    run_lock = None
+    run_lock_digest = None
+    if args.release_class == "editor-field":
+        if args.workspace is None:
+            raise ValueError("editor-field plan requires --workspace")
+        workspace = args.workspace.resolve()
+        errors, _ = verify_lock(workspace)
+        if errors:
+            raise ValueError("run lock verification failed: " + "; ".join(errors))
+        run_lock_path = workspace / "run-lock.json"
+        run_lock = json.loads(run_lock_path.read_text(encoding="utf-8"))
+        run_lock_digest = sha256_file(run_lock_path)
+        state_source = read_state(workspace).get("source", {})
+        supplied_source = {
+            "identifier": args.source_identifier,
+            "expected_count": args.source_count,
+            "membership_sha256": args.source_membership_sha256.strip().lower(),
+        }
+        if supplied_source != state_source:
+            raise ValueError("plan source identity does not match the frozen run source")
+        locked = run_lock.get("artifacts", {})
+        if locked.get("master", {}).get("sha256") != sha256_file(args.master):
+            raise ValueError("--master does not match the verified run lock")
+        if locked.get("effective_config", {}).get("sha256") != sha256_file(args.config):
+            raise ValueError("--config does not match the verified run lock")
+    plan = build_catalog_plan(
+        master,
+        config,
+        args.plan_id,
+        args.source_title,
+        args.source_identifier,
+        source_count=args.source_count,
+        source_membership_sha256=args.source_membership_sha256,
+        evaluation_report=evaluation_report,
+        validation_report=validation_report,
+        run_lock=run_lock,
+        run_lock_sha256=run_lock_digest,
+        release_class=args.release_class,
+    )
+    atomic_json(args.output, plan)
     print(f"wrote membership-only catalog plan to {args.output}")
     return 0
 
@@ -139,6 +231,7 @@ def command_run_init(args: argparse.Namespace) -> int:
         args.target,
         args.source_identifier,
         args.expected_source_count,
+        args.source_membership_sha256,
     )
     print(json.dumps(state, indent=2))
     return 0
@@ -153,6 +246,24 @@ def command_run_transition(args: argparse.Namespace) -> int:
         key_paths(args.input),
         key_paths(args.output),
         facts,
+        args.expected_revision,
+    )
+    print(json.dumps(state["phases"][args.phase], indent=2))
+    return 0
+
+
+def command_run_recover(args: argparse.Namespace) -> int:
+    state = recover_state(args.workspace.resolve())
+    print(json.dumps(state, indent=2))
+    return 0 if state["recovery_report"]["status"] == "PASS" else 2
+
+
+def command_run_invalidate(args: argparse.Namespace) -> int:
+    state = record_invalidation(
+        args.workspace.resolve(),
+        args.phase,
+        args.reason,
+        args.expected_revision,
     )
     print(json.dumps(state["phases"][args.phase], indent=2))
     return 0
@@ -275,6 +386,44 @@ def command_handoff(args: argparse.Namespace) -> int:
     return 0 if not errors else 2
 
 
+def command_release_register(args: argparse.Namespace) -> int:
+    result = register_plan(args.workspace.resolve(), args.plan.resolve())
+    print(json.dumps(result, indent=2))
+    return 0
+
+
+def command_release_begin(args: argparse.Namespace) -> int:
+    result = begin_execution(
+        args.workspace.resolve(),
+        args.kind,
+        args.adapter_plan.resolve(),
+    )
+    print(json.dumps(result, indent=2))
+    return 0
+
+
+def command_release_complete(args: argparse.Namespace) -> int:
+    result = complete_execution(
+        args.workspace.resolve(),
+        args.execution_nonce,
+        args.receipt.resolve(),
+    )
+    print(json.dumps(result, indent=2))
+    return 0
+
+
+def command_release_idempotence(args: argparse.Namespace) -> int:
+    result = idempotence_report(args.workspace.resolve())
+    print(json.dumps(result, indent=2))
+    return 0 if result["status"] == "PASS" else 2
+
+
+def command_evals_check(args: argparse.Namespace) -> int:
+    errors, report = audit_paths(args.evals, args.contract)
+    print(json.dumps(report, indent=2))
+    return 0 if not errors else 2
+
+
 def command_demo(args: argparse.Namespace) -> int:
     workspace = args.workspace.resolve()
     inventory = workspace / "inventory" / "practice.csv"
@@ -315,6 +464,14 @@ def command_demo(args: argparse.Namespace) -> int:
             plan_id="synthetic-practice-plan",
             source_title="Synthetic practice corpus",
             source_identifier="SYNTHETIC-ONLY",
+            source_count=len(read_csv(inventory)),
+            source_membership_sha256=membership_sha256(
+                row["uuid"] for row in read_csv(inventory)
+            ),
+            evaluation_report=workspace / "reports" / "evaluation-report.json",
+            validation_report=workspace / "reports" / "validation-report.json",
+            release_class="synthetic-practice",
+            workspace=None,
             output=workspace / "manifests" / "catalog-plan.json",
         )
     )
@@ -352,6 +509,7 @@ def parser() -> argparse.ArgumentParser:
     evaluation.add_argument("--feedback", type=Path, required=True)
     evaluation.add_argument("--config", type=Path, required=True)
     evaluation.add_argument("--output", type=Path, required=True)
+    evaluation.add_argument("--leakage-report", type=Path)
     evaluation.set_defaults(func=command_evaluate)
 
     validation = sub.add_parser("validate", help="validate a proposed master against invariants")
@@ -367,6 +525,16 @@ def parser() -> argparse.ArgumentParser:
     plan.add_argument("--plan-id", required=True)
     plan.add_argument("--source-title", required=True)
     plan.add_argument("--source-identifier", required=True)
+    plan.add_argument("--source-count", type=int, required=True)
+    plan.add_argument("--source-membership-sha256", required=True)
+    plan.add_argument("--evaluation-report", type=Path, required=True)
+    plan.add_argument("--validation-report", type=Path, required=True)
+    plan.add_argument(
+        "--release-class",
+        choices=("synthetic-practice", "editor-field"),
+        default="editor-field",
+    )
+    plan.add_argument("--workspace", type=Path)
     plan.add_argument("--output", type=Path, required=True)
     plan.set_defaults(func=command_plan)
 
@@ -378,6 +546,7 @@ def parser() -> argparse.ArgumentParser:
     run_init.add_argument("--target", type=int, required=True)
     run_init.add_argument("--source-identifier", required=True)
     run_init.add_argument("--expected-source-count", type=int)
+    run_init.add_argument("--source-membership-sha256")
     run_init.set_defaults(func=command_run_init)
     transition = run_sub.add_parser("transition", help="atomically record a phase attempt")
     transition.add_argument("--workspace", type=Path, required=True)
@@ -386,7 +555,19 @@ def parser() -> argparse.ArgumentParser:
     transition.add_argument("--input", action="append", default=[])
     transition.add_argument("--output", action="append", default=[])
     transition.add_argument("--facts")
+    transition.add_argument("--expected-revision", type=int)
     transition.set_defaults(func=command_run_transition)
+    recover = run_sub.add_parser("recover", help="rebuild materialized state from the event ledger")
+    recover.add_argument("--workspace", type=Path, required=True)
+    recover.set_defaults(func=command_run_recover)
+    invalidate = run_sub.add_parser(
+        "invalidate", help="append a CAS-guarded artifact-drift invalidation"
+    )
+    invalidate.add_argument("--workspace", type=Path, required=True)
+    invalidate.add_argument("--phase", required=True)
+    invalidate.add_argument("--reason", required=True)
+    invalidate.add_argument("--expected-revision", type=int, required=True)
+    invalidate.set_defaults(func=command_run_invalidate)
     run_verify = run_sub.add_parser("verify", help="verify frozen artifact hashes")
     run_verify.add_argument("--workspace", type=Path, required=True)
     run_verify.set_defaults(func=command_run_verify)
@@ -423,6 +604,33 @@ def parser() -> argparse.ArgumentParser:
     handoff.add_argument("--output", type=Path, required=True)
     handoff.add_argument("--salt", required=True, help="private run-specific public ID salt")
     handoff.set_defaults(func=command_handoff)
+
+    release = sub.add_parser("release", help="register and execute one immutable catalog plan")
+    release_sub = release.add_subparsers(dest="release_command", required=True)
+    release_register = release_sub.add_parser("register", help="seal the reviewed plan for execution")
+    release_register.add_argument("--workspace", type=Path, required=True)
+    release_register.add_argument("--plan", type=Path, required=True)
+    release_register.set_defaults(func=command_release_register)
+    release_begin = release_sub.add_parser("begin", help="create a distinct execution nonce")
+    release_begin.add_argument("--workspace", type=Path, required=True)
+    release_begin.add_argument("--kind", choices=("write-test", "production"), required=True)
+    release_begin.add_argument("--adapter-plan", type=Path, required=True)
+    release_begin.set_defaults(func=command_release_begin)
+    release_complete = release_sub.add_parser("complete", help="bind a receipt to its execution")
+    release_complete.add_argument("--workspace", type=Path, required=True)
+    release_complete.add_argument("--execution-nonce", required=True)
+    release_complete.add_argument("--receipt", type=Path, required=True)
+    release_complete.set_defaults(func=command_release_complete)
+    release_idempotence = release_sub.add_parser(
+        "idempotence", help="require two distinct completed production attempts"
+    )
+    release_idempotence.add_argument("--workspace", type=Path, required=True)
+    release_idempotence.set_defaults(func=command_release_idempotence)
+
+    evals_check = sub.add_parser("evals-check", help="audit eval coverage and decision contracts")
+    evals_check.add_argument("--evals", type=Path, required=True)
+    evals_check.add_argument("--contract", type=Path, required=True)
+    evals_check.set_defaults(func=command_evals_check)
     return root
 
 

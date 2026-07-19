@@ -46,7 +46,8 @@ make check
   --version v01 \
   --target 4000 \
   --source-identifier SOURCE-ID \
-  --expected-source-count SOURCE-COUNT
+  --expected-source-count SOURCE-COUNT \
+  --source-membership-sha256 SOURCE-MEMBERSHIP-SHA256
 
 ./bin/photo-fieldwork select \
   --inventory path/to/inventory.csv \
@@ -63,6 +64,19 @@ make check
   --config path/to/config.json \
   --output runs/my-run/reports
 
+# After the brief, source inventory, final retrieval, and local inspection
+# artifacts are stable, record the required ordered predecessors.
+./bin/photo-fieldwork run transition --workspace runs/my-run \
+  --phase brief --status complete --output brief=path/to/brief.md
+./bin/photo-fieldwork run transition --workspace runs/my-run \
+  --phase source --status complete --output inventory=path/to/inventory.csv
+./bin/photo-fieldwork run transition --workspace runs/my-run \
+  --phase retrieval --status complete \
+  --output master=runs/my-run/manifests/proposed-master.csv
+./bin/photo-fieldwork run transition --workspace runs/my-run \
+  --phase inspection --status complete \
+  --output inspection=runs/my-run/manifests/inspection.jsonl
+
 ./bin/photo-fieldwork freeze-final \
   --workspace runs/my-run \
   --intent-config path/to/config.json \
@@ -77,19 +91,87 @@ make check
   --master runs/my-run/manifests/proposed-master.csv \
   --output runs/my-run/manifests/final-holdout.csv
 
+./bin/photo-fieldwork evaluate \
+  --feedback runs/my-run/manifests/final-holdout-reviewed.csv \
+  --leakage-report runs/my-run/manifests/final-holdout.leakage.json \
+  --config runs/my-run/final/effective-final-config.json \
+  --output runs/my-run/reports/final
+
+./bin/photo-fieldwork run transition --workspace runs/my-run \
+  --phase evaluation --status complete \
+  --output report=runs/my-run/reports/final/evaluation-report.json \
+  --output leakage=runs/my-run/manifests/final-holdout.leakage.json
+
 ./bin/photo-fieldwork validate \
   --master runs/my-run/manifests/proposed-master.csv \
   --holds runs/my-run/manifests/hold-sensitive.csv \
-  --config path/to/config.json \
-  --output runs/my-run/reports
+  --config runs/my-run/final/effective-final-config.json \
+  --output runs/my-run/reports/final
+
+./bin/photo-fieldwork run transition --workspace runs/my-run \
+  --phase validation --status complete \
+  --output report=runs/my-run/reports/final/validation-report.json
 
 ./bin/photo-fieldwork plan \
   --master runs/my-run/manifests/proposed-master.csv \
-  --config path/to/config.json \
+  --config runs/my-run/final/effective-final-config.json \
   --plan-id my-run-v01 \
   --source-title "Wide retrieval - do not edit" \
   --source-identifier SOURCE-ID \
+  --source-count SOURCE-COUNT \
+  --source-membership-sha256 SOURCE-MEMBERSHIP-SHA256 \
+  --evaluation-report runs/my-run/reports/final/evaluation-report.json \
+  --validation-report runs/my-run/reports/final/validation-report.json \
+  --workspace runs/my-run \
   --output runs/my-run/manifests/catalog-plan.json
+
+./bin/photo-fieldwork release register \
+  --workspace runs/my-run \
+  --plan runs/my-run/manifests/catalog-plan.json
+
+python3 skills/curate-apple-photos/scripts/photo_archive_bridge.py snapshot-plans \
+  --profile path/to/private-profile.json \
+  --workspace runs/my-run \
+  --master runs/my-run/manifests/proposed-master.csv \
+  --holds runs/my-run/manifests/hold-sensitive.csv \
+  --target 4000 --version v01 --folder-title "v01 Editor Field" \
+  --config runs/my-run/final/effective-final-config.json \
+  --catalog-plan runs/my-run/manifests/catalog-plan.json
+
+# Authorize one exact adapter plan before each writer launch.
+./bin/photo-fieldwork release begin \
+  --workspace runs/my-run \
+  --kind write-test \
+  --adapter-plan runs/my-run/manifests/v01-write-test-plan.json
+
+python3 skills/curate-apple-photos/scripts/photo_archive_bridge.py run-plan \
+  --profile path/to/private-profile.json \
+  --release-workspace runs/my-run \
+  --plan runs/my-run/manifests/v01-write-test-plan.json \
+  --execution-nonce NONCE-FROM-RELEASE-BEGIN \
+  --backend photokit
+
+# The bridge passes the generated runtime-plan digest to the writer out of
+# band. The writer receipt and independent verifier bind those exact bytes.
+
+# After fresh read-only verification of the write test, bind its immutable
+# receipt and verification report, then open the production gate.
+./bin/photo-fieldwork release complete \
+  --workspace runs/my-run \
+  --execution-nonce NONCE-FROM-RELEASE-BEGIN \
+  --receipt runs/my-run/manifests/v01-write-test-receipt-NONCE.json
+python3 skills/curate-apple-photos/scripts/verify_photos_commit.py \
+  --plan runs/my-run/manifests/v01-write-test-plan-execution-NONCE.json \
+  --receipt runs/my-run/manifests/v01-write-test-receipt-NONCE.json \
+  --report runs/my-run/reports/v01-write-test-verification.json
+./bin/photo-fieldwork run transition --workspace runs/my-run \
+  --phase write_test --status complete \
+  --output receipt=runs/my-run/manifests/v01-write-test-receipt-NONCE.json \
+  --output verification=runs/my-run/reports/v01-write-test-verification.json
+./bin/photo-fieldwork release begin \
+  --workspace runs/my-run \
+  --kind production \
+  --adapter-plan runs/my-run/manifests/v01-production-plan.json
 
 ./bin/photo-fieldwork handoff \
   --master runs/my-run/manifests/publication-reviewed.csv \
@@ -156,6 +238,9 @@ Those are different questions. Photo Fieldwork keeps them different.
 - A public-safe handoff that excludes private fields by construction.
 - A synthetic skill-eval bank covering source drift, resume truthfulness,
   holdout identity, unsupported claims, writer drift, and publication safety.
+- A contract-level Revision L composite with exact overlap-aware assignment,
+  recoverable event state, relation-clean holdouts, candidate-bound plans, and
+  nonce-distinct production attempts. See `docs/composite-L.md`.
 - A fully synthetic practice run.
 - Whole-library Apple Photos inventory and preview-integrity tools.
 - Live read-only PhotoKit preflight and PhotoKit/AppleScript writer contracts.

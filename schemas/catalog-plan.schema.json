@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Photo Fieldwork candidate-bound catalog plan",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "plan_id",
+    "proposal_id",
+    "master_sha256",
+    "config_sha256",
+    "plan_sha256",
+    "release_class",
+    "safety_mode",
+    "source",
+    "evaluation",
+    "validation",
+    "albums"
+  ],
+  "properties": {
+    "schema_version": {"const": 2},
+    "plan_id": {"type": "string", "minLength": 1},
+    "proposal_id": {"type": "string", "pattern": "^pfp-[0-9a-f]{16}$"},
+    "master_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "config_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "plan_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "release_class": {"enum": ["synthetic-practice", "editor-field"]},
+    "safety_mode": {"const": "create-folders-albums-and-add-membership-only"},
+    "source": {
+      "type": "object",
+      "required": ["title", "identifier", "count", "membership_sha256"],
+      "properties": {
+        "title": {"type": "string", "minLength": 1},
+        "identifier": {"type": "string", "minLength": 1},
+        "count": {"type": "integer", "minimum": 1},
+        "membership_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      },
+      "additionalProperties": false
+    },
+    "evaluation": {
+      "type": "object",
+      "required": [
+        "passed",
+        "final_holdout",
+        "relation_clean_holdout",
+        "leakage_report_sha256",
+        "report_sha256"
+      ],
+      "properties": {
+        "passed": {"const": true},
+        "final_holdout": {"type": "boolean"},
+        "relation_clean_holdout": {"type": "boolean"},
+        "leakage_report_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "report_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      },
+      "additionalProperties": false
+    },
+    "validation": {
+      "type": "object",
+      "required": ["status", "report_sha256"],
+      "properties": {
+        "status": {"const": "PASS"},
+        "report_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      },
+      "additionalProperties": false
+    },
+    "run_lock_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+    "albums": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["key", "title", "asset_ids"],
+        "properties": {
+          "key": {"type": "string", "minLength": 1},
+          "title": {"type": "string", "minLength": 1},
+          "asset_ids": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {"type": "string", "minLength": 1}
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": true
+}

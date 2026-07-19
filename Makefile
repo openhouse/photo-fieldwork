@@ -1,10 +1,15 @@
-.PHONY: demo test check install-skill
+.PHONY: demo test evals check install-skill
 
 demo:
 	./bin/photo-fieldwork demo --workspace runs/practice
 
 test:
 	PYTHONPATH=src python3 -m unittest discover -s tests -v
+
+evals:
+	PYTHONPATH=src python3 -m photo_fieldwork evals-check \
+		--evals skills/curate-apple-photos/evals/evals.json \
+		--contract skills/curate-apple-photos/evals/eval-contract.json
 
 check: test
 	PYTHONPATH=src python3 -m compileall -q src tests skills/curate-apple-photos/scripts
@@ -15,7 +20,12 @@ check: test
 	python3 -m json.tool schemas/album-lineage.schema.json >/dev/null
 	python3 -m json.tool profiles/album-lineage.example.json >/dev/null
 	python3 -m json.tool schemas/apple-photos-plan.schema.json >/dev/null
+	python3 -m json.tool schemas/catalog-plan.schema.json >/dev/null
 	python3 -m json.tool skills/curate-apple-photos/evals/evals.json >/dev/null
+	python3 -m json.tool skills/curate-apple-photos/evals/eval-contract.json >/dev/null
+	PYTHONPATH=src python3 -m photo_fieldwork evals-check \
+		--evals skills/curate-apple-photos/evals/evals.json \
+		--contract skills/curate-apple-photos/evals/eval-contract.json >/dev/null
 
 install-skill:
 	./bin/install-skill

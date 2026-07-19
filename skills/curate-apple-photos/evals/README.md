@@ -18,6 +18,29 @@ images, identifiers, paths, People data, or live catalog operations.
 | 8 | post-freeze drift, writer fallback, test writes, and verification |
 | 9 | default-closed public projection |
 | 10 | fresh recursive evaluation and uncertainty |
+| 11 | overlap-aware exact quota assignment |
+| 12 | same-count source-membership substitution |
+| 13 | append-only recovery, artifact drift, and ordered phases |
+| 14 | relational final-holdout leakage |
+| 15 | release-candidate and registered-plan identity |
+| 16 | fresh evaluation versus regression canaries |
+| 17 | distinct production attempts and independent verification |
+| 18 | eval-auditor positive controls and anti-shortcuts |
+| 19 | valid bounded production PROCEED control |
+| 20 | unbound auxiliary memberships and outcome-free receipts |
+| 21 | legacy-ledger migration and append-only plan supersession |
+| 22 | relation identity through offline review export |
+| 23 | joint diversity-floor backtracking across views |
+| 24 | stale nonce revocation after invalidation or supersession |
+| 25 | duplicate catalog album-key ambiguity |
+| 26 | identical adapter bytes for idempotence |
+| 27 | exact dominance pruning and production-scale solver evidence |
+| 28 | verified write-test evidence before production |
+| 29 | semantic album roles when memberships are equal |
+| 30 | relation identifiers in holdout sample identity |
+| 31 | complete relation schema for prior feedback |
+| 32 | single-buffer adapter validation and authorization |
+| 33 | out-of-band runtime-plan authorization through writer and verifier |
 
 ## Hill-climb protocol
 

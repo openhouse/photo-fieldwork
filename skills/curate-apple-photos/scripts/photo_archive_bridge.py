@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import os
 import plistlib
@@ -98,6 +99,221 @@ def meta_value(value: str) -> object:
 def dump_json(path: Path, value: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def content_sha256(value: dict, digest_field: str | None = None) -> str:
+    payload = dict(value)
+    if digest_field:
+        payload.pop(digest_field, None)
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def bytes_sha256(payload: bytes) -> str:
+    return hashlib.sha256(payload).hexdigest()
+
+
+def json_bytes(value: object) -> bytes:
+    return (json.dumps(value, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+
+
+def write_new_private_file(path: Path, payload: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            descriptor = -1
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
+def execution_authorization(
+    workspace: Path,
+    nonce: str,
+    plan_bytes: bytes,
+    plan: dict,
+) -> str:
+    ledger_path = workspace / "execution-events.jsonl"
+    if not ledger_path.is_file():
+        raise ValueError("release execution ledger not found")
+    events = []
+    previous_hash = None
+    for line_number, line in enumerate(
+        ledger_path.read_text(encoding="utf-8").splitlines(), start=1
+    ):
+        event = json.loads(line)
+        if event.get("sequence") != len(events) + 1:
+            raise ValueError(f"execution event sequence mismatch at line {line_number}")
+        if event.get("previous_hash") != previous_hash:
+            raise ValueError(f"execution event linkage failed at line {line_number}")
+        event_hash = content_sha256(event, "event_hash")
+        if event.get("event_hash") != event_hash:
+            raise ValueError(f"execution event hash mismatch at line {line_number}")
+        events.append(event)
+        previous_hash = event_hash
+    starts = [
+        event
+        for event in events
+        if event.get("event_type") == "execution_started"
+        and event.get("execution_nonce") == nonce
+    ]
+    completions = [
+        event
+        for event in events
+        if event.get("event_type") == "execution_completed"
+        and event.get("execution_nonce") == nonce
+    ]
+    if len(starts) != 1 or completions:
+        raise ValueError("execution nonce is unknown, duplicated, or already completed")
+    start = starts[0]
+    registrations = [
+        event for event in events if event.get("event_type") == "plan_registered"
+    ]
+    if (
+        not registrations
+        or registrations[-1].get("plan_sha256") != start.get("plan_sha256")
+        or registrations[-1].get("sequence", 0) > start.get("sequence", 0)
+    ):
+        raise ValueError("execution nonce belongs to a superseded registration")
+    registration_path = workspace / "registered-plan.json"
+    if not registration_path.is_file():
+        raise ValueError("current registered-plan identity not found")
+    registration = json.loads(registration_path.read_text(encoding="utf-8"))
+    if registration.get("plan_sha256") != start.get("plan_sha256"):
+        raise ValueError("execution nonce does not belong to the current registration")
+    run_ledger_path = workspace / "run-events.jsonl"
+    if not run_ledger_path.is_file():
+        raise ValueError("run event ledger not found")
+    run_events = []
+    run_previous_hash = None
+    for line_number, line in enumerate(
+        run_ledger_path.read_text(encoding="utf-8").splitlines(), start=1
+    ):
+        event = json.loads(line)
+        if event.get("sequence") != len(run_events) + 1:
+            raise ValueError(f"run event sequence mismatch at line {line_number}")
+        if event.get("previous_hash") != run_previous_hash:
+            raise ValueError(f"run event linkage failed at line {line_number}")
+        event_hash = content_sha256(event, "event_hash")
+        if event.get("event_hash") != event_hash:
+            raise ValueError(f"run event hash mismatch at line {line_number}")
+        run_events.append(event)
+        run_previous_hash = event_hash
+    if any(
+        event.get("event_type") == "artifact_invalidation"
+        and event.get("sequence", 0) > registration.get("run_event_count", 0)
+        for event in run_events
+    ):
+        raise ValueError("execution nonce was revoked by candidate invalidation")
+    registered_event_count = registration.get("run_event_count")
+    if (
+        not isinstance(registered_event_count, int)
+        or registered_event_count < 1
+        or len(run_events) < registered_event_count
+        or run_events[registered_event_count - 1].get("event_hash")
+        != registration.get("run_ledger_head")
+    ):
+        raise ValueError("execution nonce has no intact registered run lineage")
+    if start.get("kind") != plan.get("execution_kind"):
+        raise ValueError("execution nonce kind does not authorize this adapter plan")
+    if start.get("plan_sha256") != plan.get("catalog_plan_sha256"):
+        raise ValueError("execution nonce catalog identity does not match the adapter plan")
+    expected = start.get("adapter_plan", {})
+    actual = bytes_sha256(plan_bytes)
+    if expected.get("sha256") != actual or expected.get("bytes") != len(plan_bytes):
+        raise ValueError("execution nonce does not authorize these adapter-plan bytes")
+    return actual
+
+
+def validate_snapshot_capability_receipt(receipt: dict, plan: dict) -> None:
+    required = {
+        "preflight-read-only",
+        "snapshot-membership",
+        "candidate-bound-snapshot-v2",
+    }
+    if receipt.get("status") != "PASS":
+        raise ValueError("PhotoKit helper read-only preflight failed")
+    if not required <= set(receipt.get("capabilities", [])):
+        raise ValueError("PhotoKit helper lacks candidate-bound snapshot capability")
+    if receipt.get("source_album_identifier") != plan.get("source_album_identifier"):
+        raise ValueError("PhotoKit helper preflight resolved a different source")
+    if receipt.get("source_count") != plan.get("expected_source_count"):
+        raise ValueError("PhotoKit helper preflight observed a different source count")
+
+
+def master_sha256(rows: list[dict[str, str]], view_column: str = "primary_view") -> str:
+    identity = [
+        {
+            "uuid": base_identifier(row.get("uuid", "").strip()),
+            "primary_view": row.get(view_column, "").strip(),
+            "safety_status": row.get("safety_status", "clear").strip().lower(),
+        }
+        for row in rows
+    ]
+    if any(not item["uuid"] or not item["primary_view"] for item in identity):
+        raise ValueError("master identity requires UUIDs and primary views")
+    if len({item["uuid"] for item in identity}) != len(identity):
+        raise ValueError("master identity requires unique UUIDs")
+    identity.sort(key=lambda item: (item["primary_view"], item["uuid"]))
+    canonical = json.dumps(identity, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def membership_sha256(identifiers: set[str] | list[str]) -> str:
+    normalized = [base_identifier(str(identifier).strip()) for identifier in identifiers]
+    if any(not identifier for identifier in normalized):
+        raise ValueError("source membership identifiers cannot be empty")
+    if len(normalized) != len(set(normalized)):
+        raise ValueError("source membership identifiers must be unique")
+    payload = "\n".join(sorted(normalized)) + "\n"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def source_membership_from_database(database: Path, identifier: str) -> set[str]:
+    connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True, timeout=30)
+    try:
+        connection.execute("PRAGMA query_only=ON")
+        if identifier == "visible-library-stills://v1":
+            rows = connection.execute(
+                """
+                SELECT ZUUID FROM ZASSET
+                WHERE ZKIND = 0 AND ZTRASHEDSTATE = 0 AND ZHIDDEN = 0
+                  AND ZVISIBILITYSTATE = 0 AND ZBUNDLESCOPE = 0
+                """
+            )
+        else:
+            albums = connection.execute(
+                "SELECT Z_PK FROM ZGENERICALBUM WHERE ZUUID = ?",
+                (base_identifier(identifier),),
+            ).fetchall()
+            if len(albums) != 1:
+                raise ValueError(
+                    f"expected one source album for {identifier}; found {len(albums)}"
+                )
+            rows = connection.execute(
+                """
+                SELECT asset.ZUUID
+                FROM Z_30ASSETS membership
+                JOIN ZASSET asset ON asset.Z_PK = membership.Z_3ASSETS
+                WHERE membership.Z_30ALBUMS = ?
+                """,
+                (albums[0][0],),
+            )
+        return {str(row[0]) for row in rows}
+    finally:
+        connection.close()
 
 
 def local_identifier(value: str) -> str:
@@ -268,50 +484,41 @@ def command_init_profile(args: argparse.Namespace) -> int:
 def command_init(args: argparse.Namespace) -> int:
     profile = load_profile(args.profile)
     source_id, source_count = source_values(args, profile)
+    source_digest = args.source_membership_sha256.strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", source_digest):
+        raise ValueError("--source-membership-sha256 must be 64 hexadecimal characters")
     workspace_root = args.workspace_root or Path(profile["workspace_root"])
     stamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
     root = (workspace_root / f"{args.version}-{safe_slug(args.slug)}-{stamp}").resolve()
     if root.exists():
         raise ValueError(f"workspace already exists: {root}")
-    for name in (
-        "inventory",
-        "manifests",
-        "reports",
-        "logs",
-        "previews",
-        "contact-sheets",
-        "scripts",
-        "review",
-        "final",
-    ):
-        (root / name).mkdir(parents=True, exist_ok=False, mode=0o700)
-    root.chmod(0o700)
-    state = {
-        "schema_version": 2,
-        "run_id": root.name,
-        "status": "initialized",
-        "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-        "version": args.version,
-        "target_count": args.target,
-        "source": {"identifier": source_id, "expected_count": source_count},
-        "tool": {"name": "photo-fieldwork bridge", "version": 2},
-        "phases": {
-            phase: {"status": "pending", "attempts": []}
-            for phase in (
-                "brief",
-                "source",
-                "retrieval",
-                "inspection",
-                "evaluation",
-                "final_freeze",
-                "validation",
-                "write_test",
-                "production_commit",
-                "independent_verification",
-            )
-        },
-    }
-    dump_json(root / "run-state.json", state)
+    cli = Path(profile.get("photo_fieldwork_cli", ""))
+    if not cli.is_file():
+        raise ValueError(f"photo-fieldwork CLI not found: {cli}")
+    completed = subprocess.run(
+        [
+            str(cli),
+            "run",
+            "init",
+            "--workspace",
+            str(root),
+            "--version",
+            args.version,
+            "--target",
+            str(args.target),
+            "--source-identifier",
+            source_id,
+            "--expected-source-count",
+            str(source_count),
+            "--source-membership-sha256",
+            source_digest,
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode:
+        raise ValueError(completed.stderr.strip() or "photo-fieldwork run init failed")
     (root / "README.md").write_text(
         f"# {args.version}: {args.slug}\n\n"
         f"- Target: {args.target:,} unique still photographs\n"
@@ -328,6 +535,11 @@ def command_init(args: argparse.Namespace) -> int:
 def command_inspection_plan(args: argparse.Namespace) -> int:
     profile = load_profile(args.profile)
     source_id, source_count = source_values(args, profile)
+    source_digest = args.source_membership_sha256.strip().lower()
+    if len(source_digest) != 64 or any(
+        character not in "0123456789abcdef" for character in source_digest
+    ):
+        raise ValueError("--source-membership-sha256 must be 64 hexadecimal characters")
     rows = read_csv(args.input)
     identifiers = list(dict.fromkeys(local_identifier(row["uuid"]) for row in rows))
     if args.limit:
@@ -340,6 +552,7 @@ def command_inspection_plan(args: argparse.Namespace) -> int:
         "safety_mode": "read-only-local-inspection-and-preview-export",
         "source_album_identifier": source_id,
         "expected_source_count": source_count,
+        "source_membership_sha256": source_digest,
         "asset_identifiers": identifiers,
         "output_jsonl_path": str(root / "manifests" / f"{args.plan_id}-inspection.jsonl"),
         "receipt_path": str(root / "manifests" / f"{args.plan_id}-receipt.json"),
@@ -397,26 +610,37 @@ def folder_specs(version_title: str, include_version: bool, profile: dict | None
     return folders
 
 
-def album(title: str, parent: str, uuids: list[str]) -> dict:
+def album(title: str, parent: str, uuids: list[str], role: str) -> dict:
     identifiers = list(dict.fromkeys(local_identifier(value) for value in uuids))
     return {
         "title": title,
+        "role": role,
         "parent_folder_key": parent,
         "existing_identifier": None,
         "asset_identifiers": identifiers,
     }
 
 
-def snapshot_plan(args: argparse.Namespace, plan_id: str, folders: list[dict], albums: list[dict], receipt: str) -> dict:
+def snapshot_plan(
+    args: argparse.Namespace,
+    plan_id: str,
+    execution_kind: str,
+    folders: list[dict],
+    albums: list[dict],
+    receipt: str,
+) -> dict:
     profile = load_profile(args.profile)
     source_id, source_count = source_values(args, profile)
     return {
         "operation": "snapshot-membership",
         "schema_version": 1,
         "plan_id": plan_id,
+        "execution_kind": execution_kind,
+        "catalog_plan_sha256": args.catalog_plan_sha256,
         "safety_mode": "create-folders-albums-and-add-membership-only",
         "source_album_identifier": source_id,
         "expected_source_count": source_count,
+        "source_membership_sha256": args.source_membership_sha256,
         "batch_size": args.batch_size,
         "writer_contract": {
             "allowed_backends": ["photokit", "applescript"],
@@ -445,10 +669,63 @@ def command_snapshot_plans(args: argparse.Namespace) -> int:
     if not all(row.get("selection_reason") or row.get("selection_reasons") or row.get("editorial_reasons") for row in master_rows):
         raise ValueError("every master row must have a selection reason")
 
+    catalog_plan = json.loads(args.catalog_plan.read_text(encoding="utf-8"))
+    catalog_digest = content_sha256(catalog_plan, "plan_sha256")
+    if catalog_plan.get("plan_sha256") != catalog_digest:
+        raise ValueError("catalog plan content digest is invalid")
+    if catalog_plan.get("release_class") != "editor-field":
+        raise ValueError("adapter plans require an editor-field catalog plan")
+    if catalog_plan.get("expected_master_count") != len(master_ids):
+        raise ValueError("catalog plan master count does not match --master")
+    master_digest = master_sha256(master_rows, args.view_column)
+    if catalog_plan.get("master_sha256") != master_digest:
+        raise ValueError("catalog plan candidate identity does not match --master")
+    if catalog_plan.get("proposal_id") != f"pfp-{master_digest[:16]}":
+        raise ValueError("catalog plan proposal identity does not match --master")
+    catalog_master = next(
+        (item for item in catalog_plan.get("albums", []) if item.get("key") == "master"),
+        None,
+    )
+    if catalog_master is None:
+        raise ValueError("catalog plan lacks a master album")
+    if {base_identifier(value) for value in catalog_master.get("asset_ids", [])} != set(master_ids):
+        raise ValueError("catalog plan master membership does not match --master")
+    catalog_views = {
+        item["key"].removeprefix("view-"): {
+            base_identifier(value) for value in item.get("asset_ids", [])
+        }
+        for item in catalog_plan.get("albums", [])
+        if str(item.get("key", "")).startswith("view-")
+    }
+    master_views: dict[str, set[str]] = {}
+    for row in master_rows:
+        master_views.setdefault(row[args.view_column].strip(), set()).add(
+            base_identifier(row["uuid"])
+        )
+    if catalog_views != master_views:
+        raise ValueError("catalog plan view assignments do not match --master")
+    if args.config:
+        config = json.loads(args.config.read_text(encoding="utf-8"))
+        if catalog_plan.get("config_sha256") != content_sha256(config):
+            raise ValueError("catalog plan config identity does not match --config")
+    source_id, source_count = source_values(args, profile)
+    catalog_source = catalog_plan.get("source", {})
+    if (
+        catalog_source.get("identifier") != source_id
+        or catalog_source.get("count") != source_count
+    ):
+        raise ValueError("catalog plan source does not match the adapter source")
+    args.catalog_plan_sha256 = catalog_digest
+    args.source_membership_sha256 = str(catalog_source.get("membership_sha256", "")).lower()
+    if len(args.source_membership_sha256) != 64 or any(
+        character not in "0123456789abcdef"
+        for character in args.source_membership_sha256
+    ):
+        raise ValueError("catalog plan lacks a valid source membership digest")
+
     by_view: dict[str, list[str]] = {}
     view_labels = {}
     if args.config:
-        config = json.loads(args.config.read_text(encoding="utf-8"))
         view_labels = {str(view["id"]): str(view["label"]) for view in config.get("views", [])}
     for row in master_rows:
         view = row.get(args.view_column, "").strip() or "00"
@@ -475,24 +752,58 @@ def command_snapshot_plans(args: argparse.Namespace) -> int:
     test = snapshot_plan(
         args,
         f"{args.version}-write-test",
+        "write-test",
         folder_specs(args.folder_title, include_version=False, profile=profile),
-        [album(test_title, "audit", test_ids)],
+        [album(test_title, "audit", test_ids, "aux:write-test")],
         f"{args.version}-write-test-receipt.json",
     )
-    production_albums = [album(f"00 MASTER — {args.target:,}", "version", master_ids)]
+    production_albums = [
+        album(f"00 MASTER — {args.target:,}", "version", master_ids, "catalog:master")
+    ]
     for view, values in sorted(by_view.items()):
         label = view_labels.get(view, "EDITOR VIEW")
-        production_albums.append(album(f"{view} {label} — {len(values):,}", "version", values))
+        production_albums.append(
+            album(
+                f"{view} {label} — {len(values):,}",
+                "version",
+                values,
+                f"catalog:view-{view}",
+            )
+        )
     if named:
-        production_albums.append(album(f"90 PEOPLE / NAMED ASSOCIATIONS — {len(named):,}", "version", named))
+        production_albums.append(
+            album(
+                f"90 PEOPLE / NAMED ASSOCIATIONS — {len(named):,}",
+                "version",
+                named,
+                "aux:named",
+            )
+        )
     if uncertain:
-        production_albums.append(album(f"91 CONTEXT UNCERTAIN — EDITOR REVIEW — {len(uncertain):,}", "version", uncertain))
+        production_albums.append(
+            album(
+                f"91 CONTEXT UNCERTAIN — EDITOR REVIEW — {len(uncertain):,}",
+                "version",
+                uncertain,
+                "aux:uncertain",
+            )
+        )
     if hold_ids:
-        production_albums.append(album(f"{args.version} — AUTOMATED SAFETY HOLD — {len(hold_ids):,}", "private", hold_ids))
-    production_albums.append(album(test_title, "audit", test_ids))
+        production_albums.append(
+            album(
+                f"{args.version} — AUTOMATED SAFETY HOLD — {len(hold_ids):,}",
+                "private",
+                hold_ids,
+                "aux:holds",
+            )
+        )
+    production_albums.append(
+        album(test_title, "audit", test_ids, "aux:write-test")
+    )
     production = snapshot_plan(
         args,
         f"{args.version}-production",
+        "production",
         folder_specs(args.folder_title, include_version=True, profile=profile),
         production_albums,
         f"{args.version}-photo-archive-receipt.json",
@@ -512,22 +823,159 @@ def command_run_plan(args: argparse.Namespace) -> int:
     profile = load_profile(args.profile)
     app = Path(profile.get("app", {}).get("path", APP))
     plan_path = args.plan.resolve()
-    plan = json.loads(plan_path.read_text(encoding="utf-8"))
-    receipt_path = Path(plan["receipt_path"])
-    if not app.is_dir():
-        raise ValueError(f"permissioned app not found: {app}")
-    before = receipt_path.stat().st_mtime_ns if receipt_path.exists() else None
-    command = ["/usr/bin/open", "-W", "-n", str(app), "--args", "--plan", str(plan_path)]
-    print("launching permissioned helper; this may run for a long time", flush=True)
+    plan_bytes = plan_path.read_bytes()
+    plan = json.loads(plan_bytes)
+    operation = plan.get("operation")
+    if operation == "inspect-local-images":
+        if args.backend != "photokit":
+            raise ValueError("read-only inspection requires the photokit backend")
+        if args.execution_nonce:
+            raise ValueError("read-only inspection must not receive an execution nonce")
+        runtime_plan_path = plan_path
+        receipt_path = Path(plan["receipt_path"])
+        if not app.is_dir():
+            raise ValueError(f"permissioned app not found: {app}")
+        command = [
+            "/usr/bin/open",
+            "-W",
+            "-n",
+            str(app),
+            "--args",
+            "--plan",
+            str(runtime_plan_path),
+        ]
+        print("launching explicit photokit inspector; this may run for a long time", flush=True)
+        completed = subprocess.run(command, check=False)
+        if completed.returncode:
+            raise ValueError(
+                f"photokit inspector failed with exit code {completed.returncode}"
+            )
+        if not receipt_path.exists():
+            raise ValueError(f"photokit inspector finished without receipt: {receipt_path}")
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        print(f"plan={runtime_plan_path}")
+        print(f"receipt={receipt_path}")
+        print(json.dumps(receipt, indent=2, ensure_ascii=False))
+        return 0
+    if operation != "snapshot-membership":
+        raise ValueError(f"run-plan does not support operation: {operation}")
+    catalog_digest = str(plan.get("catalog_plan_sha256", "")).strip().lower()
+    if len(catalog_digest) != 64 or any(
+        character not in "0123456789abcdef" for character in catalog_digest
+    ):
+        raise ValueError("adapter plan lacks a valid catalog_plan_sha256")
+    nonce = str(args.execution_nonce or "").strip().lower()
+    if len(nonce) != 32 or any(character not in "0123456789abcdef" for character in nonce):
+        raise ValueError("--execution-nonce must be 32 hexadecimal characters")
+    if args.release_workspace is None:
+        raise ValueError("snapshot execution requires --release-workspace")
+    adapter_digest = execution_authorization(
+        args.release_workspace.resolve(), nonce, plan_bytes, plan
+    )
+    runtime_plan = dict(plan)
+    runtime_plan["execution_nonce"] = nonce
+    runtime_plan["adapter_plan_sha256"] = adapter_digest
+    base_receipt = Path(plan["receipt_path"])
+    receipt_path = base_receipt.with_name(f"{base_receipt.stem}-{nonce}{base_receipt.suffix}")
+    runtime_plan["receipt_path"] = str(receipt_path)
+    runtime_plan_path = plan_path.with_name(f"{plan_path.stem}-execution-{nonce}.json")
+    if runtime_plan_path.exists() or receipt_path.exists():
+        raise ValueError("execution nonce already has a runtime plan or receipt")
+    runtime_plan_bytes = json_bytes(runtime_plan)
+    runtime_plan_digest = bytes_sha256(runtime_plan_bytes)
+    write_new_private_file(runtime_plan_path, runtime_plan_bytes)
+    if args.backend == "photokit":
+        if not app.is_dir():
+            raise ValueError(f"permissioned app not found: {app}")
+        with tempfile.TemporaryDirectory(prefix="photo-fieldwork-capability-") as temporary:
+            temporary_root = Path(temporary)
+            preflight_path = temporary_root / "preflight-plan.json"
+            preflight_receipt_path = temporary_root / "preflight-receipt.json"
+            preflight = {
+                "operation": "preflight-read-only",
+                "schema_version": 1,
+                "plan_id": f"capability-{nonce}",
+                "source_album_identifier": plan["source_album_identifier"],
+                "expected_source_count": plan["expected_source_count"],
+                "sample_asset_identifier": plan["albums"][0]["asset_identifiers"][0],
+                "receipt_path": str(preflight_receipt_path),
+                "network_access_allowed": False,
+            }
+            dump_json(preflight_path, preflight)
+            preflight_run = subprocess.run(
+                [
+                    "/usr/bin/open",
+                    "-W",
+                    "-n",
+                    str(app),
+                    "--args",
+                    "--plan",
+                    str(preflight_path),
+                ],
+                check=False,
+            )
+            if preflight_run.returncode or not preflight_receipt_path.is_file():
+                raise ValueError("PhotoKit helper capability preflight did not complete")
+            validate_snapshot_capability_receipt(
+                json.loads(preflight_receipt_path.read_text(encoding="utf-8")),
+                plan,
+            )
+        command = [
+            "/usr/bin/open",
+            "-W",
+            "-n",
+            str(app),
+            "--args",
+            "--plan",
+            str(runtime_plan_path),
+            "--plan-sha256",
+            runtime_plan_digest,
+        ]
+    else:
+        database = Path(profile.get("photos_database", PHOTOS_DB))
+        source_membership = source_membership_from_database(
+            database, plan["source_album_identifier"]
+        )
+        observed_source_digest = membership_sha256(source_membership)
+        if len(source_membership) != int(plan["expected_source_count"]):
+            raise ValueError("AppleScript preflight source count mismatch")
+        if observed_source_digest != plan.get("source_membership_sha256"):
+            raise ValueError("AppleScript preflight source membership mismatch")
+        print(f"source_membership_sha256={observed_source_digest}")
+        execution_root = plan_path.parent / f"execution-{nonce}"
+        command = [
+            sys.executable,
+            str(Path(__file__).with_name("applescript_writer.py")),
+            "--plan",
+            str(runtime_plan_path),
+            "--plan-sha256",
+            runtime_plan_digest,
+            "--script",
+            str(execution_root / "writer.applescript"),
+            "--id-directory",
+            str(execution_root / "asset-ids"),
+            "--execute",
+        ]
+    print(f"launching explicit {args.backend} writer; this may run for a long time", flush=True)
     completed = subprocess.run(command, check=False)
     if completed.returncode:
-        raise ValueError(f"helper launcher failed with exit code {completed.returncode}")
+        raise ValueError(f"{args.backend} writer failed with exit code {completed.returncode}")
     if not receipt_path.exists():
-        raise ValueError(f"helper finished without receipt: {receipt_path}")
-    after = receipt_path.stat().st_mtime_ns
-    if before is not None and before == after:
-        raise ValueError(f"receipt was not refreshed: {receipt_path}")
+        raise ValueError(f"{args.backend} writer finished without receipt: {receipt_path}")
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    if receipt.get("execution_nonce") != nonce:
+        raise ValueError("writer receipt execution nonce mismatch")
+    if receipt.get("plan_sha256") != catalog_digest:
+        raise ValueError("writer receipt catalog-plan digest mismatch")
+    if receipt.get("adapter_plan_sha256") != adapter_digest:
+        raise ValueError("writer receipt adapter-plan digest mismatch")
+    if receipt.get("runtime_plan_sha256") != runtime_plan_digest:
+        raise ValueError("writer receipt runtime-plan digest mismatch")
+    if receipt.get("source_membership_sha256") != plan.get("source_membership_sha256"):
+        raise ValueError("writer receipt source-membership digest mismatch")
+    print(f"runtime_plan={runtime_plan_path}")
+    print(f"runtime_plan_sha256={runtime_plan_digest}")
+    print(f"receipt={receipt_path}")
     print(json.dumps(receipt, indent=2, ensure_ascii=False))
     return 0
 
@@ -571,6 +1019,7 @@ def parser() -> argparse.ArgumentParser:
     init.add_argument("--workspace-root", type=Path)
     init.add_argument("--source-id")
     init.add_argument("--source-count", type=int)
+    init.add_argument("--source-membership-sha256", required=True)
     init.set_defaults(func=command_init)
 
     inspect = sub.add_parser("inspection-plan", help="build an exact plan for local PhotoKit inspection")
@@ -581,6 +1030,7 @@ def parser() -> argparse.ArgumentParser:
     inspect.add_argument("--profile", type=Path)
     inspect.add_argument("--source-id")
     inspect.add_argument("--source-count", type=int)
+    inspect.add_argument("--source-membership-sha256", required=True)
     inspect.add_argument("--target-long-edge", type=int, default=1280)
     inspect.add_argument("--limit", type=int)
     inspect.add_argument("--no-previews", action="store_true")
@@ -598,15 +1048,19 @@ def parser() -> argparse.ArgumentParser:
     plans.add_argument("--folder-title", required=True)
     plans.add_argument("--view-column", default="primary_view")
     plans.add_argument("--config", type=Path)
+    plans.add_argument("--catalog-plan", type=Path, required=True)
     plans.add_argument("--profile", type=Path)
     plans.add_argument("--source-id")
     plans.add_argument("--source-count", type=int)
     plans.add_argument("--batch-size", type=int, default=500)
     plans.set_defaults(func=command_snapshot_plans)
 
-    run = sub.add_parser("run-plan", help="launch a plan through the stable permissioned app bundle")
+    run = sub.add_parser("run-plan", help="run explicit read-only or membership adapter plans")
     run.add_argument("--plan", type=Path, required=True)
+    run.add_argument("--execution-nonce")
+    run.add_argument("--backend", choices=("photokit", "applescript"), required=True)
     run.add_argument("--profile", type=Path)
+    run.add_argument("--release-workspace", type=Path)
     run.set_defaults(func=command_run_plan)
     return root
 
@@ -615,7 +1069,7 @@ def main() -> int:
     args = parser().parse_args()
     try:
         return args.func(args)
-    except (OSError, ValueError, json.JSONDecodeError) as error:
+    except (OSError, ValueError, json.JSONDecodeError, sqlite3.Error) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
 

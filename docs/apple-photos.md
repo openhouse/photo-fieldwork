@@ -87,8 +87,13 @@ python3 skills/curate-apple-photos/scripts/applescript_writer.py \
   --id-directory RUN/private-writer-ids
 ```
 
-Execution requires the additional `--execute` flag. The receipt records the
-backend and script hash. The AppleScript writer does not claim to verify the
+Direct execution requires `--execute` and the exact runtime bytes supplied as
+`--plan-sha256`; the bridge provides both on the governed path. The receipt records the
+backend, script hash, and bridge-supplied runtime-plan digest. Live execution
+normally goes through `photo_archive_bridge.py run-plan`, which supplies that
+digest out of band. The AppleScript writer verifies one read of the runtime
+plan, embeds those identifiers in the in-memory script it executes, and rejects
+a replaced plan before mutation. It does not claim to verify the
 source independently; live preflight and post-write read-only verification
 remain required.
 

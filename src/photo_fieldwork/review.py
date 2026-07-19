@@ -11,6 +11,11 @@ from pathlib import Path
 
 HOLDOUT_CONTEXT_FIELDS = (
     "sample_role",
+    "master_sha256",
+    "proposal_id",
+    "perceptual_cluster",
+    "duplicate_group",
+    "burst_group",
     "estimate_included",
     "sample_seed",
     "population_count",
@@ -174,7 +179,7 @@ document.addEventListener("keydown", event => {{
 }});
 const grid=document.getElementById("grid"); records.forEach((row, position) => {{ const button=document.createElement("button"); button.type="button"; button.title=`${{position+1}} ${{row.primary_view}}`; if(row.available){{const image=document.createElement("img");image.src=row.image;image.alt="";button.append(image);}} button.addEventListener("click",()=>{{index=position;render();scrollTo({{top:0,behavior:"smooth"}});}});grid.append(button); }});
 document.getElementById("export").addEventListener("click", () => {{
-  const fields=["uuid","primary_view","sample_role","estimate_included","sample_seed","population_count","full_master_count","view_population_count","judgment","visible_reason","safety_status","error_category","round_id","reviewer_lens"];
+  const fields=["uuid","primary_view","sample_role","master_sha256","proposal_id","perceptual_cluster","duplicate_group","burst_group","estimate_included","sample_seed","population_count","full_master_count","view_population_count","judgment","visible_reason","safety_status","error_category","round_id","reviewer_lens"];
   const quote=value => `"${{String(value ?? "").replaceAll('"','""')}}"`;
   const lines=[fields.join(",")]; for(const row of records){{const current=decision(row.uuid);const values=fields.map(field=>{{if(field==="judgment")return current.judgment;if(field==="visible_reason")return current.visible_reason;if(field==="safety_status")return current.judgment==="hold"?"hold":"clear";if(field==="error_category")return current.error_category;if(field==="round_id")return "local-workbench";if(field==="reviewer_lens")return "human-or-delegated-review";return row[field]??"";}});lines.push(values.map(quote).join(","));}}
   const url=URL.createObjectURL(new Blob([lines.join("\\n")+"\\n"],{{type:"text/csv"}})); const link=document.createElement("a");link.href=url;link.download="evaluation-reviewed.csv";link.click();URL.revokeObjectURL(url);
