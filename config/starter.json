@@ -2,6 +2,12 @@
   "$schema": "../schemas/config.schema.json",
   "seed": 20260710,
   "target_count": 12,
+  "evaluation_sample_per_view": 3,
+  "source": {
+    "identifier": "SYNTHETIC-ONLY",
+    "expected_count": 30,
+    "identifier_sha256": "50ce7a9ce8269931cee4ed617a22fd1214f27fcde9aada68e23ae8a4b373af74"
+  },
   "unclassified_view": "00",
   "burst_limit": 2,
   "exploratory_fraction": 0.1,

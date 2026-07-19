@@ -10,12 +10,19 @@ import json
 import os
 import plistlib
 import re
+import secrets
 import shutil
 import sqlite3
 import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
+
+SCRIPT_DIRECTORY = Path(__file__).resolve().parent
+if str(SCRIPT_DIRECTORY) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIRECTORY))
+
+from compare_receipts import require_plan_match, require_receipt
 
 
 DEFAULT_PROFILE = Path(
@@ -31,7 +38,10 @@ RUN_PHASES = [
     "recursive_evaluation",
     "validation",
     "write_test",
+    "write_test_verification",
     "production_commit",
+    "production_rerun",
+    "idempotence_verification",
     "independent_verification",
 ]
 
@@ -99,6 +109,247 @@ def safe_workspace_file(workspace: Path, value: Path) -> Path:
     return resolved
 
 
+def structured_artifact(path: Path) -> object | None:
+    try:
+        if path.suffix.lower() == ".json":
+            return json.loads(path.read_text(encoding="utf-8"))
+        if path.suffix.lower() == ".jsonl":
+            return [
+                json.loads(line)
+                for line in path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+        if path.suffix.lower() == ".csv":
+            with path.open(newline="", encoding="utf-8-sig") as handle:
+                return list(csv.DictReader(handle))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    return None
+
+
+def plan_matches_release(
+    plan: dict, state: dict, expected_plan_id: str, plan_sha256: str
+) -> bool:
+    """Require a write plan to carry the exact validated release candidate."""
+    release = state.get("release_binding", {})
+    evaluation = plan.get("evaluation", {})
+    validation = plan.get("validation", {})
+    plan_key = "write_test" if expected_plan_id.endswith("-write-test") else "production"
+    return bool(
+        release
+        and state.get("write_plan_sha256", {}).get(plan_key) == plan_sha256
+        and plan.get("plan_id") == expected_plan_id
+        and plan.get("source_album_identifier") == state.get("source_album_identifier")
+        and plan.get("expected_source_count") == state.get("expected_source_count")
+        and plan.get("source_identifier_sha256") == state.get("source_identifier_sha256")
+        and evaluation.get("passed") is True
+        and evaluation.get("proposal_id") == release.get("proposal_id")
+        and evaluation.get("master_sha256") == release.get("master_sha256")
+        and evaluation.get("feedback_sha256") == release.get("feedback_sha256")
+        and evaluation.get("config_sha256") == release.get("config_sha256")
+        and evaluation.get("sample_sha256") == release.get("sample_sha256")
+        and validation.get("status") == "PASS"
+        and validation.get("master_sha256") == release.get("master_sha256")
+        and validation.get("safety_sha256") == release.get("safety_sha256")
+        and isinstance(plan.get("albums"), list)
+        and bool(plan["albums"])
+    )
+
+
+def write_evidence_matches(phase: str, paths: list[Path], state: dict) -> bool:
+    """Bind a write receipt to the exact release plan and run state."""
+    suffix = "write-test" if phase == "write_test" else "production"
+    expected_plan_id = f"{state.get('version', '')}-{suffix}"
+    if not expected_plan_id:
+        return False
+    artifacts = [(path, structured_artifact(path)) for path in paths]
+    plans = [
+        (path, data)
+        for path, data in artifacts
+        if isinstance(data, dict)
+        and {"plan_id", "expected_source_count", "evaluation", "validation", "albums"} <= set(data)
+    ]
+    receipts = [
+        data
+        for _, data in artifacts
+        if isinstance(data, dict)
+        and {"plan_id", "source_count", "execution_fingerprint", "albums"} <= set(data)
+    ]
+    for plan_path, plan in plans:
+        plan_digest = file_sha256(plan_path)
+        if not plan_matches_release(plan, state, expected_plan_id, plan_digest):
+            continue
+        for receipt in receipts:
+            fingerprint = receipt.get("execution_fingerprint", {})
+            receipt_path = next(
+                path
+                for path, data in artifacts
+                if data is receipt
+            )
+            phase_launch = state.get("launch_bindings", {}).get(phase, {})
+            try:
+                require_receipt(receipt)
+                require_plan_match(
+                    receipt,
+                    plan,
+                    plan_digest,
+                    state.get("helper_binding", {}).get("app_bundle_identifier"),
+                    state.get("helper_binding", {}).get("app_binary_sha256"),
+                )
+            except (KeyError, TypeError, ValueError):
+                continue
+            if (
+                receipt.get("plan_id") == expected_plan_id
+                and receipt.get("source_album_identifier") == state.get("source_album_identifier")
+                and receipt.get("source_count") == state.get("expected_source_count")
+                and receipt.get("source_identifier_sha256") == state.get("source_identifier_sha256")
+                and fingerprint.get("plan_sha256") == plan_digest
+                and re.fullmatch(r"[a-f0-9]{64}", str(fingerprint.get("app_binary_sha256", "")))
+                and re.fullmatch(
+                    r"[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)+",
+                    str(fingerprint.get("app_bundle_identifier", "")),
+                )
+                and receipt.get("completed_at")
+                and receipt.get("execution_nonce") == phase_launch.get("execution_nonce")
+                and isinstance(receipt.get("albums"), list)
+                and receipt["albums"]
+            ):
+                if phase == "production_rerun":
+                    first = state.get("production_binding", {})
+                    if (
+                        file_sha256(receipt_path) == first.get("first_receipt_sha256")
+                        or receipt.get("completed_at") == first.get("first_completed_at")
+                    ):
+                        continue
+                return True
+    return False
+
+
+def verification_evidence_matches(phase: str, paths: list[Path], state: dict) -> bool:
+    if phase == "write_test_verification":
+        expected_plan_id = f"{state.get('version', '')}-write-test"
+        binding = state.get("write_test_binding", {})
+        expected_receipt = binding.get("receipt_sha256")
+    else:
+        expected_plan_id = f"{state.get('version', '')}-production"
+        binding = state.get("production_binding", {})
+        expected_receipt = binding.get("second_receipt_sha256")
+    for path in paths:
+        data = structured_artifact(path)
+        if (
+            isinstance(data, dict)
+            and data.get("status") == "PASS"
+            and data.get("verification_kind") == "wal-aware-live-snapshot"
+            and data.get("plan_id") == expected_plan_id
+            and data.get("plan_sha256") == binding.get("plan_sha256")
+            and data.get("receipt_sha256") == expected_receipt
+            and data.get("source_album_identifier") == state.get("source_album_identifier")
+            and data.get("source_count") == state.get("expected_source_count")
+            and data.get("source_identifier_sha256") == state.get("source_identifier_sha256")
+        ):
+            return True
+    return False
+
+
+def idempotence_evidence_matches(paths: list[Path], state: dict) -> bool:
+    binding = state.get("production_binding", {})
+    for path in paths:
+        data = structured_artifact(path)
+        if (
+            isinstance(data, dict)
+            and data.get("status") == "PASS"
+            and data.get("verification_kind") == "wal-aware-live-snapshot"
+            and data.get("plan_id") == f"{state.get('version', '')}-production"
+            and data.get("plan_sha256") == binding.get("plan_sha256")
+            and data.get("first_receipt_sha256") == binding.get("first_receipt_sha256")
+            and data.get("second_receipt_sha256") == binding.get("second_receipt_sha256")
+            and data.get("source_album_identifier") == state.get("source_album_identifier")
+            and data.get("source_identifier_sha256") == state.get("source_identifier_sha256")
+        ):
+            return True
+    return False
+
+
+def phase_evidence_matches(phase: str, paths: list[Path], state: dict | None = None) -> bool:
+    """Recognize one minimally meaningful artifact for a completed phase."""
+    state = state or {}
+    if phase in {"write_test", "production_commit", "production_rerun"}:
+        return write_evidence_matches(phase, paths, state)
+    if phase in {"write_test_verification", "independent_verification"}:
+        return verification_evidence_matches(phase, paths, state)
+    if phase == "idempotence_verification":
+        return idempotence_evidence_matches(paths, state)
+    sha256 = re.compile(r"[a-f0-9]{64}")
+    for path in paths:
+        if path.stat().st_size < 1:
+            continue
+        data = structured_artifact(path)
+        if phase == "brief" and path.suffix.lower() in {".md", ".txt"}:
+            text = path.read_text(encoding="utf-8", errors="replace").strip().lower()
+            if len(text.split()) >= 8 and sum(term in text for term in ("target", "source", "safety", "brief")) >= 2:
+                return True
+        elif phase == "retrieval" and isinstance(data, list) and data:
+            if all(isinstance(row, dict) and (row.get("uuid") or row.get("asset_identifier")) for row in data):
+                return True
+        elif phase == "local_inspection" and isinstance(data, list) and data:
+            evidence_fields = {"labels", "ocr_text", "safety_flags", "visible_observation", "preview_exported"}
+            if all(
+                isinstance(row, dict)
+                and (row.get("uuid") or row.get("asset_identifier"))
+                and evidence_fields.intersection(row)
+                for row in data
+            ):
+                return True
+        elif phase == "recursive_evaluation" and isinstance(data, dict):
+            required = {
+                "passed",
+                "proposal_id",
+                "master_sha256",
+                "feedback_sha256",
+                "config_sha256",
+                "sample_sha256",
+            }
+            if (
+                required <= set(data)
+                and data["passed"] is True
+                and re.fullmatch(r"pfp-[a-f0-9]{16}", str(data["proposal_id"]))
+                and sha256.fullmatch(str(data["master_sha256"]))
+                and sha256.fullmatch(str(data["feedback_sha256"]))
+                and sha256.fullmatch(str(data["config_sha256"]))
+                and sha256.fullmatch(str(data["sample_sha256"]))
+                and (
+                    not state.get("release_binding")
+                    or all(
+                        data.get(field) == state["release_binding"].get(field)
+                        for field in (
+                            "proposal_id",
+                            "master_sha256",
+                            "feedback_sha256",
+                            "config_sha256",
+                            "sample_sha256",
+                        )
+                    )
+                )
+            ):
+                return True
+        elif phase == "validation" and isinstance(data, dict):
+            required = {"status", "errors", "master_sha256", "safety_sha256"}
+            if (
+                required <= set(data)
+                and data["status"] == "PASS"
+                and data["errors"] == []
+                and sha256.fullmatch(str(data["master_sha256"]))
+                and sha256.fullmatch(str(data["safety_sha256"]))
+                and data["master_sha256"] == state.get("release_binding", {}).get("master_sha256")
+                and (
+                    not state.get("release_binding", {}).get("safety_sha256")
+                    or data["safety_sha256"] == state["release_binding"]["safety_sha256"]
+                )
+            ):
+                return True
+    return False
+
+
 def dump_json(path: Path, value: object) -> None:
     secure_directory(path.parent)
     path.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -140,6 +391,11 @@ def master_sha256(rows: list[dict[str, str]]) -> str:
         {
             "uuid": str(row["uuid"]),
             "assigned_view": str(row.get("assigned_view") or row.get("primary_view") or ""),
+            **(
+                {"config_sha256": str(row["config_sha256"])}
+                if row.get("config_sha256")
+                else {}
+            ),
         }
         for row in rows
     ]
@@ -263,15 +519,52 @@ def command_status(args: argparse.Namespace) -> int:
     state_path = workspace / "run-state.json"
     state = json.loads(state_path.read_text(encoding="utf-8"))
     issues = []
-    for relative, record in state.get("artifacts", {}).items():
+    artifacts = state.get("artifacts", {})
+    completed_phases = []
+    seen_phase_artifacts = set()
+    encountered_pending = False
+    for phase in RUN_PHASES:
+        phase_record = state.get("phases", {}).get(phase, {})
+        completed = phase_record.get("status") == "completed"
+        if not completed:
+            encountered_pending = True
+            continue
+        completed_phases.append(phase)
+        if encountered_pending:
+            issues.append(f"completed phase follows an incomplete phase: {phase}")
+        phase_artifacts = phase_record.get("artifacts")
+        if not isinstance(phase_artifacts, list) or not phase_artifacts:
+            issues.append(f"completed phase has no evidence artifacts: {phase}")
+            continue
+        for relative in phase_artifacts:
+            if relative in seen_phase_artifacts:
+                issues.append(f"artifact is reused across completed phases: {relative}")
+            seen_phase_artifacts.add(relative)
+            if relative not in artifacts:
+                issues.append(f"phase references an unrecorded artifact: {relative}")
+    for relative, record in artifacts.items():
         try:
             path = safe_workspace_file(workspace, workspace / relative)
         except ValueError:
             issues.append(f"missing or unsafe artifact: {relative}")
             continue
+        if path.stat().st_size < 1:
+            issues.append(f"artifact is empty: {relative}")
         if path.stat().st_size != int(record["bytes"]) or file_sha256(path) != record["sha256"]:
             issues.append(f"artifact changed after phase completion: {relative}")
-    state["artifact_integrity"] = "PASS" if not issues else "FAIL"
+    for phase in completed_phases:
+        relative_paths = state["phases"][phase].get("artifacts", [])
+        paths = []
+        for relative in relative_paths:
+            try:
+                paths.append(safe_workspace_file(workspace, workspace / relative))
+            except ValueError:
+                continue
+        if paths and not phase_evidence_matches(phase, paths, state):
+            issues.append(f"completed phase lacks recognizable evidence: {phase}")
+    state["artifact_integrity"] = (
+        "FAIL" if issues else "PASS" if completed_phases else "NOT-STARTED"
+    )
     state["artifact_integrity_issues"] = issues
     print(json.dumps(state, indent=2, ensure_ascii=False))
     return 0 if not issues else 2
@@ -283,6 +576,12 @@ def command_advance(args: argparse.Namespace) -> int:
     state = json.loads(state_path.read_text(encoding="utf-8"))
     if args.phase not in RUN_PHASES:
         raise ValueError(f"unknown run phase: {args.phase}")
+    if args.phase in {
+        "write_test_verification",
+        "idempotence_verification",
+        "independent_verification",
+    } and not getattr(args, "_verified_by_command", False):
+        raise ValueError("verification phases must be completed with verify-phase")
     phase_index = RUN_PHASES.index(args.phase)
     incomplete = [
         phase
@@ -291,16 +590,89 @@ def command_advance(args: argparse.Namespace) -> int:
     ]
     if incomplete:
         raise ValueError(f"cannot complete {args.phase}; earlier phases pending: {', '.join(incomplete)}")
+    if not args.artifact:
+        raise ValueError(f"cannot complete {args.phase} without evidence artifacts")
     records = []
+    recorded = set(state.get("artifacts", {}))
+    seen = set()
     for value in args.artifact:
         path = safe_workspace_file(workspace, value)
+        if path.stat().st_size < 1:
+            raise ValueError(f"evidence artifact must be non-empty: {path}")
+        relative = str(path.relative_to(workspace))
+        if relative in seen or relative in recorded:
+            raise ValueError(f"artifact must be unique to this phase: {relative}")
+        seen.add(relative)
         records.append(
             {
-                "path": str(path.relative_to(workspace)),
+                "path": relative,
                 "bytes": path.stat().st_size,
                 "sha256": file_sha256(path),
             }
         )
+    artifact_paths = [workspace / record["path"] for record in records]
+    if not phase_evidence_matches(args.phase, artifact_paths, state):
+        raise ValueError(f"cannot complete {args.phase} without recognizable phase evidence")
+    if args.phase == "recursive_evaluation":
+        report = next(
+            data
+            for data in (structured_artifact(path) for path in artifact_paths)
+            if isinstance(data, dict) and data.get("passed") is True
+        )
+        state["release_binding"] = {
+            field: report[field]
+            for field in (
+                "proposal_id",
+                "master_sha256",
+                "feedback_sha256",
+                "config_sha256",
+                "sample_sha256",
+            )
+        }
+    elif args.phase == "validation":
+        report = next(
+            data
+            for data in (structured_artifact(path) for path in artifact_paths)
+            if isinstance(data, dict) and data.get("status") == "PASS"
+        )
+        state["release_binding"]["safety_sha256"] = report["safety_sha256"]
+    elif args.phase in {"write_test", "production_commit", "production_rerun"}:
+        structured = [(path, structured_artifact(path)) for path in artifact_paths]
+        plan_path, plan = next(
+            (path, data)
+            for path, data in structured
+            if isinstance(data, dict) and "expected_source_count" in data
+        )
+        receipt_path, receipt = next(
+            (path, data)
+            for path, data in structured
+            if isinstance(data, dict) and "source_count" in data
+        )
+        binding = {
+            "plan_id": plan["plan_id"],
+            "plan_sha256": file_sha256(plan_path),
+            "receipt_sha256": file_sha256(receipt_path),
+            "completed_at": receipt["completed_at"],
+            "execution_nonce": receipt["execution_nonce"],
+        }
+        if args.phase == "write_test":
+            state["write_test_binding"] = binding
+        elif args.phase == "production_commit":
+            state["production_binding"] = {
+                "plan_id": binding["plan_id"],
+                "plan_sha256": binding["plan_sha256"],
+                "first_receipt_sha256": binding["receipt_sha256"],
+                "first_completed_at": binding["completed_at"],
+                "first_execution_nonce": binding["execution_nonce"],
+            }
+        else:
+            state["production_binding"].update(
+                {
+                    "second_receipt_sha256": binding["receipt_sha256"],
+                    "second_completed_at": binding["completed_at"],
+                    "second_execution_nonce": binding["execution_nonce"],
+                }
+            )
     completed_at = datetime.now().astimezone().isoformat(timespec="seconds")
     state["phases"][args.phase] = {
         "status": "completed",
@@ -413,7 +785,15 @@ def snapshot_plan(args: argparse.Namespace, plan_id: str, folders: list[dict], a
         "evaluation": {
             "proposal_id": args.proposal_id,
             "master_sha256": args.master_sha256,
+            "feedback_sha256": args.feedback_sha256,
+            "config_sha256": args.config_sha256,
+            "sample_sha256": args.sample_sha256,
             "passed": True,
+        },
+        "validation": {
+            "status": "PASS",
+            "master_sha256": args.master_sha256,
+            "safety_sha256": args.safety_sha256,
         },
         "hold_asset_identifiers": args.hold_ids,
         "safety_mode": "create-folders-albums-and-add-membership-only",
@@ -451,21 +831,61 @@ def command_snapshot_plans(args: argparse.Namespace) -> int:
         raise ValueError(f"master overlaps HOLD by {len(overlap)} IDs")
     if not all(row.get("selection_reason") or row.get("selection_reasons") or row.get("editorial_reasons") for row in master_rows):
         raise ValueError("every master row must have a selection reason")
+    core_plan_path = args.workspace / "manifests" / f"{args.version}-core-catalog-plan.json"
+    cli = profile_path(args.profile_data, "photo_fieldwork_cli")
+    command = [
+        str(cli),
+        "plan",
+        "--master", str(args.master),
+        "--holds", str(args.holds),
+        "--feedback", str(args.feedback),
+        "--config", str(args.config),
+        "--evaluation-report", str(args.evaluation_report),
+        "--validation-report", str(args.validation_report),
+        "--plan-id", f"{args.version}-core",
+        "--source-title", "Frozen Apple Photos source",
+        "--source-identifier", source_id,
+        "--source-count", str(source_count),
+        "--source-sha256", str(source_sha256),
+        "--output", str(core_plan_path),
+    ]
+    completed = subprocess.run(command, capture_output=True, text=True, check=False)
+    if completed.returncode:
+        detail = completed.stderr.strip() or completed.stdout.strip() or "unknown core planner failure"
+        raise ValueError(f"snapshot plans require an exact passing release bundle: {detail}")
+    core_plan = json.loads(core_plan_path.read_text(encoding="utf-8"))
     digest = master_sha256(master_rows)
     proposal_id = f"pfp-{digest[:16]}"
-    evaluation = json.loads(args.evaluation_report.read_text(encoding="utf-8"))
-    if not evaluation.get("passed"):
-        raise ValueError("snapshot plans require a passing final evaluation")
-    if evaluation.get("master_sha256") != digest or evaluation.get("proposal_id") != proposal_id:
-        raise ValueError("final evaluation does not match exact master membership and assignments")
+    if core_plan.get("master_sha256") != digest or core_plan.get("proposal_id") != proposal_id:
+        raise ValueError("core catalog plan does not match exact master membership and assignments")
     args.master_sha256 = digest
     args.proposal_id = proposal_id
+    args.feedback_sha256 = core_plan["evaluation"]["feedback_sha256"]
+    args.config_sha256 = core_plan["evaluation"]["config_sha256"]
+    args.sample_sha256 = core_plan["evaluation"]["sample_sha256"]
+    args.safety_sha256 = core_plan["validation"]["safety_sha256"]
+
+    state_path = args.workspace / "run-state.json"
+    if not state_path.is_file():
+        raise ValueError("snapshot plans require an initialized run-state.json")
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    if state.get("phases", {}).get("validation", {}).get("status") != "completed":
+        raise ValueError("snapshot plans require completed validation")
+    expected_release = {
+        "proposal_id": args.proposal_id,
+        "master_sha256": args.master_sha256,
+        "feedback_sha256": args.feedback_sha256,
+        "config_sha256": args.config_sha256,
+        "sample_sha256": args.sample_sha256,
+        "safety_sha256": args.safety_sha256,
+    }
+    if state.get("release_binding") != expected_release:
+        raise ValueError("snapshot plans do not match the run's validated release binding")
 
     by_view: dict[str, list[str]] = {}
     view_labels = {}
-    if args.config:
-        config = json.loads(args.config.read_text(encoding="utf-8"))
-        view_labels = {str(view["id"]): str(view["label"]) for view in config.get("views", [])}
+    config = json.loads(args.config.read_text(encoding="utf-8"))
+    view_labels = {str(view["id"]): str(view["label"]) for view in config.get("views", [])}
     for row in master_rows:
         view = row.get(args.view_column, "").strip() or "00"
         by_view.setdefault(view, []).append(base_identifier(row["uuid"]))
@@ -524,6 +944,15 @@ def command_snapshot_plans(args: argparse.Namespace) -> int:
     production_path = args.workspace / "manifests" / f"{args.version}-production-plan.json"
     dump_json(test_path, test)
     dump_json(production_path, production)
+    state["write_plan_sha256"] = {
+        "write_test": file_sha256(test_path),
+        "production": file_sha256(production_path),
+    }
+    state["helper_binding"] = {
+        "app_bundle_identifier": args.profile_data["bundle_id"],
+        "app_binary_sha256": file_sha256(profile_path(args.profile_data, "app_executable")),
+    }
+    dump_json(state_path, state)
     print(f"test_plan={test_path}")
     print(f"production_plan={production_path}")
     print(f"production_albums={len(production_albums)}")
@@ -533,9 +962,43 @@ def command_snapshot_plans(args: argparse.Namespace) -> int:
 
 def command_run_plan(args: argparse.Namespace) -> int:
     app = profile_path(args.profile_data, "app_path")
-    plan_path = args.plan.resolve()
+    workspace = args.workspace.resolve()
+    state = json.loads((workspace / "run-state.json").read_text(encoding="utf-8"))
+    plan_path = safe_workspace_file(workspace, args.plan)
     plan = json.loads(plan_path.read_text(encoding="utf-8"))
-    receipt_path = Path(plan["receipt_path"])
+    receipt_path = Path(plan["receipt_path"]).resolve()
+    if workspace not in receipt_path.parents:
+        raise ValueError("receipt path must remain inside the run workspace")
+    version = str(state.get("version", ""))
+    if plan.get("source_album_identifier") != state.get("source_album_identifier"):
+        raise ValueError("write plan source does not match run state")
+    if plan.get("source_identifier_sha256") != state.get("source_identifier_sha256"):
+        raise ValueError("write plan source digest does not match run state")
+    if plan.get("expected_source_count") != state.get("expected_source_count"):
+        raise ValueError("write plan source count does not match run state")
+    if plan.get("operation") == "inspect-local-images":
+        required_phase = "retrieval"
+        pending_phase = "local_inspection"
+    elif plan.get("plan_id") == f"{version}-write-test":
+        required_phase = "validation"
+        pending_phase = "write_test"
+    elif plan.get("plan_id") == f"{version}-production":
+        if state["phases"].get("production_commit", {}).get("status") != "completed":
+            required_phase = "write_test_verification"
+            pending_phase = "production_commit"
+        else:
+            required_phase = "production_commit"
+            pending_phase = "production_rerun"
+    else:
+        raise ValueError("write plan ID does not match the run version")
+    if plan.get("operation") != "inspect-local-images" and not plan_matches_release(
+        plan, state, str(plan["plan_id"]), file_sha256(plan_path)
+    ):
+        raise ValueError("write plan does not match the exact validated release candidate")
+    if state["phases"].get(required_phase, {}).get("status") != "completed":
+        raise ValueError(f"cannot run plan before completed phase: {required_phase}")
+    if state["phases"].get(pending_phase, {}).get("status") == "completed":
+        raise ValueError(f"write phase is already completed: {pending_phase}")
     if not app.is_dir():
         raise ValueError(f"permissioned app not found: {app}")
     before = receipt_path.stat().st_mtime_ns if receipt_path.exists() else None
@@ -547,7 +1010,17 @@ def command_run_plan(args: argparse.Namespace) -> int:
         preserved = history / f"{receipt_path.stem}-{stamp}{receipt_path.suffix}"
         shutil.copy2(receipt_path, preserved)
         preserved.chmod(0o600)
-    command = ["/usr/bin/open", "-W", "-n", str(app), "--args", "--plan", str(plan_path)]
+    execution_nonce = secrets.token_hex(16)
+    state.setdefault("launch_bindings", {})[pending_phase] = {
+        "execution_nonce": execution_nonce,
+        "plan_sha256": file_sha256(plan_path),
+        "started_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+    }
+    dump_json(workspace / "run-state.json", state)
+    command = [
+        "/usr/bin/open", "-W", "-n", str(app), "--args", "--plan", str(plan_path),
+        "--launch-nonce", execution_nonce,
+    ]
     print("launching permissioned helper; this may run for a long time", flush=True)
     completed = subprocess.run(command, check=False)
     if completed.returncode:
@@ -558,6 +1031,8 @@ def command_run_plan(args: argparse.Namespace) -> int:
     if before is not None and before == after:
         raise ValueError(f"receipt was not refreshed: {receipt_path}")
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    if receipt.get("execution_nonce") != execution_nonce:
+        raise ValueError("helper receipt does not match the bridge launch nonce")
     receipt["execution_fingerprint"] = {
         "app_bundle_identifier": args.profile_data["bundle_id"],
         "app_binary_sha256": file_sha256(profile_path(args.profile_data, "app_executable")),
@@ -568,6 +1043,62 @@ def command_run_plan(args: argparse.Namespace) -> int:
         print(f"preserved_receipt={preserved}")
     print(json.dumps(receipt, indent=2, ensure_ascii=False))
     return 0
+
+
+def command_verify_phase(args: argparse.Namespace) -> int:
+    workspace = args.workspace.resolve()
+    plan = safe_workspace_file(workspace, args.plan)
+    report = args.report.expanduser().absolute().resolve()
+    if workspace not in report.parents:
+        raise ValueError("verification report must remain inside the run workspace")
+    secure_directory(report.parent)
+    scripts = Path(__file__).resolve().parent
+    common = [
+        "--plan", str(plan),
+        "--app-binary", str(profile_path(args.profile_data, "app_executable")),
+        "--bundle-id", str(args.profile_data["bundle_id"]),
+        "--photos-db", str(profile_path(args.profile_data, "photos_db")),
+        "--report", str(report),
+    ]
+    if args.phase == "idempotence_verification":
+        if args.first_receipt is None or args.second_receipt is None:
+            raise ValueError("idempotence verification requires first and second receipts")
+        first = safe_workspace_file(workspace, args.first_receipt)
+        second = safe_workspace_file(workspace, args.second_receipt)
+        command = [
+            sys.executable,
+            str(scripts / "compare_receipts.py"),
+            "--first", str(first),
+            "--second", str(second),
+            *common,
+        ]
+    else:
+        if args.receipt is None:
+            raise ValueError("catalog verification requires a receipt")
+        receipt = safe_workspace_file(workspace, args.receipt)
+        command = [
+            sys.executable,
+            str(scripts / "verify_photos_commit.py"),
+            "--receipt", str(receipt),
+            "--plan", str(plan),
+            "--photos-db", str(profile_path(args.profile_data, "photos_db")),
+            "--report", str(report),
+        ]
+    completed = subprocess.run(command, capture_output=True, text=True, check=False)
+    if completed.returncode:
+        detail = completed.stderr.strip() or completed.stdout.strip() or "verification failed"
+        raise ValueError(detail)
+    machine_report = report.with_suffix(".json")
+    if not machine_report.is_file():
+        raise ValueError("verifier did not emit machine-readable evidence")
+    return command_advance(
+        argparse.Namespace(
+            workspace=workspace,
+            phase=args.phase,
+            artifact=[machine_report],
+            _verified_by_command=True,
+        )
+    )
 
 
 def parser() -> argparse.ArgumentParser:
@@ -622,8 +1153,10 @@ def parser() -> argparse.ArgumentParser:
     plans.add_argument("--version", required=True)
     plans.add_argument("--folder-title", required=True)
     plans.add_argument("--view-column", default="primary_view")
-    plans.add_argument("--config", type=Path)
+    plans.add_argument("--config", type=Path, required=True)
+    plans.add_argument("--feedback", type=Path, required=True)
     plans.add_argument("--evaluation-report", type=Path, required=True)
+    plans.add_argument("--validation-report", type=Path, required=True)
     plans.add_argument("--source-id")
     plans.add_argument("--source-count", type=int)
     plans.add_argument("--source-sha256")
@@ -631,15 +1164,38 @@ def parser() -> argparse.ArgumentParser:
     plans.set_defaults(func=command_snapshot_plans)
 
     run = sub.add_parser("run-plan", help="launch a plan through the stable permissioned app bundle")
+    run.add_argument("--workspace", type=Path, required=True)
     run.add_argument("--plan", type=Path, required=True)
     run.set_defaults(func=command_run_plan)
+
+    verify_phase = sub.add_parser(
+        "verify-phase", help="run live verification and advance its governed phase"
+    )
+    verify_phase.add_argument("--workspace", type=Path, required=True)
+    verify_phase.add_argument(
+        "--phase",
+        choices=[
+            "write_test_verification",
+            "idempotence_verification",
+            "independent_verification",
+        ],
+        required=True,
+    )
+    verify_phase.add_argument("--plan", type=Path, required=True)
+    verify_phase.add_argument("--receipt", type=Path)
+    verify_phase.add_argument("--first-receipt", type=Path)
+    verify_phase.add_argument("--second-receipt", type=Path)
+    verify_phase.add_argument("--report", type=Path, required=True)
+    verify_phase.set_defaults(func=command_verify_phase)
     return root
 
 
 def main() -> int:
     args = parser().parse_args()
     try:
-        if args.command in {"doctor", "init-run", "inspection-plan", "snapshot-plans", "run-plan"}:
+        if args.command in {
+            "doctor", "init-run", "inspection-plan", "snapshot-plans", "run-plan", "verify-phase"
+        }:
             args.profile_data = load_profile(args.profile)
         return args.func(args)
     except (OSError, ValueError, json.JSONDecodeError) as error:

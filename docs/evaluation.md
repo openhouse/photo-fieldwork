@@ -40,6 +40,42 @@ The goal is not to prove the selector is intelligent. The goal is to discover wh
 
 Passing the gate means the corpus is ready for editors. It does not mean every category assignment is factually proven.
 
-An evaluation report is bound to the exact master membership and view
-assignments through `master_sha256` and `proposal_id`. A catalog plan is refused
-when the reviewed proposal does not match the current master.
+An evaluation report is bound to the exact source, configuration, master
+membership, view assignments, deterministic review sample, and freshly
+inspected review rows through `config_sha256`, `master_sha256`, `proposal_id`,
+`sample_sha256`, and `feedback_sha256`. A catalog plan recomputes that report
+from feedback and recomputes validation from the master and HOLD manifest. It
+is refused when any source, policy, sample, inspection, assignment, review, or
+safety fact differs.
+
+The sample itself is part of the candidate. It is regenerated from the frozen
+configuration, not chosen ad hoc after seeing the result. Each completed row
+names an absolute, non-symlink local inspection artifact. Its digest is
+recomputed and bound to the exact round and sample. This proves that the named
+artifact was present; it does not prove the reviewer looked carefully, that the
+judgment is correct, or that publication is approved.
+
+## Skill regression evals
+
+The public synthetic bank at
+`skills/curate-apple-photos/evals/evals.json` tests the full operating contract
+under adversarial pressure. Run its structural and coverage check with:
+
+```bash
+python3 skills/curate-apple-photos/scripts/check_evals.py
+```
+
+Run the allowlisted executable canaries with:
+
+```bash
+make evals
+```
+
+`STRUCTURAL-PASS` covers schema, coverage, fixtures, and recomputable canaries.
+`EXECUTABLE-PASS` covers the referenced unit and synthetic end-to-end checks.
+Neither result grades a model's required artifacts or proves human inspection,
+rights clearance, consent, or publication approval.
+
+Use the recursive protocol in the eval README when changing the skill. Grade
+from artifacts and refusal behavior, inspect false passes first, and rerun every
+critical safety canary after each revision.

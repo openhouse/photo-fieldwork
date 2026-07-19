@@ -77,7 +77,10 @@ photo-fieldwork select \
   --output RUN
 ```
 
-2. Create a score-stratified sample from every view. For the first round, inspect at least 3 per view and at least 36 overall. Later rounds should normally inspect 60-100 images across low, middle, and high scores.
+2. Set `evaluation_sample_per_view` before selection, then create the
+   deterministic score-stratified sample from every view. For the first round,
+   inspect at least 3 per view and at least 36 overall. Later rounds should
+   normally inspect 60-100 images across low, middle, and high scores.
 3. Build contact sheets with `make_contact_sheets.py`. Use `view_image` to inspect every page. Open individual previews when context or safety is unclear.
 4. Speak briefly as the requested peers. If Jamie cannot review, role-play Jamie using the supplied brief and voice references, while marking the judgment as delegated editorial inference rather than eyewitness fact.
 5. Record `fit`, `reject`, or `uncertain`, one visible reason, a safety state, and an error category in the evaluation CSV.
@@ -98,14 +101,23 @@ Do not claim success from Vision labels or metadata alone. The recursive loop re
 
 1. Run `photo-fieldwork validate`. Save a PASS report.
 2. Generate test and production plans with `photo_archive_bridge.py
-   snapshot-plans`, passing the final evaluation report. The command refuses an
-   evaluation whose proposal hash differs from the exact master.
+   snapshot-plans`, passing the final feedback, evaluation report, HOLD
+   manifest, and validation report. The command routes through the core planner
+   and refuses any release bundle that differs from the exact source,
+   configuration, master, deterministic sample, feedback, or HOLD manifest.
 3. Inspect the plans. Confirm the source count, target count, folder title, HOLD separation, and that operations are membership-only.
 4. Run the ten-item write test through the app. Independently verify it with `verify_photos_commit.py`.
-5. Run the production plan through the app. Rerun it once to confirm idempotence.
-6. Independently verify every album against the plan. The verifier must create
+5. Run the production plan through the app. Rerun it once, then compare both
+   receipts against the same plan and configured helper with
+   `compare_receipts.py --plan ... --app-binary ... --bundle-id ... --photos-db
+   ...` before claiming receipt consistency. The comparator runs independent
+   read-only catalog verification for both receipts before comparing them.
+6. Independently verify every folder and album, including collection types and
+   parent-child relationships, against the plan. The verifier must create
    a WAL-aware consistent snapshot from a live read-only connection before it
    opens the frozen snapshot as immutable and query-only.
+   Use `photo_archive_bridge.py verify-phase`; ordinary `advance` calls cannot
+   complete verification phases from a supplied PASS document.
 7. Update `run-state.json` after each phase and write a completion report containing exact counts, identifiers, evaluation results, privacy facts, and unresolved uncertainty.
 
 The helper invocation may require a Codex permission approval for `open -W`; request a reusable approval scoped to `/Applications/Jamie Photo Archive.app`. The app's Photos permission itself should persist under its stable bundle identity.
@@ -122,3 +134,12 @@ Return:
 - links to the run README, master manifest, evaluation report, app receipt, and independent verification.
 
 State clearly that this is an editor-ready field, not the final publication edit.
+
+## Maintain the contract
+
+When changing this skill, run the synthetic regression bank in
+[`evals/evals.json`](evals/evals.json) and follow its
+[`README.md`](evals/README.md). Hill climb against observed false passes: make
+the oracle more discriminating, add the smallest adversarial case that captures
+the failure, and rerun every critical safety canary. Never improve a benchmark
+by weakening source, human-review, privacy, publication, or verification gates.

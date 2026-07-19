@@ -41,4 +41,8 @@ The selector accepts UTF-8 CSV. Unknown columns are preserved. Boolean values ma
 | `publication_state` | Defaults to `publication-review-required`; selection never grants permission. |
 
 The selector writes `primary_view`, `score_total`, `selection_tier`,
-`selection_reason`, `master_sha256`, and `proposal_id` into the proposed master.
+`selection_reason`, `config_sha256`, `master_sha256`, and `proposal_id` into the
+proposed master. Evaluation rows additionally bind `round_id`, `sample_sha256`,
+`inspection_path`, `inspection_sha256`, `inspection_round_id`, and
+`inspection_sample_sha256` to real local artifacts for the deterministic review
+sample.

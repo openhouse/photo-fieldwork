@@ -64,7 +64,9 @@ Use a read-only mechanism distinct from the writer to compare planned and actual
 
 For Apple Photos, create a WAL-aware consistent snapshot before immutable
 verification. Compare first and second app receipts for identical source,
-helper fingerprint, folder IDs, album IDs, and counts.
+helper fingerprint, folder IDs, album IDs, and counts. Each receipt must carry a
+different bridge-generated launch nonce; changing a timestamp does not prove a
+second execution.
 
 ## 12. Hand off honestly
 

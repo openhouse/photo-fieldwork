@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "plan": {
+    "plan_id": "SYNTHETIC-PLAN",
+    "source_album_identifier": "SYNTHETIC-SOURCE",
+    "expected_source_count": 4,
+    "source_identifier_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "safety_mode": "membership-only",
+    "folders": [{"key": "root", "title": "Synthetic Root"}],
+    "albums": [{"title": "Master", "asset_identifiers": ["A", "B", "C", "D"]}]
+  },
+  "first_and_second_receipt": {
+    "plan_id": "SYNTHETIC-PLAN",
+    "source_album_identifier": "SYNTHETIC-SOURCE",
+    "source_count": 4,
+    "source_identifier_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "safety_mode": "membership-only",
+    "folders": [{"key": "root", "title": "Synthetic Root", "identifier": "SYNTHETIC-FOLDER/L0/040"}],
+    "albums": [{"title": "Master", "identifier": "SYNTHETIC-ALBUM/L0/040", "count": 3}],
+    "execution_fingerprint": {
+      "app_bundle_identifier": "org.example.synthetic",
+      "app_binary_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "plan_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    }
+  },
+  "expected": "FAIL-BEFORE-EQUALITY"
+}

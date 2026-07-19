@@ -51,11 +51,13 @@ make check
 
 ./bin/photo-fieldwork sample \
   --master runs/my-run/manifests/proposed-master.csv \
+  --config path/to/config.json \
   --output runs/my-run/manifests/eval-sample.csv \
-  --per-view 3
+  --round-id round-01
 
 ./bin/photo-fieldwork evaluate \
   --feedback runs/my-run/manifests/eval-sample.csv \
+  --master runs/my-run/manifests/proposed-master.csv \
   --config path/to/config.json \
   --output runs/my-run/reports
 
@@ -67,11 +69,16 @@ make check
 
 ./bin/photo-fieldwork plan \
   --master runs/my-run/manifests/proposed-master.csv \
+  --holds runs/my-run/manifests/hold-sensitive.csv \
+  --feedback runs/my-run/manifests/eval-sample.csv \
   --config path/to/config.json \
   --evaluation-report runs/my-run/reports/evaluation-report.json \
+  --validation-report runs/my-run/reports/validation-report.json \
   --plan-id my-run-v01 \
   --source-title "Wide retrieval - do not edit" \
   --source-identifier SOURCE-ID \
+  --source-count SOURCE-COUNT \
+  --source-sha256 SOURCE-IDENTIFIER-SHA256 \
   --output runs/my-run/manifests/catalog-plan.json
 ```
 

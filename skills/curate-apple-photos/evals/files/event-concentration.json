@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "master_count": 10,
+  "event_counts": {"EVENT-ONE": 8, "EVENT-TWO": 1, "UNKNOWN": 1},
+  "maximum_event_fraction": 0.5,
+  "event_metadata_complete": false,
+  "expected": "NEEDS-REVIEW"
+}

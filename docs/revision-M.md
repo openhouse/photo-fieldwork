@@ -29,12 +29,29 @@ performs a final publication edit.
 - Retrieval hypotheses and editorial assignment are separate fields.
 - Deterministic constrained maximum flow satisfies exact view quotas and emits
   infeasibility diagnostics.
-- Exact membership and assignments generate `master_sha256` and `proposal_id`.
-- Evaluation is bound to that proposal and enforces per-view coverage,
-  decisive-sample, precision, uncertainty, and Wilson interval reporting.
-- Catalog plans require a passing evaluation for the exact proposal.
-- Ordered run phases maintain a SHA-256 artifact ledger.
-- First and second app receipts can be compared for idempotence.
+- Exact source, configuration, membership, and assignments generate
+  `config_sha256`, `master_sha256`, and `proposal_id`.
+- Evaluation is bound to that proposal and its deterministic, freshly inspected
+  sample; it enforces per-view coverage, decisive-sample, precision,
+  uncertainty, and Wilson interval reporting.
+- Every evaluated row names a real local inspection artifact whose digest is
+  recomputed and bound to the exact round and deterministic sample.
+- Catalog plans recompute evaluation from the exact feedback and validation
+  from the exact master and HOLD manifest before accepting a release bundle.
+- Ordered run phases require unique SHA-256-tracked evidence artifacts; release
+  gates must pass and write phases bind the exact plan, receipt, source, and
+  evaluation candidate. An untouched ledger reports `NOT-STARTED`, not `PASS`.
+- First and second app receipts must represent distinct executions, are
+  validated for real identities and hashes, reconciled with the exact plan,
+  and only then compared for idempotence against fresh live-catalog evidence.
+- Generated write plans are registered by exact digest before launch; each app
+  execution is bound to a bridge-generated nonce recorded in its receipt.
+- Independent verification checks collection kinds and folder/album parentage,
+  and emits candidate-bound machine evidence through a governed `verify-phase`
+  command rather than accepting a user-authored PASS marker.
+- A public synthetic bank exercises 24 adversarial cases through 11 fixture and
+  30 allowlisted executable canaries, while keeping human and publication gates
+  explicit.
 - `make check` validates the core tests, skill scripts, JSON contracts, and
   Swift helper.
 
@@ -60,8 +77,9 @@ that was actually exercised and verified.
 2. Rebuild the inventory through a WAL-aware snapshot.
 3. Freeze the source count and identifier digest into the profile and run.
 4. Recreate evaluation samples because proposal identity now includes exact
-   assignments.
-5. Pass the final evaluation report when building a catalog plan.
+   source, policy, assignments, and sample membership.
+5. Pass the final feedback, evaluation report, HOLD manifest, and validation
+   report when building a catalog plan.
 6. Run the ten-item test, production write, idempotent rerun, receipt
    comparison, and independent verification.
 

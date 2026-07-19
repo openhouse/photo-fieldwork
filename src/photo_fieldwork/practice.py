@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 from pathlib import Path
 
@@ -69,6 +70,17 @@ def practice_feedback(sample_path: Path) -> None:
         row["visible_reason"] = "Synthetic visible reason for workflow validation only."
         row["reviewer_lens"] = "synthetic-practice"
         row["error_category"] = "retrieval-mismatch" if index == 3 else "visible-fit"
+        inspection_path = sample_path.parent.parent / "previews" / "evaluation" / f"{row['uuid']}.txt"
+        inspection_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        inspection_path.write_text(
+            f"Synthetic inspection artifact for {row['uuid']} in {row['round_id']}.\n",
+            encoding="utf-8",
+        )
+        inspection_path.chmod(0o600)
+        row["inspection_path"] = str(inspection_path.resolve())
+        row["inspection_sha256"] = hashlib.sha256(inspection_path.read_bytes()).hexdigest()
+        row["inspection_round_id"] = row["round_id"]
+        row["inspection_sample_sha256"] = row["sample_sha256"]
     with sample_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
