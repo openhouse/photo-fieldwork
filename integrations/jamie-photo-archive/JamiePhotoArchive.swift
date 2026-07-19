@@ -1,10 +1,85 @@
 import Foundation
 import AppKit
+import CryptoKit
 import Photos
 import Vision
 
+let visibleLibraryStillsSourceIdentifier = "visible-library-stills://v1"
+
+func baseIdentifier(_ value: String) -> String {
+    String(value.split(separator: "/", maxSplits: 1).first ?? Substring(value))
+}
+
+func membershipSHA256(_ fetch: PHFetchResult<PHAsset>) -> String {
+    var identifiers: [String] = []
+    identifiers.reserveCapacity(fetch.count)
+    fetch.enumerateObjects { asset, _, _ in
+        identifiers.append(baseIdentifier(asset.localIdentifier))
+    }
+    let payload = identifiers.sorted().joined(separator: "\n") + "\n"
+    return SHA256.hash(data: Data(payload.utf8))
+        .map { String(format: "%02x", $0) }
+        .joined()
+}
+
+func dataSHA256(_ data: Data) -> String {
+    SHA256.hash(data: data)
+        .map { String(format: "%02x", $0) }
+        .joined()
+}
+
+func fetchSourceAssets(identifier: String) throws -> (PHFetchResult<PHAsset>, String) {
+    if identifier == visibleLibraryStillsSourceIdentifier {
+        let options = PHFetchOptions()
+        options.includeHiddenAssets = false
+        return (
+            PHAsset.fetchAssets(with: .image, options: options),
+            "Visible Apple Photos library — still photographs"
+        )
+    }
+    guard let album = PHAssetCollection.fetchAssetCollections(
+        withLocalIdentifiers: [identifier], options: nil
+    ).firstObject else {
+        throw ArchiveError.unresolved("album \(identifier)")
+    }
+    return (PHAsset.fetchAssets(in: album, options: nil), album.localizedTitle ?? "source")
+}
+
 struct PlanHeader: Codable {
     let operation: String?
+}
+
+struct PreflightPlan: Codable {
+    let operation: String
+    let schema_version: Int
+    let plan_id: String
+    let source_album_identifier: String
+    let expected_source_count: Int?
+    let sample_asset_identifier: String?
+    let receipt_path: String
+    let network_access_allowed: Bool
+}
+
+struct PreflightReceipt: Codable {
+    let completed_at: String
+    let plan_id: String
+    let status: String
+    let helper_bundle_identifier: String?
+    let helper_version: String?
+    let authorization_status: Int
+    let authorization_granted: Bool
+    let source_album_identifier: String
+    let source_title: String?
+    let source_count: Int?
+    let expected_source_count: Int?
+    let source_count_matches: Bool?
+    let sample_asset_identifier: String?
+    let sample_asset_resolved: Bool
+    let sample_pixel_available_locally: Bool
+    let network_access_allowed: Bool
+    let external_uploads_performed: Bool
+    let capabilities: [String]
+    let errors: [String]
 }
 
 struct FolderSpec: Codable {
@@ -25,9 +100,14 @@ struct SnapshotPlan: Codable {
     let operation: String?
     let schema_version: Int
     let plan_id: String
+    let execution_kind: String
+    let catalog_plan_sha256: String
+    let adapter_plan_sha256: String
+    let execution_nonce: String
     let safety_mode: String
     let source_album_identifier: String
     let expected_source_count: Int
+    let source_membership_sha256: String
     let batch_size: Int
     let log_path: String
     let receipt_path: String
@@ -42,6 +122,7 @@ struct InspectionPlan: Codable {
     let safety_mode: String
     let source_album_identifier: String
     let expected_source_count: Int
+    let source_membership_sha256: String
     let asset_identifiers: [String]
     let output_jsonl_path: String
     let receipt_path: String
@@ -50,6 +131,8 @@ struct InspectionPlan: Codable {
     let target_long_edge: Int
     let export_previews: Bool
     let ocr_all: Bool
+    let classify_all: Bool?
+    let detect_faces: Bool?
     let network_access_allowed: Bool
 }
 
@@ -77,6 +160,7 @@ struct InspectionReceipt: Codable {
     let plan_id: String
     let source_album_identifier: String
     let source_count: Int
+    let source_membership_sha256: String
     let requested_count: Int
     let completed_count: Int
     let pixel_available_count: Int
@@ -101,11 +185,21 @@ struct AlbumReceipt: Codable {
 }
 
 struct SnapshotReceipt: Codable {
+    let status: String
     let completed_at: String
     let plan_id: String
+    let execution_kind: String
+    let execution_nonce: String
+    let plan_sha256: String
+    let adapter_plan_sha256: String
+    let runtime_plan_sha256: String
     let source_album_identifier: String
     let source_count: Int
+    let source_membership_sha256: String
     let safety_mode: String
+    let writer: String
+    let source_verified_by_writer: Bool
+    let independent_verification_required: Bool
     let folders: [FolderReceipt]
     let albums: [AlbumReceipt]
 }
@@ -142,6 +236,121 @@ enum ArchiveError: Error, CustomStringConvertible {
         case .inspection(let reason):
             return "Inspection failed: \(reason)"
         }
+    }
+}
+
+final class PreflightRunner {
+    private let plan: PreflightPlan
+
+    init(plan: PreflightPlan) {
+        self.plan = plan
+    }
+
+    func run() -> PreflightReceipt {
+        var errors: [String] = []
+        let authorization = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        let authorized = authorization == .authorized
+        var sourceTitle: String?
+        var sourceCount: Int?
+        var countMatches: Bool?
+        var sampleIdentifier = plan.sample_asset_identifier
+        var sampleResolved = false
+        var samplePixelAvailable = false
+
+        if plan.schema_version != 1 {
+            errors.append("unsupported preflight schema_version")
+        }
+        if plan.operation != "preflight-read-only" {
+            errors.append("unrecognized preflight operation")
+        }
+        if plan.network_access_allowed {
+            errors.append("network access must remain disabled")
+        }
+        if !authorized {
+            errors.append("full Photos authorization unavailable")
+        } else {
+            do {
+                let (source, title) = try fetchSourceAssets(identifier: plan.source_album_identifier)
+                sourceTitle = title
+                sourceCount = source.count
+                if let expected = plan.expected_source_count {
+                    countMatches = source.count == expected
+                    if source.count != expected {
+                        errors.append("source count does not match the frozen expectation")
+                    }
+                }
+                if sampleIdentifier == nil {
+                    sampleIdentifier = source.firstObject?.localIdentifier
+                }
+                if let sampleIdentifier {
+                    let fetch = PHAsset.fetchAssets(
+                        withLocalIdentifiers: [sampleIdentifier], options: nil
+                    )
+                    if let asset = fetch.firstObject {
+                        sampleResolved = true
+                        samplePixelAvailable = requestLocalSample(asset)
+                        if !samplePixelAvailable {
+                            errors.append("sample pixel unavailable locally with network disabled")
+                        }
+                    } else {
+                        errors.append("sample asset could not be resolved")
+                    }
+                } else {
+                    errors.append("source contains no sample asset")
+                }
+            } catch {
+                errors.append(String(describing: error))
+            }
+        }
+
+        return PreflightReceipt(
+            completed_at: ISO8601DateFormatter().string(from: Date()),
+            plan_id: plan.plan_id,
+            status: errors.isEmpty ? "PASS" : "FAIL",
+            helper_bundle_identifier: Bundle.main.bundleIdentifier,
+            helper_version: Bundle.main.object(
+                forInfoDictionaryKey: "CFBundleShortVersionString"
+            ) as? String,
+            authorization_status: authorization.rawValue,
+            authorization_granted: authorized,
+            source_album_identifier: plan.source_album_identifier,
+            source_title: sourceTitle,
+            source_count: sourceCount,
+            expected_source_count: plan.expected_source_count,
+            source_count_matches: countMatches,
+            sample_asset_identifier: sampleIdentifier,
+            sample_asset_resolved: sampleResolved,
+            sample_pixel_available_locally: samplePixelAvailable,
+            network_access_allowed: plan.network_access_allowed,
+            external_uploads_performed: false,
+            capabilities: [
+                "preflight-read-only",
+                "inspect-local-images",
+                "snapshot-membership",
+                "candidate-bound-snapshot-v2",
+                "visible-library-stills-v1",
+                "resumable-inspection-jsonl",
+            ],
+            errors: errors
+        )
+    }
+
+    private func requestLocalSample(_ asset: PHAsset) -> Bool {
+        let options = PHImageRequestOptions()
+        options.isSynchronous = true
+        options.isNetworkAccessAllowed = false
+        options.deliveryMode = .fastFormat
+        options.resizeMode = .fast
+        var available = false
+        PHImageManager.default().requestImage(
+            for: asset,
+            targetSize: CGSize(width: 64, height: 64),
+            contentMode: .aspectFit,
+            options: options
+        ) { image, _ in
+            available = image != nil
+        }
+        return available
     }
 }
 
@@ -199,14 +408,17 @@ final class InspectionRunner {
         }
 
         try requireAuthorization()
-        let source = try fetchAlbum(identifier: plan.source_album_identifier)
-        let sourceFetch = PHAsset.fetchAssets(in: source, options: nil)
+        let (sourceFetch, sourceTitle) = try fetchSourceAssets(identifier: plan.source_album_identifier)
         guard sourceFetch.count == plan.expected_source_count else {
             throw ArchiveError.membershipMismatch(
-                source.localizedTitle ?? "source",
+                sourceTitle,
                 plan.expected_source_count,
                 sourceFetch.count
             )
+        }
+        let sourceDigest = membershipSHA256(sourceFetch)
+        guard sourceDigest == plan.source_membership_sha256 else {
+            throw ArchiveError.invalidPlan("inspection source membership digest mismatch")
         }
         var sourceIdentifiers = Set<String>()
         sourceFetch.enumerateObjects { asset, _, _ in
@@ -226,7 +438,11 @@ final class InspectionRunner {
         if !FileManager.default.fileExists(atPath: outputURL.path) {
             FileManager.default.createFile(atPath: outputURL.path, contents: Data())
         }
-        let completed = try completedIdentifiers(at: outputURL)
+        let completedRows = try completedRows(at: outputURL)
+        let completed = Set(completedRows.map(\.asset_identifier))
+        guard completed.isSubset(of: unique) else {
+            throw ArchiveError.inspection("existing inspection output contains identifiers outside this plan")
+        }
         let outputHandle = try FileHandle(forWritingTo: outputURL)
         defer { try? outputHandle.close() }
         try outputHandle.seekToEnd()
@@ -238,11 +454,11 @@ final class InspectionRunner {
             )
         }
 
-        var completedCount = completed.count
-        var pixelAvailableCount = 0
-        var previewExportedCount = 0
-        var sensitiveHoldCount = 0
-        var unavailableCount = 0
+        var completedCount = completedRows.count
+        var pixelAvailableCount = completedRows.filter(\.pixel_available).count
+        var previewExportedCount = completedRows.filter(\.preview_exported).count
+        var sensitiveHoldCount = completedRows.filter { $0.safety_state == "hold" }.count
+        var unavailableCount = completedRows.filter { !$0.pixel_available }.count
         let fetch = PHAsset.fetchAssets(withLocalIdentifiers: plan.asset_identifiers, options: nil)
         guard fetch.count == plan.asset_identifiers.count else {
             throw ArchiveError.membershipMismatch("inspection fetch", plan.asset_identifiers.count, fetch.count)
@@ -278,6 +494,7 @@ final class InspectionRunner {
             plan_id: plan.plan_id,
             source_album_identifier: plan.source_album_identifier,
             source_count: sourceFetch.count,
+            source_membership_sha256: sourceDigest,
             requested_count: plan.asset_identifiers.count,
             completed_count: completedCount,
             pixel_available_count: pixelAvailableCount,
@@ -313,17 +530,23 @@ final class InspectionRunner {
         return album
     }
 
-    private func completedIdentifiers(at url: URL) throws -> Set<String> {
+    private func completedRows(at url: URL) throws -> [InspectionRow] {
         guard let contents = try? String(contentsOf: url, encoding: .utf8) else { return [] }
+        let lines = contents.split(separator: "\n")
+        var rows: [InspectionRow] = []
         var identifiers = Set<String>()
-        for line in contents.split(separator: "\n") {
+        for (index, line) in lines.enumerated() {
             guard let data = line.data(using: .utf8),
                   let row = try? JSONDecoder().decode(InspectionRow.self, from: data) else {
-                continue
+                if index == lines.count - 1 { continue }
+                throw ArchiveError.inspection("invalid existing inspection row \(index + 1)")
             }
-            identifiers.insert(row.asset_identifier)
+            guard identifiers.insert(row.asset_identifier).inserted else {
+                throw ArchiveError.inspection("duplicate existing inspection row \(row.asset_identifier)")
+            }
+            rows.append(row)
         }
-        return identifiers
+        return rows
     }
 
     private func inspect(_ asset: PHAsset) -> InspectionRow {
@@ -355,14 +578,16 @@ final class InspectionRunner {
         var faceCount = 0
         var errors: [String] = []
 
-        do {
-            let request = VNClassifyImageRequest()
-            try VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])
-            let results = (request.results ?? []).filter { $0.confidence >= 0.05 }.prefix(20)
-            labels = results.map { $0.identifier }
-            confidences = results.map { $0.confidence }
-        } catch {
-            errors.append("classification unavailable")
+        if plan.classify_all ?? true {
+            do {
+                let request = VNClassifyImageRequest()
+                try VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])
+                let results = (request.results ?? []).filter { $0.confidence >= 0.05 }.prefix(20)
+                labels = results.map { $0.identifier }
+                confidences = results.map { $0.confidence }
+            } catch {
+                errors.append("classification unavailable")
+            }
         }
 
         if plan.ocr_all {
@@ -377,12 +602,14 @@ final class InspectionRunner {
             }
         }
 
-        do {
-            let request = VNDetectFaceRectanglesRequest()
-            try VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])
-            faceCount = request.results?.count ?? 0
-        } catch {
-            errors.append("face count unavailable")
+        if plan.detect_faces ?? true {
+            do {
+                let request = VNDetectFaceRectanglesRequest()
+                try VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])
+                faceCount = request.results?.count ?? 0
+            } catch {
+                errors.append("face count unavailable")
+            }
         }
 
         let recognizedText = textLines.joined(separator: " ")
@@ -480,10 +707,12 @@ final class InspectionRunner {
 final class ArchiveRunner {
     private let library = PHPhotoLibrary.shared()
     private let plan: SnapshotPlan
+    private let runtimePlanSHA256: String
     private var folderByKey: [String: PHCollectionList] = [:]
 
-    init(plan: SnapshotPlan) {
+    init(plan: SnapshotPlan, runtimePlanSHA256: String) {
         self.plan = plan
+        self.runtimePlanSHA256 = runtimePlanSHA256
     }
 
     func log(_ message: String) {
@@ -509,6 +738,27 @@ final class ArchiveRunner {
         guard plan.schema_version == 1 else {
             throw ArchiveError.invalidPlan("unsupported schema_version")
         }
+        guard plan.catalog_plan_sha256.range(
+            of: "^[0-9a-f]{64}$",
+            options: .regularExpression
+        ) != nil else {
+            throw ArchiveError.invalidPlan("invalid catalog_plan_sha256")
+        }
+        guard ["write-test", "production"].contains(plan.execution_kind) else {
+            throw ArchiveError.invalidPlan("invalid execution_kind")
+        }
+        guard plan.adapter_plan_sha256.range(
+            of: "^[0-9a-f]{64}$",
+            options: .regularExpression
+        ) != nil else {
+            throw ArchiveError.invalidPlan("invalid adapter_plan_sha256")
+        }
+        guard plan.execution_nonce.range(
+            of: "^[0-9a-f]{32}$",
+            options: .regularExpression
+        ) != nil else {
+            throw ArchiveError.invalidPlan("invalid execution_nonce")
+        }
         guard plan.safety_mode == "create-folders-albums-and-add-membership-only" else {
             throw ArchiveError.invalidPlan("unrecognized safety_mode")
         }
@@ -516,14 +766,18 @@ final class ArchiveRunner {
             throw ArchiveError.invalidPlan("batch_size outside 1...2000")
         }
         try requireAuthorization()
-        let source = try fetchAlbum(identifier: plan.source_album_identifier)
-        let sourceCount = PHAsset.fetchAssets(in: source, options: nil).count
+        let (sourceFetch, sourceTitle) = try fetchSourceAssets(identifier: plan.source_album_identifier)
+        let sourceCount = sourceFetch.count
         guard sourceCount == plan.expected_source_count else {
             throw ArchiveError.membershipMismatch(
-                source.localizedTitle ?? "source",
+                sourceTitle,
                 plan.expected_source_count,
                 sourceCount
             )
+        }
+        let sourceDigest = membershipSHA256(sourceFetch)
+        guard sourceDigest == plan.source_membership_sha256 else {
+            throw ArchiveError.invalidPlan("writer source membership digest mismatch")
         }
         log("verified_source count=\(sourceCount)")
 
@@ -561,11 +815,21 @@ final class ArchiveRunner {
         }
 
         return SnapshotReceipt(
+            status: "completed",
             completed_at: ISO8601DateFormatter().string(from: Date()),
             plan_id: plan.plan_id,
+            execution_kind: plan.execution_kind,
+            execution_nonce: plan.execution_nonce,
+            plan_sha256: plan.catalog_plan_sha256,
+            adapter_plan_sha256: plan.adapter_plan_sha256,
+            runtime_plan_sha256: runtimePlanSHA256,
             source_album_identifier: plan.source_album_identifier,
             source_count: sourceCount,
+            source_membership_sha256: sourceDigest,
             safety_mode: plan.safety_mode,
+            writer: "PhotoKit membership adapter",
+            source_verified_by_writer: true,
+            independent_verification_required: true,
             folders: folderReceipts,
             albums: albumReceipts
         )
@@ -744,7 +1008,7 @@ final class ArchiveRunner {
     }
 }
 
-func writeReceipt(_ receipt: SnapshotReceipt, to path: String) throws {
+func writeReceipt<T: Encodable>(_ receipt: T, to path: String) throws {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     let data = try encoder.encode(receipt)
@@ -765,7 +1029,15 @@ do {
     let planURL = URL(fileURLWithPath: arguments[planIndex + 1])
     let planData = try Data(contentsOf: planURL)
     let header = try JSONDecoder().decode(PlanHeader.self, from: planData)
-    if header.operation == "inspect-local-images" {
+    if header.operation == "preflight-read-only" {
+        let plan = try JSONDecoder().decode(PreflightPlan.self, from: planData)
+        let receipt = PreflightRunner(plan: plan).run()
+        try writeReceipt(receipt, to: plan.receipt_path)
+        if receipt.status != "PASS" {
+            fputs("Photo Fieldwork preflight failed; see \(plan.receipt_path)\n", stderr)
+            exit(2)
+        }
+    } else if header.operation == "inspect-local-images" {
         let plan = try JSONDecoder().decode(InspectionPlan.self, from: planData)
         let runner = InspectionRunner(plan: plan)
         let receipt = try runner.run()
@@ -779,8 +1051,22 @@ do {
         try encoder.encode(receipt).write(to: receiptURL, options: .atomic)
         runner.log("completed receipt=\(plan.receipt_path)")
     } else {
+        guard let digestIndex = arguments.firstIndex(of: "--plan-sha256"),
+              arguments.indices.contains(digestIndex + 1) else {
+            throw ArchiveError.invalidPlan("snapshot execution requires --plan-sha256")
+        }
+        let authorizedPlanSHA256 = arguments[digestIndex + 1]
+        guard authorizedPlanSHA256.range(
+            of: "^[0-9a-f]{64}$",
+            options: .regularExpression
+        ) != nil else {
+            throw ArchiveError.invalidPlan("invalid --plan-sha256")
+        }
+        guard dataSHA256(planData) == authorizedPlanSHA256 else {
+            throw ArchiveError.invalidPlan("runtime plan bytes do not match --plan-sha256")
+        }
         let plan = try JSONDecoder().decode(SnapshotPlan.self, from: planData)
-        let runner = ArchiveRunner(plan: plan)
+        let runner = ArchiveRunner(plan: plan, runtimePlanSHA256: authorizedPlanSHA256)
         let receipt = try runner.run()
         try writeReceipt(receipt, to: plan.receipt_path)
         runner.log("completed receipt=\(plan.receipt_path)")
