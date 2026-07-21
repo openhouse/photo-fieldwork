@@ -12,6 +12,10 @@ Non-negotiable invariants:
 - Treat project labels as retrieval hypotheses until visible evidence or external provenance supports them.
 - Use aesthetic scores only to choose among near-identical burst or duplicate-cluster members.
 - Require a small write test and read-only post-write verification before declaring a catalog commit complete.
+- Keep completed machine profiles, source and folder identifiers, Photos paths,
+  and snapshots outside tracked source.
+- Bind final evaluation and catalog plans to the same exact proposal hash.
+- Include committed WAL content through a live read-only SQLite backup before
+  immutable verification.
 
 Run `make check` after changes. Keep the standard-library-only practice workflow working on a fresh Python 3.11+ installation.
-

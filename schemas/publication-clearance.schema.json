@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Photo Fieldwork private publication clearance row",
+  "type": "object",
+  "required": [
+    "uuid",
+    "proposal_id",
+    "master_sha256",
+    "publication_status",
+    "rights_status",
+    "consent_status",
+    "claim_status",
+    "safety_status",
+    "public_destination",
+    "reviewer_actor",
+    "reviewer_lens",
+    "review_date"
+  ],
+  "properties": {
+    "uuid": {"type": "string", "minLength": 1},
+    "filename": {"type": "string"},
+    "primary_view": {"type": "string"},
+    "proposal_id": {"type": "string", "pattern": "^pfp-[a-f0-9]{16}$"},
+    "master_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "publication_status": {
+      "enum": ["not-reviewed", "hold", "cleared-for-specific-use", "published"]
+    },
+    "rights_status": {
+      "enum": ["unknown", "owner-verified", "licensed", "public-domain", "blocked"]
+    },
+    "consent_status": {
+      "enum": ["unknown", "cleared-for-use", "not-applicable", "blocked"]
+    },
+    "claim_status": {
+      "enum": ["caption-review", "visible-only", "provenance-backed", "blocked"]
+    },
+    "safety_status": {"enum": ["human-needs-review", "clear", "hold"]},
+    "caption": {"type": "string"},
+    "alt_text": {"type": "string"},
+    "credit": {"type": "string"},
+    "crop": {"type": "string"},
+    "focal_point": {"type": "string"},
+    "page_slot": {"type": "string"},
+    "public_destination": {"type": "string"},
+    "reviewer_actor": {"type": "string"},
+    "reviewer_lens": {"enum": ["", "human-review", "delegated-editorial-inference"]},
+    "review_date": {"type": "string"}
+  },
+  "additionalProperties": false
+}

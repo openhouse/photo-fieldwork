@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "app_path": "/Applications/Photo Fieldwork Archive.app",
+  "app_executable": "/Applications/Photo Fieldwork Archive.app/Contents/MacOS/PhotoFieldworkArchive",
+  "bundle_id": "example.photo-fieldwork.archive",
+  "workspace_root": "/Users/your-name/Documents/Photo-Fieldwork-Runs",
+  "inventory_db": "/Users/your-name/Documents/Photo-Fieldwork-Runs/shared/inventory.sqlite",
+  "photos_db": "/path/to/Photos Library.photoslibrary/database/Photos.sqlite",
+  "photo_fieldwork_cli": "/path/to/photo-fieldwork/bin/photo-fieldwork",
+  "default_source": {
+    "kind": "visible-library-stills",
+    "identifier": "visible-library-stills://v1",
+    "expected_count": 1,
+    "identifier_sha256": null
+  },
+  "folders": {
+    "root": {
+      "title": "PHOTO FIELDWORK",
+      "identifier": null
+    },
+    "private": {
+      "title": "90 PRIVATE REVIEW - DO NOT SHARE",
+      "identifier": null
+    },
+    "audit": {
+      "title": "99 WRITE TESTS - AUDIT",
+      "identifier": null
+    }
+  }
+}

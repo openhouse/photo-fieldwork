@@ -3,19 +3,23 @@
 Photo Fieldwork keeps archive-specific access separate from archive-independent judgment.
 
 ```text
-Catalog reader or filesystem scanner
+Frozen source profile + catalog reader
               |
               v
        inventory.csv
               |
               v
- deterministic selector ---> hold-sensitive.csv
+ retrieval hypotheses ---> deterministic constrained assignment
+                                   |
+                                   v
+                         selector ---> hold-sensitive.csv
               |
               v
-   proposed-master.csv
-        |            |
-        v            v
- evaluation loop   catalog-plan.json
+ proposed-master.csv + proposal hash
+        |            |                 |
+        v            v                 v
+ verified offline   bound catalog-    default-closed
+ review + evaluation plan.json        clearance ledger
                          |
                          v
                  catalog writer adapter
@@ -29,6 +33,20 @@ Catalog reader or filesystem scanner
 The standard-library Python core reads a normalized CSV, applies immutable safety exclusions, reduces duplicate and burst clusters, assigns editor views, creates selection reasons, samples evaluations, measures results, validates invariants, and emits an adapter-neutral catalog plan.
 
 The core does not read a Photos database, open images, call a model, or mutate a catalog.
+
+The core keeps retrieval hypotheses separate from explicit assignment. Exact
+membership plus assignments produce a stable proposal hash. Evaluation and
+catalog plans must reference the same hash.
+
+The private review layer accepts only digest-verified previews inside an
+explicit root. It copies them under content-derived names into an offline field,
+requires complete visible judgments, and keeps delegated inference distinct
+from named human review.
+
+The publication layer is a separate projection. It starts closed, binds each
+decision to the exact proposal and destination, and emits only an allowlisted
+public-safe row with a destination-specific opaque identifier. Editor-field
+membership never implies rights, consent, safety, or publication approval.
 
 ## Reader adapters
 
@@ -53,6 +71,17 @@ A writer consumes `catalog-plan.json`. It may create version folders, create alb
 ## Verifier adapters
 
 A verifier independently compares plan and catalog. It should be read-only and should not share mutation code with the writer.
+
+The Apple Photos verifier creates a consistent backup from a live read-only,
+query-only connection so committed WAL content is included. It then verifies
+only against the frozen immutable snapshot.
+
+## Run state
+
+The skill bridge records ordered phases and a SHA-256 ledger of the artifacts
+that complete each phase. Run directories and sensitive artifacts are private
+by default. The ledger supports interruption and review without making the
+mutable Photos catalog itself the only record of what happened.
 
 ## Extension points
 

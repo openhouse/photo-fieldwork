@@ -17,6 +17,16 @@ Use a documented tool such as `osxphotos` or a read-only library API to inventor
 
 Read installed local help before assuming command syntax. Do not upgrade tools during a production run.
 
+## Frozen source profiles
+
+Production runs may use either one immutable source album or the visible,
+non-hidden, non-trashed still-photo library. Initialization freezes the source
+identifier, exact count, and SHA-256 digest of sorted asset identifiers. The
+digest proves source continuity without exposing the identifiers themselves.
+
+Personal paths, source IDs, protected folder IDs, and counts belong in the
+private machine profile, never tracked source.
+
 ## Aesthetic scores
 
 Apple aesthetic scores may help choose among photographs already known to be near-identical members of the same burst or duplicate cluster. They should come after the default burst pick, favorite, and edited status as appropriate to the archive owner.
@@ -54,3 +64,12 @@ After writing, compare planned and actual memberships through an independent rea
 - no HOLD overlap;
 - source count unchanged.
 
+Do not open a live Photos database with `immutable=1` and assume that it is
+current. Immutable SQLite access can ignore committed content still present in
+the write-ahead log. Photo Fieldwork first opens the live database with
+`mode=ro` and `query_only=ON`, uses SQLite backup to create a consistent
+user-private snapshot, closes the live connection, and then opens the frozen
+snapshot with `mode=ro&immutable=1` and `query_only=ON`.
+
+The snapshot is removed after verification unless the operator explicitly
+keeps it for a documented audit. No direct Photos SQLite write is permitted.

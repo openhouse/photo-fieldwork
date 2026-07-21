@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Photo Fieldwork frozen source profile",
+  "type": "object",
+  "required": ["schema_version", "kind", "identifier", "expected_count"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "kind": {"enum": ["album", "visible-library-stills"]},
+    "identifier": {"type": "string", "minLength": 1},
+    "expected_title": {"type": "string"},
+    "expected_count": {"type": "integer", "minimum": 1},
+    "identifier_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "include_hidden": {"type": "boolean"},
+    "include_trashed": {"type": "boolean"},
+    "media_types": {
+      "type": "array",
+      "items": {"enum": ["image", "video"]},
+      "minItems": 1,
+      "uniqueItems": true
+    }
+  },
+  "additionalProperties": false
+}

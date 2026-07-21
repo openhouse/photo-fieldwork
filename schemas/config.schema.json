@@ -2,15 +2,28 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Photo Fieldwork configuration",
   "type": "object",
-  "required": ["seed", "target_count", "unclassified_view", "views"],
+  "required": ["seed", "target_count", "unclassified_view", "evaluation_sample_per_view", "source", "views"],
   "properties": {
     "seed": {"type": "integer"},
     "target_count": {"type": "integer", "minimum": 1},
     "unclassified_view": {"type": "string"},
+    "evaluation_sample_per_view": {"type": "integer", "minimum": 1},
+    "source": {
+      "type": "object",
+      "required": ["identifier", "expected_count", "identifier_sha256"],
+      "properties": {
+        "identifier": {"type": "string", "minLength": 1},
+        "expected_count": {"type": "integer", "minimum": 1},
+        "identifier_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
     "burst_limit": {"type": "integer", "minimum": 1},
     "exploratory_fraction": {"type": "number", "minimum": 0, "maximum": 1},
     "minimum_eval_precision": {"type": "number", "minimum": 0, "maximum": 1},
     "minimum_eval_coverage": {"type": "number", "minimum": 0, "maximum": 1},
+    "minimum_view_eval_precision": {"type": "number", "minimum": 0, "maximum": 1},
+    "minimum_view_eval_sample": {"type": "integer", "minimum": 1},
+    "maximum_eval_uncertainty": {"type": "number", "minimum": 0, "maximum": 1},
     "minimum_named_people_fraction": {"type": "number", "minimum": 0, "maximum": 1},
     "minimum_person_free_fraction": {"type": "number", "minimum": 0, "maximum": 1},
     "views": {
@@ -22,7 +35,9 @@
         "properties": {
           "id": {"type": "string"},
           "label": {"type": "string"},
-          "quota": {"type": "integer", "minimum": 0}
+          "quota": {"type": "integer", "minimum": 0},
+          "evaluation_mode": {"enum": ["material", "sparse-hypothesis"]},
+          "minimum_eval_precision": {"type": "number", "minimum": 0, "maximum": 1}
         }
       }
     }
