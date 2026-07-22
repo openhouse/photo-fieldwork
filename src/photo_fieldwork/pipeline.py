@@ -266,7 +266,8 @@ def cluster_representatives(rows: list[dict[str, str]], config: dict) -> list[di
     singles: list[dict[str, str]] = []
     for row in rows:
         group = (
-            row.get("perceptual_cluster_id", "").strip()
+            row.get("editorial_cluster_id", "").strip()
+            or row.get("perceptual_cluster_id", "").strip()
             or row.get("duplicate_group", "").strip()
             or row.get("duplicate_group_id", "").strip()
         )

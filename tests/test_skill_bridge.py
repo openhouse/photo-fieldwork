@@ -10,6 +10,7 @@ import time
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 from photo_fieldwork.pipeline import (
     evaluate,
@@ -89,6 +90,39 @@ class SkillBridgeTests(unittest.TestCase):
                     poll_interval_seconds=0.005,
                 )
 
+    def test_permissioned_helper_captures_private_diagnostics(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            app = root / "Helper.app"
+            plan = root / "plan.json"
+            receipt = root / "private" / "receipt.json"
+            nonce = "1" * 32
+            expected = {"execution_nonce": nonce}
+            with patch.object(
+                bridge.subprocess,
+                "run",
+                return_value=bridge.subprocess.CompletedProcess([], 0),
+            ) as run, patch.object(
+                bridge,
+                "wait_for_fresh_receipt",
+                return_value=expected,
+            ) as wait:
+                actual = bridge.launch_permissioned_helper(
+                    app=app,
+                    plan_path=plan,
+                    receipt_path=receipt,
+                    execution_nonce=nonce,
+                    before_mtime_ns=None,
+                    timeout_seconds=1,
+                )
+            self.assertEqual(actual, expected)
+            command = run.call_args.args[0]
+            self.assertIn("-o", command)
+            self.assertIn("--stderr", command)
+            stderr_path = wait.call_args.kwargs["stderr_path"]
+            self.assertTrue(stderr_path.is_file())
+            self.assertEqual(stderr_path.stat().st_mode & 0o777, 0o600)
+
     def test_local_identifier_is_canonical(self):
         self.assertEqual(bridge.local_identifier("ABC"), "ABC/L0/001")
         self.assertEqual(bridge.local_identifier("ABC/L0/001"), "ABC/L0/001")
@@ -127,11 +161,16 @@ class SkillBridgeTests(unittest.TestCase):
         }
         folders = bridge.folder_specs(profile, "v-test", include_version=True)
         by_key = {folder["key"]: folder for folder in folders}
+        positions = {folder["key"]: index for index, folder in enumerate(folders)}
         self.assertEqual(by_key["workspace_parent"]["parent_key"], None)
         self.assertEqual(by_key["root"]["parent_key"], "workspace_parent")
         self.assertEqual(by_key["version"]["parent_key"], "root")
         self.assertEqual(by_key["private"]["parent_key"], "root")
         self.assertEqual(by_key["audit"]["parent_key"], "root")
+        self.assertLess(positions["workspace_parent"], positions["root"])
+        self.assertLess(positions["root"], positions["version"])
+        self.assertLess(positions["root"], positions["private"])
+        self.assertLess(positions["root"], positions["audit"])
 
     def test_init_run_is_private_and_advance_hashes_artifacts(self):
         with tempfile.TemporaryDirectory() as temporary:

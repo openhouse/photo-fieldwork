@@ -35,6 +35,10 @@ class PreviewMetadataTests(unittest.TestCase):
         image = FakeImage({40961: 1, 40962: 1280, 40963: 854})
         self.assertFalse(preview.has_source_bearing_exif(image))
 
+    def test_encoder_dimensions_without_optional_color_space_are_not_source_metadata(self):
+        image = FakeImage({40962: 1280, 40963: 854})
+        self.assertFalse(preview.has_source_bearing_exif(image))
+
     def test_source_exif_and_false_dimensions_fail(self):
         source_tag = FakeImage({40961: 1, 40962: 1280, 40963: 854, 36867: "date"})
         wrong_size = FakeImage({40961: 1, 40962: 1200, 40963: 854})

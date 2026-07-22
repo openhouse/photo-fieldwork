@@ -61,7 +61,7 @@ def has_source_bearing_exif(image: Image.Image) -> bool:
     height = nested.get(40963)
     color_space = nested.get(40961)
     return (
-        color_space != 1
+        color_space not in {None, 1}
         or width != image.width
         or height != image.height
     )

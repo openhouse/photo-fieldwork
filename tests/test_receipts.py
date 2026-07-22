@@ -145,6 +145,101 @@ class ReceiptTests(unittest.TestCase):
                     {"snapshot_bytes": database.stat().st_size},
                 )
 
+    def test_existing_anchor_may_have_a_parent_outside_the_plan(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            database = root / "snapshot.sqlite"
+            connection = sqlite3.connect(database)
+            connection.executescript(
+                """
+                CREATE TABLE ZGENERICALBUM(
+                    Z_PK INTEGER PRIMARY KEY,
+                    ZUUID TEXT,
+                    ZTITLE TEXT,
+                    ZKIND INTEGER,
+                    ZPARENTFOLDER INTEGER
+                );
+                CREATE TABLE ZASSET(Z_PK INTEGER PRIMARY KEY, ZUUID TEXT);
+                CREATE TABLE Z_30ASSETS(Z_30ALBUMS INTEGER, Z_3ASSETS INTEGER);
+                INSERT INTO ZGENERICALBUM VALUES (1, 'SYSTEM-ROOT', NULL, 3999, NULL);
+                INSERT INTO ZGENERICALBUM VALUES (2, 'OUTSIDE', 'Photo-Fieldwork', 4000, 1);
+                INSERT INTO ZGENERICALBUM VALUES (3, 'ANCHOR', 'Residency-001', 4000, 2);
+                INSERT INTO ZGENERICALBUM VALUES (4, 'ROOT', 'Workspace-A', 4000, 3);
+                INSERT INTO ZGENERICALBUM VALUES (5, 'SOURCE', 'Source', 2, 4);
+                INSERT INTO ZGENERICALBUM VALUES (6, 'MASTER', 'Master', 2, 4);
+                INSERT INTO ZASSET VALUES (10, 'A');
+                INSERT INTO Z_30ASSETS VALUES (5, 10);
+                INSERT INTO Z_30ASSETS VALUES (6, 10);
+                """
+            )
+            connection.commit()
+            connection.close()
+            source_digest = verify_photos_commit.identifier_digest({"A"})
+            plan = {
+                "plan_id": "nested-anchor-plan",
+                "source_album_identifier": "SOURCE/L0/040",
+                "expected_source_count": 1,
+                "source_identifier_sha256": source_digest,
+                "folders": [
+                    {
+                        "key": "workspace_parent",
+                        "title": "Residency-001",
+                        "parent_key": None,
+                        "existing_identifier": "ANCHOR/L0/020",
+                    },
+                    {
+                        "key": "root",
+                        "title": "Workspace-A",
+                        "parent_key": "workspace_parent",
+                        "existing_identifier": "ROOT/L0/020",
+                    },
+                ],
+                "albums": [
+                    {
+                        "title": "Master",
+                        "parent_folder_key": "root",
+                        "asset_identifiers": ["A/L0/001"],
+                        "safety_role": "editor",
+                    }
+                ],
+            }
+            plan_path = root / "plan.json"
+            plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
+            receipt = {
+                "completed_at": "2026-07-22T01:00:00+00:00",
+                "execution_nonce": "1" * 32,
+                "plan_id": plan["plan_id"],
+                "source_album_identifier": plan["source_album_identifier"],
+                "source_count": 1,
+                "source_identifier_sha256": source_digest,
+                "folders": [
+                    {"key": "workspace_parent", "title": "Residency-001", "identifier": "ANCHOR/L0/020"},
+                    {"key": "root", "title": "Workspace-A", "identifier": "ROOT/L0/020"},
+                ],
+                "albums": [{"title": "Master", "identifier": "MASTER/L0/040", "count": 1}],
+                "execution_fingerprint": {
+                    "plan_sha256": hashlib.sha256(plan_path.read_bytes()).hexdigest()
+                },
+            }
+            receipt_path = root / "receipt.json"
+            receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+            report = root / "private" / "report.md"
+            with redirect_stdout(io.StringIO()):
+                verified_identifiers = verify_photos_commit.verify(
+                    argparse.Namespace(
+                        plan=plan_path,
+                        receipt=receipt_path,
+                        report=report,
+                        include_identifiers=False,
+                    ),
+                    database,
+                    {"snapshot_bytes": database.stat().st_size},
+                )
+            self.assertEqual(
+                verified_identifiers,
+                {"ANCHOR/L0/020", "ROOT/L0/020", "MASTER/L0/040"},
+            )
+
     def test_idempotence_comparison_ignores_completion_time(self):
         source_sha = "a" * 64
         binary_sha = "b" * 64

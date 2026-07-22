@@ -142,6 +142,9 @@ def verify(args: argparse.Namespace, database: Path, snapshot_meta: dict) -> set
             raise RuntimeError(f"expected folder collection kind for {folder['title']}; found {kind}")
         if actual_title != folder["title"]:
             raise RuntimeError(f"folder title mismatch for {folder['title']}")
+        existing_identifier = folder_specs[key].get("existing_identifier")
+        if existing_identifier and base(folder["identifier"]) != base(existing_identifier):
+            raise RuntimeError(f"existing folder identity mismatch for {folder['title']}")
         folder_records[key] = (primary_key, parent_pk)
         verified_identifiers.add(folder["identifier"])
     for key, spec in folder_specs.items():
@@ -151,7 +154,9 @@ def verify(args: argparse.Namespace, database: Path, snapshot_meta: dict) -> set
         parent_matches = (
             actual_parent == expected_parent
             if parent_key
-            else actual_parent is None or is_internal_library_root(conn, actual_parent)
+            else bool(spec.get("existing_identifier"))
+            or actual_parent is None
+            or is_internal_library_root(conn, actual_parent)
         )
         if not parent_matches:
             raise RuntimeError(f"folder parent mismatch for {spec['title']}")

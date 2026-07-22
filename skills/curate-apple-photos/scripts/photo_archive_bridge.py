@@ -466,12 +466,28 @@ def launch_permissioned_helper(
     before_mtime_ns: int | None,
     timeout_seconds: float,
 ) -> dict:
+    diagnostics = receipt_path.parent / "helper-diagnostics"
+    secure_directory(diagnostics)
+    stdout_path = diagnostics / f"{receipt_path.stem}.stdout.log"
+    stderr_path = diagnostics / f"{receipt_path.stem}.stderr.log"
+    temporary = Path("/private/tmp") / f"photo-fieldwork-helper-{execution_nonce}"
+    secure_directory(temporary)
+    temporary_stdout = temporary / "stdout.log"
+    temporary_stderr = temporary / "stderr.log"
+    for path in (temporary_stdout, temporary_stderr):
+        secure_text(path, "")
     command = [
-        "/usr/bin/open", "-W", "-n", str(app),
+        "/usr/bin/open", "-W", "-n", "-o", str(temporary_stdout),
+        "--stderr", str(temporary_stderr), str(app),
         "--args", "--plan", str(plan_path),
         "--launch-nonce", execution_nonce,
     ]
-    completed = subprocess.run(command, check=False)
+    try:
+        completed = subprocess.run(command, check=False)
+        secure_text(stdout_path, temporary_stdout.read_text(encoding="utf-8", errors="replace"))
+        secure_text(stderr_path, temporary_stderr.read_text(encoding="utf-8", errors="replace"))
+    finally:
+        shutil.rmtree(temporary, ignore_errors=True)
     if completed.returncode:
         raise ValueError(f"helper launcher failed with exit code {completed.returncode}")
     return wait_for_fresh_receipt(
@@ -479,6 +495,7 @@ def launch_permissioned_helper(
         before_mtime_ns=before_mtime_ns,
         execution_nonce=execution_nonce,
         timeout_seconds=timeout_seconds,
+        stderr_path=stderr_path,
     )
 
 
@@ -874,46 +891,49 @@ def command_inspection_plan(args: argparse.Namespace) -> int:
 def folder_specs(profile: dict, version_title: str, include_version: bool) -> list[dict]:
     protected = profile["folders"]
     workspace_parent = profile.get("workspace_parent")
-    folders = [
-        {
-            "key": "root",
-            "title": protected["root"]["title"],
-            "parent_key": "workspace_parent" if workspace_parent else None,
-            "existing_identifier": protected["root"].get("identifier"),
-        },
-        {
-            "key": "private",
-            "title": protected["private"]["title"],
-            "parent_key": "root",
-            "existing_identifier": protected["private"].get("identifier"),
-        },
-        {
-            "key": "audit",
-            "title": protected["audit"]["title"],
-            "parent_key": "root",
-            "existing_identifier": protected["audit"].get("identifier"),
-        },
-    ]
+    folders = []
     if workspace_parent:
-        folders.insert(
-            0,
+        folders.append(
             {
                 "key": "workspace_parent",
                 "title": workspace_parent["title"],
                 "parent_key": None,
                 "existing_identifier": workspace_parent["identifier"],
-            },
+            }
         )
+    folders.append(
+        {
+            "key": "root",
+            "title": protected["root"]["title"],
+            "parent_key": "workspace_parent" if workspace_parent else None,
+            "existing_identifier": protected["root"].get("identifier"),
+        }
+    )
     if include_version:
-        folders.insert(
-            1,
+        folders.append(
             {
                 "key": "version",
                 "title": version_title,
                 "parent_key": "root",
                 "existing_identifier": None,
-            },
+            }
         )
+    folders.extend(
+        [
+            {
+            "key": "private",
+            "title": protected["private"]["title"],
+            "parent_key": "root",
+            "existing_identifier": protected["private"].get("identifier"),
+            },
+            {
+                "key": "audit",
+                "title": protected["audit"]["title"],
+                "parent_key": "root",
+                "existing_identifier": protected["audit"].get("identifier"),
+            },
+        ]
+    )
     return folders
 
 

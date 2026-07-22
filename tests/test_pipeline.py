@@ -9,9 +9,11 @@ from pathlib import Path
 
 from photo_fieldwork.pipeline import (
     build_catalog_plan,
+    cluster_representatives,
     evaluate,
     is_hold,
     make_sample,
+    propagate_related_holds,
     read_config,
     read_csv,
     select,
@@ -102,6 +104,24 @@ class PipelineTests(unittest.TestCase):
         held_ids = {row["uuid"] for row in holds}
         self.assertTrue({inventory[0]["uuid"], inventory[1]["uuid"], inventory[2]["uuid"]} <= held_ids)
         self.assertFalse(held_ids & {row["uuid"] for row in master})
+
+    def test_editorial_clusters_reduce_repetition_without_propagating_holds(self):
+        inventory = deepcopy(self.inventory)
+        inventory[0]["editorial_cluster_id"] = "one-frame-is-enough"
+        inventory[0]["safety_status"] = "hold"
+        inventory[1]["editorial_cluster_id"] = "one-frame-is-enough"
+        inventory[2]["editorial_cluster_id"] = "one-frame-is-enough"
+        prepared = propagate_related_holds(inventory)
+        self.assertEqual(prepared[1]["safety_status"], inventory[1]["safety_status"])
+        self.assertEqual(prepared[2]["safety_status"], inventory[2]["safety_status"])
+        reduced = cluster_representatives(
+            [row for row in prepared if not is_hold(row)], self.config
+        )
+        surviving_ids = {row["uuid"] for row in reduced}
+        self.assertEqual(
+            len(surviving_ids & {inventory[1]["uuid"], inventory[2]["uuid"]}),
+            1,
+        )
 
     def test_incomplete_explicit_assignments_cannot_drift_quotas(self):
         inventory = deepcopy(self.inventory)
