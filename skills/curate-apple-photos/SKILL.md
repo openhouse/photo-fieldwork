@@ -16,7 +16,13 @@ Turn the user's brief into a locally inspected, recursively evaluated, versioned
 
 ```bash
 python3 scripts/photo_archive_bridge.py doctor
+python3 scripts/photo_archive_bridge.py doctor --live
 ```
+
+The second command is the real permission canary: it launches the configured
+app bundle, verifies the frozen source, requests zero images, and performs no
+Photos write. Read [helper-authorization.md](../../docs/helper-authorization.md)
+when authorization or receipt timing is unclear.
 
 3. Read [brief-contract.md](references/brief-contract.md). Convert the pasted brief into:
    - `brief.md`, preserving the user's words;
@@ -127,7 +133,11 @@ Do not claim success from Vision labels or metadata alone. The recursive loop re
    complete verification phases from a supplied PASS document.
 7. Update `run-state.json` after each phase and write a completion report containing exact counts, identifiers, evaluation results, privacy facts, and unresolved uncertainty.
 
-The helper invocation may require a Codex permission approval for `open -W`; request a reusable approval scoped to `/Applications/Jamie Photo Archive.app`. The app's Photos permission itself should persist under its stable bundle identity.
+The helper invocation may require a Codex permission approval for `open -W`;
+request a reusable approval scoped to the app path in the private machine
+profile. LaunchServices may return before the helper emits its receipt, so the
+bridge waits for a fresh receipt carrying the current nonce. The app's Photos
+permission itself should persist under its stable bundle identity.
 
 ## Final response
 

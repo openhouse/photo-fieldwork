@@ -166,6 +166,11 @@ Install the bundled `curate-apple-photos` skill:
 make install-skill
 ```
 
+To test a reviewed branch when the destination is already a skill symlink,
+run `./bin/install-skill --replace-link` from that checkout. The option refuses
+to replace a real file or directory. After the branch is merged, run the same
+command from the canonical checkout to restore the durable `main` target.
+
 Before production use, copy
 `skills/curate-apple-photos/references/machine-profile.example.json` to the
 private path described in
@@ -195,5 +200,6 @@ The app path and bundle identifier are now read from the private machine
 profile; the path above is an example of an existing installation, not a public
 configuration default.
 
-Read [the revision M implementation note](docs/revision-M.md) and
+Read [the revision M implementation note](docs/revision-M.md),
+[the helper authorization guide](docs/helper-authorization.md), and
 [the recovery guide](docs/recovery.md) before running the Apple Photos adapter.

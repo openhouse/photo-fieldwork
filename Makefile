@@ -9,6 +9,7 @@ test:
 	PYTHONPATH=src python3 -m unittest discover -s tests -v
 
 check: test
+	sh -n bin/install-skill
 	PYTHONPATH=src python3 -m compileall -q src tests skills/curate-apple-photos/scripts
 	python3 skills/curate-apple-photos/scripts/check_evals.py
 	python3 -m json.tool config/starter.json >/dev/null

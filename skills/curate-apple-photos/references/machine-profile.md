@@ -13,10 +13,11 @@ source identifiers, and verified library counts in a private JSON profile.
 3. Set the directory to mode `0700` and the profile to mode `0600`.
 4. Freeze the intended source with `freeze_source_profile.py` and copy its
    count and identifier digest into `default_source`.
-5. Run:
+5. Run the static check, then the zero-image live authorization check:
 
 ```bash
 python3 scripts/photo_archive_bridge.py doctor
+python3 scripts/photo_archive_bridge.py doctor --live
 ```
 
 Set `PHOTO_FIELDWORK_PROFILE` or pass `--profile` before the subcommand to use
@@ -52,6 +53,10 @@ repository.
 Always launch plans through the configured `.app` bundle so macOS uses its
 stable Photos permission identity. Replacing or rebuilding the installed app
 is a separate explicit operation because macOS may request authorization again.
+
+Read [the helper authorization guide](../../../docs/helper-authorization.md)
+before diagnosing a permission failure. The live doctor retains a private,
+nonce-bound receipt and performs no Photos catalog write.
 
 Supported operations are:
 

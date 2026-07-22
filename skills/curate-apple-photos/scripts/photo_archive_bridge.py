@@ -15,6 +15,7 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -409,6 +410,107 @@ def safe_slug(value: str) -> str:
     return slug[:48] or "photo-field"
 
 
+def wait_for_fresh_receipt(
+    receipt_path: Path,
+    *,
+    before_mtime_ns: int | None,
+    execution_nonce: str,
+    timeout_seconds: float,
+    stderr_path: Path | None = None,
+    poll_interval_seconds: float = 0.25,
+) -> dict:
+    """Wait for the app, not LaunchServices, to finish the governed operation."""
+    if timeout_seconds <= 0:
+        raise ValueError("receipt timeout must be positive")
+    deadline = time.monotonic() + timeout_seconds
+    last_problem = "receipt has not appeared"
+    while True:
+        if receipt_path.is_file():
+            current_mtime_ns = receipt_path.stat().st_mtime_ns
+            if before_mtime_ns is None or current_mtime_ns != before_mtime_ns:
+                try:
+                    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    last_problem = "receipt is not yet readable JSON"
+                else:
+                    if receipt.get("execution_nonce") == execution_nonce:
+                        return receipt
+                    last_problem = "receipt does not carry the current launch nonce"
+            else:
+                last_problem = "receipt has not been refreshed"
+
+        if stderr_path is not None and stderr_path.is_file() and stderr_path.stat().st_size:
+            detail = stderr_path.read_text(encoding="utf-8", errors="replace").strip()
+            if detail:
+                raise ValueError(f"permissioned helper failed before a fresh receipt: {detail}")
+
+        if time.monotonic() >= deadline:
+            raise ValueError(
+                f"timed out after {timeout_seconds:g}s waiting for a fresh helper receipt; "
+                f"{last_problem}: {receipt_path}"
+            )
+        time.sleep(poll_interval_seconds)
+
+
+def launch_permissioned_helper(
+    *,
+    app: Path,
+    plan_path: Path,
+    receipt_path: Path,
+    execution_nonce: str,
+    logs_root: Path,
+    before_mtime_ns: int | None,
+    timeout_seconds: float,
+) -> dict:
+    secure_directory(logs_root)
+    log_stem = f"{safe_slug(plan_path.stem)}-{execution_nonce}"
+    stdout_path = logs_root / f"{log_stem}.stdout.log"
+    stderr_path = logs_root / f"{log_stem}.stderr.log"
+    secure_text(stdout_path, "")
+    secure_text(stderr_path, "")
+    command = [
+        "/usr/bin/open", "-W", "-n",
+        "--stdout", str(stdout_path),
+        "--stderr", str(stderr_path),
+        str(app), "--args", "--plan", str(plan_path),
+        "--launch-nonce", execution_nonce,
+    ]
+    completed = subprocess.run(command, check=False)
+    if completed.returncode:
+        raise ValueError(f"helper launcher failed with exit code {completed.returncode}")
+    return wait_for_fresh_receipt(
+        receipt_path,
+        before_mtime_ns=before_mtime_ns,
+        execution_nonce=execution_nonce,
+        timeout_seconds=timeout_seconds,
+        stderr_path=stderr_path,
+    )
+
+
+def authorization_plan(profile: dict, workspace: Path, plan_id: str) -> dict:
+    source = profile["default_source"]
+    return {
+        "operation": "inspect-local-images",
+        "schema_version": 1,
+        "plan_id": plan_id,
+        "safety_mode": "read-only-local-inspection-and-preview-export",
+        "source_album_identifier": str(source["identifier"]),
+        "expected_source_count": int(source["expected_count"]),
+        "source_identifier_sha256": source.get("identifier_sha256"),
+        "asset_identifiers": [],
+        "output_jsonl_path": str(workspace / "authorization-check.jsonl"),
+        "receipt_path": str(workspace / "authorization-receipt.json"),
+        "log_path": str(workspace / "authorization-helper.log"),
+        "preview_directory": str(workspace / "previews-disabled"),
+        "target_long_edge": 256,
+        "export_previews": False,
+        "ocr_all": False,
+        "classify_all": False,
+        "detect_faces": False,
+        "network_access_allowed": False,
+    }
+
+
 def command_doctor(args: argparse.Namespace) -> int:
     profile = args.profile_data
     app = profile_path(profile, "app_path")
@@ -456,6 +558,51 @@ def command_doctor(args: argparse.Namespace) -> int:
         )
         actual_count = inventory_meta.get("source_count") or inventory_meta.get("source_album_count")
         checks["inventory_source_count"] = int(actual_count or 0) == int(default_source["expected_count"])
+    live_receipt = None
+    live_workspace = None
+    if args.live:
+        live_workspace = (
+            workspace_root
+            / ".authorization-checks"
+            / f"{datetime.now().astimezone().strftime('%Y%m%d-%H%M%S')}-{secrets.token_hex(4)}"
+        )
+        secure_directory(live_workspace)
+        plan_path = live_workspace / "authorization-plan.json"
+        plan = authorization_plan(profile, live_workspace, f"authorization-{secrets.token_hex(8)}")
+        dump_json(plan_path, plan)
+        receipt_path = Path(plan["receipt_path"])
+        execution_nonce = secrets.token_hex(16)
+        live_receipt = launch_permissioned_helper(
+            app=app,
+            plan_path=plan_path,
+            receipt_path=receipt_path,
+            execution_nonce=execution_nonce,
+            logs_root=live_workspace / "launch-logs",
+            before_mtime_ns=None,
+            timeout_seconds=args.receipt_timeout_seconds,
+        )
+        live_receipt["execution_fingerprint"] = {
+            "app_bundle_identifier": profile["bundle_id"],
+            "app_binary_sha256": file_sha256(executable),
+            "plan_sha256": file_sha256(plan_path),
+        }
+        dump_json(receipt_path, live_receipt)
+        checks["live_photo_authorization"] = (
+            live_receipt.get("execution_nonce") == execution_nonce
+            and live_receipt.get("requested_count") == 0
+            and live_receipt.get("completed_count") == 0
+            and live_receipt.get("network_access_allowed") is False
+            and live_receipt.get("external_uploads_performed") is False
+        )
+        checks["live_source_contract"] = (
+            live_receipt.get("source_album_identifier") == default_source["identifier"]
+            and live_receipt.get("source_count") == int(default_source["expected_count"])
+            and (
+                not default_source.get("identifier_sha256")
+                or live_receipt.get("source_identifier_sha256")
+                == default_source["identifier_sha256"]
+            )
+        )
     report = {
         "status": "PASS" if all(checks.values()) else "FAIL",
         "checks": checks,
@@ -465,6 +612,7 @@ def command_doctor(args: argparse.Namespace) -> int:
         "inventory_generated_at": inventory_meta.get("generated_at"),
         "inventory_source_count": inventory_meta.get("source_count") or inventory_meta.get("source_album_count"),
         "profile": str(args.profile.expanduser().resolve()),
+        "live_authorization_workspace": str(live_workspace) if live_workspace else None,
     }
     print(json.dumps(report, indent=2))
     return 0 if report["status"] == "PASS" else 2
@@ -1017,22 +1165,19 @@ def command_run_plan(args: argparse.Namespace) -> int:
         "started_at": datetime.now().astimezone().isoformat(timespec="seconds"),
     }
     dump_json(workspace / "run-state.json", state)
-    command = [
-        "/usr/bin/open", "-W", "-n", str(app), "--args", "--plan", str(plan_path),
-        "--launch-nonce", execution_nonce,
-    ]
-    print("launching permissioned helper; this may run for a long time", flush=True)
-    completed = subprocess.run(command, check=False)
-    if completed.returncode:
-        raise ValueError(f"helper launcher failed with exit code {completed.returncode}")
-    if not receipt_path.exists():
-        raise ValueError(f"helper finished without receipt: {receipt_path}")
-    after = receipt_path.stat().st_mtime_ns
-    if before is not None and before == after:
-        raise ValueError(f"receipt was not refreshed: {receipt_path}")
-    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-    if receipt.get("execution_nonce") != execution_nonce:
-        raise ValueError("helper receipt does not match the bridge launch nonce")
+    print(
+        "launching permissioned helper; completion requires its fresh nonce-bound receipt",
+        flush=True,
+    )
+    receipt = launch_permissioned_helper(
+        app=app,
+        plan_path=plan_path,
+        receipt_path=receipt_path,
+        execution_nonce=execution_nonce,
+        logs_root=workspace / "logs" / "helper-launches",
+        before_mtime_ns=before,
+        timeout_seconds=args.receipt_timeout_seconds,
+    )
     receipt["execution_fingerprint"] = {
         "app_bundle_identifier": args.profile_data["bundle_id"],
         "app_binary_sha256": file_sha256(profile_path(args.profile_data, "app_executable")),
@@ -1107,6 +1252,17 @@ def parser() -> argparse.ArgumentParser:
     sub = root.add_subparsers(dest="command", required=True)
 
     doctor = sub.add_parser("doctor", help="check the local integration without mutating Photos")
+    doctor.add_argument(
+        "--live",
+        action="store_true",
+        help="launch a zero-image, read-only PhotoKit authorization and source check",
+    )
+    doctor.add_argument(
+        "--receipt-timeout-seconds",
+        type=float,
+        default=600,
+        help="maximum wait for the live authorization receipt (default: 600)",
+    )
     doctor.set_defaults(func=command_doctor)
 
     init = sub.add_parser("init-run", help="create a durable versioned run workspace")
@@ -1166,6 +1322,12 @@ def parser() -> argparse.ArgumentParser:
     run = sub.add_parser("run-plan", help="launch a plan through the stable permissioned app bundle")
     run.add_argument("--workspace", type=Path, required=True)
     run.add_argument("--plan", type=Path, required=True)
+    run.add_argument(
+        "--receipt-timeout-seconds",
+        type=float,
+        default=21600,
+        help="maximum wait after launch for the app's fresh receipt (default: 21600)",
+    )
     run.set_defaults(func=command_run_plan)
 
     verify_phase = sub.add_parser(

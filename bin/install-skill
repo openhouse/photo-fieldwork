@@ -1,6 +1,16 @@
 #!/bin/sh
 set -eu
 
+REPLACE_LINK=0
+if [ "${1:-}" = "--replace-link" ]; then
+  REPLACE_LINK=1
+  shift
+fi
+if [ "$#" -ne 0 ]; then
+  printf 'usage: %s [--replace-link]\n' "$0" >&2
+  exit 2
+fi
+
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 SOURCE="$ROOT/skills/curate-apple-photos"
 DESTINATION="${CODEX_HOME:-$HOME/.codex}/skills/curate-apple-photos"
@@ -10,8 +20,19 @@ if [ -L "$DESTINATION" ] && [ "$(readlink "$DESTINATION")" = "$SOURCE" ]; then
   printf 'already installed: %s\n' "$DESTINATION"
   exit 0
 fi
+if [ -L "$DESTINATION" ] && [ "$REPLACE_LINK" -eq 1 ]; then
+  OLD_SOURCE=$(readlink "$DESTINATION")
+  unlink "$DESTINATION"
+  ln -s "$SOURCE" "$DESTINATION"
+  printf 'relinked: %s\n' "$DESTINATION"
+  printf '  from: %s\n' "$OLD_SOURCE"
+  printf '  to:   %s\n' "$SOURCE"
+  printf 'restart Codex before opening the first new chat that uses the skill\n'
+  exit 0
+fi
 if [ -e "$DESTINATION" ] || [ -L "$DESTINATION" ]; then
   printf 'refusing to replace existing path: %s\n' "$DESTINATION" >&2
+  printf 'use --replace-link only when the existing path is a symlink you intend to repoint\n' >&2
   exit 2
 fi
 ln -s "$SOURCE" "$DESTINATION"
