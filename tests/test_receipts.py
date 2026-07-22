@@ -45,7 +45,8 @@ class ReceiptTests(unittest.TestCase):
                 );
                 CREATE TABLE ZASSET(Z_PK INTEGER PRIMARY KEY, ZUUID TEXT);
                 CREATE TABLE Z_30ASSETS(Z_30ALBUMS INTEGER, Z_3ASSETS INTEGER);
-                INSERT INTO ZGENERICALBUM VALUES (1, 'ROOT', 'Root', 4000, NULL);
+                INSERT INTO ZGENERICALBUM VALUES (4, 'SYSTEM-ROOT', NULL, 3999, NULL);
+                INSERT INTO ZGENERICALBUM VALUES (1, 'ROOT', 'Root', 4000, 4);
                 INSERT INTO ZGENERICALBUM VALUES (2, 'SOURCE', 'Source', 2, 1);
                 INSERT INTO ZGENERICALBUM VALUES (3, 'MASTER', 'Master', 2, 1);
                 INSERT INTO ZASSET VALUES (10, 'A');

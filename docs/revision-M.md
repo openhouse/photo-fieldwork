@@ -22,7 +22,8 @@ performs a final publication edit.
 - Inspection resume reconstructs all receipt totals from prior JSONL rows and
   rejects malformed or duplicate rows.
 - Existing previews are decoded before reuse; the verifier checks exact export
-  state, decodability, dimensions, EXIF absence, symlinks, and modes, then emits
+  state, decodability, dimensions, absence of source-bearing EXIF, symlinks,
+  and modes, then emits
   a complete private digest-bound evidence index.
 - Retrieval records aggregate signal classes without exposing matched private
   terms. Per-view score and reason maps are deterministically bounded. Retrieval

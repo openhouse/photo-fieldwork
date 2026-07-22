@@ -7,12 +7,17 @@
   "inventory_db": "/Users/your-name/Documents/Photo-Fieldwork-Runs/shared/inventory.sqlite",
   "photos_db": "/path/to/Photos Library.photoslibrary/database/Photos.sqlite",
   "photo_fieldwork_cli": "/path/to/photo-fieldwork/bin/photo-fieldwork",
+  "tools": {
+    "osxphotos": "/private/tool-environment/bin/osxphotos",
+    "exiftool": "/usr/local/bin/exiftool"
+  },
   "default_source": {
     "kind": "visible-library-stills",
     "identifier": "visible-library-stills://v1",
     "expected_count": 1,
     "identifier_sha256": null
   },
+  "workspace_parent": null,
   "folders": {
     "root": {
       "title": "PHOTO FIELDWORK",

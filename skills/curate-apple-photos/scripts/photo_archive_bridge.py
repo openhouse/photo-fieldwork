@@ -82,6 +82,11 @@ def load_profile(path: Path) -> dict:
         raise ValueError("default_source.identifier_sha256 must be null or lowercase SHA-256")
     if set(profile["folders"]) != {"root", "private", "audit"}:
         raise ValueError("folders must define exactly root, private, and audit")
+    workspace_parent = profile.get("workspace_parent")
+    if workspace_parent is not None and (
+        not workspace_parent.get("title") or not workspace_parent.get("identifier")
+    ):
+        raise ValueError("workspace_parent requires an existing title and identifier")
     return profile
 
 
@@ -458,21 +463,12 @@ def launch_permissioned_helper(
     plan_path: Path,
     receipt_path: Path,
     execution_nonce: str,
-    logs_root: Path,
     before_mtime_ns: int | None,
     timeout_seconds: float,
 ) -> dict:
-    secure_directory(logs_root)
-    log_stem = f"{safe_slug(plan_path.stem)}-{execution_nonce}"
-    stdout_path = logs_root / f"{log_stem}.stdout.log"
-    stderr_path = logs_root / f"{log_stem}.stderr.log"
-    secure_text(stdout_path, "")
-    secure_text(stderr_path, "")
     command = [
-        "/usr/bin/open", "-W", "-n",
-        "--stdout", str(stdout_path),
-        "--stderr", str(stderr_path),
-        str(app), "--args", "--plan", str(plan_path),
+        "/usr/bin/open", "-W", "-n", str(app),
+        "--args", "--plan", str(plan_path),
         "--launch-nonce", execution_nonce,
     ]
     completed = subprocess.run(command, check=False)
@@ -483,7 +479,6 @@ def launch_permissioned_helper(
         before_mtime_ns=before_mtime_ns,
         execution_nonce=execution_nonce,
         timeout_seconds=timeout_seconds,
-        stderr_path=stderr_path,
     )
 
 
@@ -577,7 +572,6 @@ def command_doctor(args: argparse.Namespace) -> int:
             plan_path=plan_path,
             receipt_path=receipt_path,
             execution_nonce=execution_nonce,
-            logs_root=live_workspace / "launch-logs",
             before_mtime_ns=None,
             timeout_seconds=args.receipt_timeout_seconds,
         )
@@ -879,11 +873,12 @@ def command_inspection_plan(args: argparse.Namespace) -> int:
 
 def folder_specs(profile: dict, version_title: str, include_version: bool) -> list[dict]:
     protected = profile["folders"]
+    workspace_parent = profile.get("workspace_parent")
     folders = [
         {
             "key": "root",
             "title": protected["root"]["title"],
-            "parent_key": None,
+            "parent_key": "workspace_parent" if workspace_parent else None,
             "existing_identifier": protected["root"].get("identifier"),
         },
         {
@@ -899,6 +894,16 @@ def folder_specs(profile: dict, version_title: str, include_version: bool) -> li
             "existing_identifier": protected["audit"].get("identifier"),
         },
     ]
+    if workspace_parent:
+        folders.insert(
+            0,
+            {
+                "key": "workspace_parent",
+                "title": workspace_parent["title"],
+                "parent_key": None,
+                "existing_identifier": workspace_parent["identifier"],
+            },
+        )
     if include_version:
         folders.insert(
             1,
@@ -1174,7 +1179,6 @@ def command_run_plan(args: argparse.Namespace) -> int:
         plan_path=plan_path,
         receipt_path=receipt_path,
         execution_nonce=execution_nonce,
-        logs_root=workspace / "logs" / "helper-launches",
         before_mtime_ns=before,
         timeout_seconds=args.receipt_timeout_seconds,
     )

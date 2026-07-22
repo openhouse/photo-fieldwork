@@ -54,10 +54,18 @@ receipt. Do not create a same-title replacement album.
 
 Treat the operation as unverified. The bridge waits beyond an early
 LaunchServices return for a newly modified receipt carrying the current launch
-nonce. Inspect the private launch stdout/stderr and helper log if the bounded
-wait fails. Rerun the same idempotent plan only after confirming no fresh
-receipt arrived. Never infer completion from `/usr/bin/open -W`, an album title,
+nonce. Inspect the private helper log if the bounded wait fails. If the private
+workspace or Photos library is external, also check
+for a separate Files & Folders removable-volume prompt. Rerun the same
+idempotent plan only after confirming no fresh receipt arrived. Never infer
+completion from `/usr/bin/open -W`, an album title,
 or a visible count alone.
+
+If the private app log stops after source verification and stderr reports
+`PHQuery requires a type`, no permission reset is needed. Confirm that no
+receipt and no catalog change occurred. Replace the bare database collection
+UUID with the typed PhotoKit local identifier from a parent-constrained
+discovery receipt, then rerun the same plan.
 
 ## Active Photos WAL
 

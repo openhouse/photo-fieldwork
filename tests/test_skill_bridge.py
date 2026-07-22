@@ -116,6 +116,23 @@ class SkillBridgeTests(unittest.TestCase):
         self.assertEqual(by_key["audit"]["existing_identifier"], "AUDIT-ID")
         self.assertEqual(by_key["version"]["title"], "v03 example")
 
+    def test_folder_contract_can_anchor_a_nested_workspace_root(self):
+        profile = {
+            "workspace_parent": {"title": "Parent", "identifier": "PARENT-ID"},
+            "folders": {
+                "root": {"title": "Development", "identifier": "ROOT-ID"},
+                "private": {"title": "Private", "identifier": None},
+                "audit": {"title": "Audit", "identifier": None},
+            },
+        }
+        folders = bridge.folder_specs(profile, "v-test", include_version=True)
+        by_key = {folder["key"]: folder for folder in folders}
+        self.assertEqual(by_key["workspace_parent"]["parent_key"], None)
+        self.assertEqual(by_key["root"]["parent_key"], "workspace_parent")
+        self.assertEqual(by_key["version"]["parent_key"], "root")
+        self.assertEqual(by_key["private"]["parent_key"], "root")
+        self.assertEqual(by_key["audit"]["parent_key"], "root")
+
     def test_init_run_is_private_and_advance_hashes_artifacts(self):
         with tempfile.TemporaryDirectory() as temporary:
             workspace_root = Path(temporary) / "runs"

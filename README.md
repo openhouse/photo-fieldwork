@@ -145,6 +145,8 @@ Those are different questions. Photo Fieldwork keeps them different.
 - Private-by-default run artifacts and a resumable checksum ledger.
 - A fully synthetic practice run.
 - Album and whole-library Apple Photos source profiles.
+- A default, machine-readable Apple Photos capability map covering the full
+  osxphotos-class private insight surface and naming degraded capabilities.
 - WAL-aware read-only inventory and verification adapters.
 - A case study of how visual inspection changed a real workflow.
 
@@ -203,3 +205,9 @@ configuration default.
 Read [the revision M implementation note](docs/revision-M.md),
 [the helper authorization guide](docs/helper-authorization.md), and
 [the recovery guide](docs/recovery.md) before running the Apple Photos adapter.
+
+The skill begins Apple Photos work by reading its
+[capability map](skills/curate-apple-photos/references/capability-map.md) and
+emitting a private capability report. It distinguishes an installed provider
+from a provider proven by a live/read canary, so agents cannot silently reduce
+the available EXIF, People, album, place, variant, sharing, or search context.
