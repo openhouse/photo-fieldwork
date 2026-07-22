@@ -22,6 +22,7 @@ from .pipeline import (
 from .practice import create_demo_inventory, practice_feedback, write_demo_readme
 from .publication import PUBLIC_FIELDS, build_public_handoff, scaffold_clearance
 from .review import build_review_workbench
+from .studio import build_studio_workbench
 
 
 def markdown_report(title: str, data: dict) -> str:
@@ -116,9 +117,8 @@ def command_plan(args: argparse.Namespace) -> int:
     return 0
 
 
-def command_review(args: argparse.Namespace) -> int:
-    sample = read_csv(args.sample)
-    with args.preview_index.open(newline="", encoding="utf-8") as handle:
+def read_preview_index(path: Path) -> list[dict[str, str]]:
+    with path.open(newline="", encoding="utf-8") as handle:
         reader = csv.DictReader(handle)
         preview_index = list(reader)
     required = {"uuid", "preview_path", "preview_sha256", "decode_status"}
@@ -127,13 +127,53 @@ def command_review(args: argparse.Namespace) -> int:
         raise ValueError("verified preview index contains no rows")
     if missing:
         raise ValueError(f"verified preview index missing columns: {', '.join(sorted(missing))}")
+    return preview_index
+
+
+def read_jsonl(path: Path) -> list[dict]:
+    if path.is_symlink():
+        raise ValueError("private metadata JSONL must not be a symlink")
+    path = path.resolve(strict=True)
+    if path.stat().st_mode & 0o077:
+        raise ValueError("private metadata JSONL permissions are broader than 0600")
+    records = []
+    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        record = json.loads(line)
+        if not isinstance(record, dict):
+            raise ValueError(f"JSONL row {line_number} must be an object")
+        records.append(record)
+    if not records:
+        raise ValueError("private metadata JSONL contains no records")
+    return records
+
+
+def command_review(args: argparse.Namespace) -> int:
+    sample = read_csv(args.sample)
     review_id = build_review_workbench(
         sample,
-        preview_index,
+        read_preview_index(args.preview_index),
         args.preview_root,
         args.output,
     )
     print(f"wrote private offline review {review_id} to {args.output}")
+    return 0
+
+
+def command_studio(args: argparse.Namespace) -> int:
+    field = read_csv(args.field)
+    metadata = read_jsonl(args.metadata) if args.metadata else None
+    studio_id = build_studio_workbench(
+        field,
+        read_preview_index(args.preview_index),
+        args.preview_root,
+        args.output,
+        metadata=metadata,
+        title=args.title,
+        seed=args.seed,
+    )
+    print(f"wrote private offline studio {studio_id} to {args.output}")
     return 0
 
 
@@ -286,6 +326,19 @@ def parser() -> argparse.ArgumentParser:
     review.add_argument("--preview-root", type=Path, required=True)
     review.add_argument("--output", type=Path, required=True)
     review.set_defaults(func=command_review)
+
+    studio = sub.add_parser(
+        "studio",
+        help="build a private exploratory light table from verified previews",
+    )
+    studio.add_argument("--field", type=Path, required=True)
+    studio.add_argument("--preview-index", type=Path, required=True)
+    studio.add_argument("--preview-root", type=Path, required=True)
+    studio.add_argument("--metadata", type=Path)
+    studio.add_argument("--output", type=Path, required=True)
+    studio.add_argument("--title", default="Photo Fieldwork Studio")
+    studio.add_argument("--seed", type=int, default=0)
+    studio.set_defaults(func=command_studio)
 
     publication_scaffold = sub.add_parser(
         "publication-scaffold",

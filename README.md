@@ -147,6 +147,8 @@ Those are different questions. Photo Fieldwork keeps them different.
 - Album and whole-library Apple Photos source profiles.
 - A default, machine-readable Apple Photos capability map covering the full
   osxphotos-class private insight surface and naming degraded capabilities.
+- A private offline residency studio for light-table browsing, comparison,
+  provisional piles, typed notes, chance walks, and resumable encounter trails.
 - WAL-aware read-only inventory and verification adapters.
 - A case study of how visual inspection changed a real workflow.
 
@@ -205,6 +207,10 @@ configuration default.
 Read [the revision M implementation note](docs/revision-M.md),
 [the helper authorization guide](docs/helper-authorization.md), and
 [the recovery guide](docs/recovery.md) before running the Apple Photos adapter.
+
+For exploratory residency work, read
+[the private studio boundary](docs/residency-studio.md). The studio notebook is
+intentionally separate from formal evaluation and publication clearance.
 
 The skill begins Apple Photos work by reading its
 [capability map](skills/curate-apple-photos/references/capability-map.md) and

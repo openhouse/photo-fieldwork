@@ -1,6 +1,6 @@
 ---
 name: curate-apple-photos
-description: Curate a large, versioned photo corpus from Jamie Burkart's local Apple Photos library from a pasted curatorial brief. Use when asked to create a 5k, 6k, 8k, or other editor-ready Photos album or folder of albums; role-play a named peer panel; use existing People associations; locally inspect pixels through the permissioned Jamie Photo Archive app; run recursive visual evaluation; quarantine sensitive material; preserve prior versions; and commit and independently verify non-destructive album membership.
+description: Curate a large, versioned photo corpus or private residency studio from Jamie Burkart's local Apple Photos library and a pasted curatorial brief. Use when asked to open an exploratory offline light table; create a 5k, 6k, 8k, or other editor-ready Photos album or folder of albums; role-play a named peer panel; use existing People associations; locally inspect pixels through the permissioned Jamie Photo Archive app; run recursive visual evaluation; quarantine sensitive material; preserve prior versions; and commit and independently verify non-destructive album membership.
 ---
 
 # Curate Apple Photos
@@ -136,6 +136,29 @@ do not mistake the rendered preview's properties for source EXIF.
    source-metadata-bearing previews block progress. Preserve its complete private
    digest-bound index as the only preview input to the review workbench.
 6. Merge the inspection JSONL into the candidate CSV using `merge_inspection.py`.
+
+## Open a private studio
+
+For a residency, research encounter, or other exploratory pass, read
+[studio-contract.md](references/studio-contract.md) and build a private offline
+light table before formal evaluation:
+
+```bash
+photo-fieldwork studio \
+  --field RUN/manifests/encounter-01.csv \
+  --preview-index RUN/manifests/verified-preview-index.csv \
+  --preview-root RUN/previews/encounter-01 \
+  --metadata RUN/manifests/private-candidate-metadata.jsonl \
+  --title "Private residency studio" \
+  --seed 20260722 \
+  --output RUN/studio/index.html
+```
+
+The studio supports contact-sheet density, full-frame and side-by-side looking,
+provisional piles, four note types, `Return later`, and a deterministic chance
+walk. Its partial private notebook is exploratory evidence only. Never pass
+studio status or notes to `evaluate`, clear a safety hold from them, or project
+them publicly. Use the stricter `review` command for candidate-bound evaluation.
 
 ## Select, look, evaluate, recurse
 
