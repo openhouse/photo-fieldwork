@@ -5,14 +5,20 @@ delete a prior version to make a rerun easier.
 
 ## Authorization denied or stale
 
-1. Run `photo_archive_bridge.py doctor` with the private machine profile.
+1. Run `photo_archive_bridge.py doctor --live` with the private machine profile.
 2. Confirm the configured app path, bundle identifier, executable hash, and
    Photos database availability.
 3. Open macOS Privacy and Security settings and review Photos access for the
    configured app.
 4. Do not reset authorization or replace the app bundle automatically.
-5. Rerun the same plan after the human authorization action. The plan is
-   idempotent.
+5. Rerun `doctor --live` after the human authorization action. Require its
+   fresh nonce-bound, zero-image receipt before resuming the same idempotent
+   plan.
+
+Do not use a direct invocation of the app's executable as the authorization
+oracle. Launch the configured `.app` bundle so macOS evaluates the same stable
+identity used in production. Raw numeric status values from different macOS
+APIs are not interchangeable.
 
 ## External Photos library unavailable
 
@@ -46,9 +52,20 @@ receipt. Do not create a same-title replacement album.
 
 ## Receipt absent or stale
 
-Treat the operation as unverified. Inspect the helper log, rerun the same plan,
-and require a newly modified receipt. Never infer completion from an album
-title or visible count alone.
+Treat the operation as unverified. The bridge waits beyond an early
+LaunchServices return for a newly modified receipt carrying the current launch
+nonce. Inspect the private helper log if the bounded wait fails. If the private
+workspace or Photos library is external, also check
+for a separate Files & Folders removable-volume prompt. Rerun the same
+idempotent plan only after confirming no fresh receipt arrived. Never infer
+completion from `/usr/bin/open -W`, an album title,
+or a visible count alone.
+
+If the private app log stops after source verification and stderr reports
+`PHQuery requires a type`, no permission reset is needed. Confirm that no
+receipt and no catalog change occurred. Replace the bare database collection
+UUID with the typed PhotoKit local identifier from a parent-constrained
+discovery receipt, then rerun the same plan.
 
 ## Active Photos WAL
 

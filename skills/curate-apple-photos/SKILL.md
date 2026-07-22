@@ -16,13 +16,42 @@ Turn the user's brief into a locally inspected, recursively evaluated, versioned
 
 ```bash
 python3 scripts/photo_archive_bridge.py doctor
+python3 scripts/photo_archive_bridge.py doctor --live
 ```
 
-3. Read [brief-contract.md](references/brief-contract.md). Convert the pasted brief into:
+The second command is the real permission canary: it launches the configured
+app bundle, verifies the frozen source, requests zero images, and performs no
+Photos write. Read [helper-authorization.md](../../docs/helper-authorization.md)
+when authorization or receipt timing is unclear.
+
+3. Read [capability-map.md](references/capability-map.md), then enumerate the
+   complete private insight surface before retrieval:
+
+```bash
+python3 scripts/report_capabilities.py \
+  --photokit-receipt RUN/manifests/live-authorization-receipt.json \
+  --osxphotos-probe RUN/manifests/osxphotos-one-record-probe.json \
+  --json-output RUN/reports/private-capability-report.json \
+  --require-no-unavailable
+```
+
+The skill's default is maximal local insight comparable to an osxphotos-class
+workflow, not a reduced metadata view. Explicitly report the state of library
+identity; asset identity and technical properties; dates, time zones, and
+imports; original EXIF/IPTC/XMP/GPS/QuickTime properties; Photos titles,
+descriptions, keywords, favorites, and edit state; albums and folders; People,
+Pets, and faces; places; Apple search/classification and scoring context;
+original/edited/Live/RAW/burst/duplicate relationships; sharing, comments, and
+likes; query/export/sidecar support; local visual inspection; and bounded
+catalog writes. Run a one-record private osxphotos read probe before calling
+its broad metadata surface `AVAILABLE`. Name every degraded or unverified
+capability; never make the user infer what is missing.
+
+4. Read [brief-contract.md](references/brief-contract.md). Convert the pasted brief into:
    - `brief.md`, preserving the user's words;
    - `retrieval.json`, defining views, terms, people, albums, places, and supporting date ranges;
    - `config.json`, defining target, quotas, seed, uncertainty view, and evaluation thresholds.
-4. Initialize a uniquely named run under the workspace root declared in the
+5. Initialize a uniquely named run under the workspace root declared in the
    private machine profile with `photo_archive_bridge.py init-run`. Never reuse
    or overwrite v00, v01, v02, or another run.
 
@@ -35,6 +64,9 @@ python3 scripts/photo_archive_bridge.py doctor
 - Do not alter source albums, originals, metadata, faces, favorite status, dates, locations, or prior versions.
 - Never write Photos SQLite. The permissioned app may only inspect locally or create folders/albums and add existing membership.
 - Do not upload pixels, previews, OCR, faces, coordinates, or manifests.
+- Maximize private insight while minimizing derivatives. Preview metadata
+  minimization is a transport rule, never a reason to omit original EXIF or
+  Photos relationships from the private editorial record.
 - Use existing People names. Never identify unnamed faces or infer sensitive traits.
 - Keep exact private locations and raw OCR out of reports.
 - A potential sensitive item enters HOLD before ranking and cannot enter the master.
@@ -57,11 +89,51 @@ python3 scripts/retrieve_candidates.py \
   --output RUN/manifests/candidate-pool.csv
 ```
 
+For the selected candidate set, export a mode-0600 private metadata companion
+before visual review. It contains every indexed asset field plus People,
+albums, keywords, search associations, labels, and places; this context is
+available to the editor but is never a public handoff:
+
+```bash
+python3 scripts/export_private_metadata.py \
+  --db /private/path/from-machine-profile/inventory.sqlite \
+  --input RUN/manifests/candidate-pool.csv \
+  --output RUN/manifests/private-candidate-metadata.jsonl
+```
+
+Then materialize full, non-shallow osxphotos `PhotoInfo` records for the same
+UUID set. This is the broad catalog/relationship/variant record and the
+required one-record probe can be produced with `--limit 1`:
+
+```bash
+python3 scripts/export_osxphotos_metadata.py \
+  --input RUN/manifests/candidate-pool.csv \
+  --output RUN/manifests/private-osxphotos-metadata.json \
+  --log RUN/logs/private-osxphotos-metadata.log
+
+python3 scripts/enrich_exiftool_metadata.py \
+  --input RUN/manifests/private-osxphotos-metadata.json \
+  --output RUN/manifests/private-osxphotos-exiftool-metadata.json
+```
+
+The adapter reconciles the exact requested UUID set, captures tool messages in
+a private log, and emits no archive paths to stdout. The ExifTool pass adds all
+tag groups for every locally available original, edited, RAW, Live, derivative,
+and adjustment resource named by PhotoInfo. A missing local resource,
+unsupported Photos field, or failed UUID reconciliation is an explicit gap.
+
+The inspection helper separately reads original image data through PhotoKit
+with network access disabled, serializes the complete ImageIO property tree
+into `original_image_properties_json`, and discards the image bytes. The
+private inventory companion joins Photos-only relationships such as People and
+albums. Treat an unavailable original-data result as an explicit evidence gap;
+do not mistake the rendered preview's properties for source EXIF.
+
 2. Aim for 1.5-2.0 times the requested master size after metadata retrieval. Include named relationships, prior favorites/edits, person-free material context, and exploratory results.
 3. Generate a local inspection plan with `photo_archive_bridge.py inspection-plan`.
-4. Run the stable permissioned helper with `photo_archive_bridge.py run-plan`. Network access must remain false. Export 1280px previews into the private run workspace; raw OCR is never written.
+4. Run the stable permissioned helper with `photo_archive_bridge.py run-plan`. Network access must remain false. Export 1280px previews into the private run workspace; raw OCR is never written. Rendered previews may contain only encoder-generated pixel dimensions, while original ImageIO properties and Photos relationships remain available through the private inspection and inventory companions.
 5. Run `verify_preview_exports.py`. Corrupt, missing, over-permissioned, or
-   metadata-bearing previews block progress. Preserve its complete private
+   source-metadata-bearing previews block progress. Preserve its complete private
    digest-bound index as the only preview input to the review workbench.
 6. Merge the inspection JSONL into the candidate CSV using `merge_inspection.py`.
 
@@ -127,7 +199,11 @@ Do not claim success from Vision labels or metadata alone. The recursive loop re
    complete verification phases from a supplied PASS document.
 7. Update `run-state.json` after each phase and write a completion report containing exact counts, identifiers, evaluation results, privacy facts, and unresolved uncertainty.
 
-The helper invocation may require a Codex permission approval for `open -W`; request a reusable approval scoped to `/Applications/Jamie Photo Archive.app`. The app's Photos permission itself should persist under its stable bundle identity.
+The helper invocation may require a Codex permission approval for `open -W`;
+request a reusable approval scoped to the app path in the private machine
+profile. LaunchServices may return before the helper emits its receipt, so the
+bridge waits for a fresh receipt carrying the current nonce. The app's Photos
+permission itself should persist under its stable bundle identity.
 
 ## Final response
 

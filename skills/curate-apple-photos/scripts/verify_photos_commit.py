@@ -29,6 +29,21 @@ def collection_record(conn: sqlite3.Connection, identifier: str) -> tuple[int, s
     return int(rows[0][0]), rows[0][1] or "", int(rows[0][2]), rows[0][3]
 
 
+def is_internal_library_root(conn: sqlite3.Connection, primary_key: int | None) -> bool:
+    if primary_key is None:
+        return False
+    rows = conn.execute(
+        "SELECT ZTITLE, ZKIND, ZPARENTFOLDER FROM ZGENERICALBUM WHERE Z_PK = ?",
+        (primary_key,),
+    ).fetchall()
+    return bool(
+        len(rows) == 1
+        and not (rows[0][0] or "").strip()
+        and int(rows[0][1]) == 3999
+        and rows[0][2] is None
+    )
+
+
 def album_record(conn: sqlite3.Connection, identifier: str) -> tuple[int, str, int | None]:
     primary_key, title, kind, parent = collection_record(conn, identifier)
     if kind != 2:
@@ -131,8 +146,14 @@ def verify(args: argparse.Namespace, database: Path, snapshot_meta: dict) -> set
         verified_identifiers.add(folder["identifier"])
     for key, spec in folder_specs.items():
         parent_key = spec.get("parent_key")
+        actual_parent = folder_records[key][1]
         expected_parent = folder_records[parent_key][0] if parent_key else None
-        if folder_records[key][1] != expected_parent:
+        parent_matches = (
+            actual_parent == expected_parent
+            if parent_key
+            else actual_parent is None or is_internal_library_root(conn, actual_parent)
+        )
+        if not parent_matches:
             raise RuntimeError(f"folder parent mismatch for {spec['title']}")
 
     verified = []

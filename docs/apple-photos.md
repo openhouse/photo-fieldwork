@@ -15,6 +15,14 @@ Use a documented tool such as `osxphotos` or a read-only library API to inventor
 - local/cloud/missing state;
 - Apple aesthetic scores when available.
 
+This list is only a summary. The normative default is the complete
+[Apple Photos insight capability map](../skills/curate-apple-photos/references/capability-map.md),
+including original EXIF/IPTC/XMP/QuickTime properties, People and face
+relationships, Places, nested catalog structure, computational search context,
+asset variants, sharing context, and export/sidecar capabilities. Run the
+capability reporter before retrieval and name gaps instead of silently working
+from a reduced field set.
+
 Read installed local help before assuming command syntax. Do not upgrade tools during a production run.
 
 ## Frozen source profiles

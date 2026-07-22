@@ -5,6 +5,8 @@ import io
 import json
 import os
 import tempfile
+import threading
+import time
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -30,6 +32,63 @@ SPEC.loader.exec_module(bridge)
 
 
 class SkillBridgeTests(unittest.TestCase):
+    def test_authorization_plan_is_zero_image_read_only_and_offline(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            profile = {
+                "default_source": {
+                    "identifier": "SYNTHETIC-SOURCE",
+                    "expected_count": 12,
+                    "identifier_sha256": "a" * 64,
+                }
+            }
+            plan = bridge.authorization_plan(profile, workspace, "authorization-test")
+            self.assertEqual(plan["asset_identifiers"], [])
+            self.assertFalse(plan["network_access_allowed"])
+            self.assertFalse(plan["export_previews"])
+            self.assertFalse(plan["ocr_all"])
+            self.assertFalse(plan["classify_all"])
+            self.assertFalse(plan["detect_faces"])
+            self.assertEqual(plan["expected_source_count"], 12)
+
+    def test_wait_for_receipt_survives_early_launcher_return(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            receipt_path = root / "receipt.json"
+            old_receipt = {"execution_nonce": "0" * 32}
+            bridge.dump_json(receipt_path, old_receipt)
+            before = receipt_path.stat().st_mtime_ns
+            expected_nonce = "1" * 32
+
+            def finish_after_launcher_returns():
+                time.sleep(0.05)
+                bridge.dump_json(receipt_path, {"execution_nonce": expected_nonce})
+
+            worker = threading.Thread(target=finish_after_launcher_returns)
+            worker.start()
+            receipt = bridge.wait_for_fresh_receipt(
+                receipt_path,
+                before_mtime_ns=before,
+                execution_nonce=expected_nonce,
+                timeout_seconds=1,
+                poll_interval_seconds=0.01,
+            )
+            worker.join()
+            self.assertEqual(receipt["execution_nonce"], expected_nonce)
+
+    def test_wait_for_receipt_rejects_stale_nonce(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            receipt_path = Path(temporary) / "receipt.json"
+            bridge.dump_json(receipt_path, {"execution_nonce": "0" * 32})
+            with self.assertRaisesRegex(ValueError, "timed out.*not been refreshed"):
+                bridge.wait_for_fresh_receipt(
+                    receipt_path,
+                    before_mtime_ns=receipt_path.stat().st_mtime_ns,
+                    execution_nonce="1" * 32,
+                    timeout_seconds=0.03,
+                    poll_interval_seconds=0.005,
+                )
+
     def test_local_identifier_is_canonical(self):
         self.assertEqual(bridge.local_identifier("ABC"), "ABC/L0/001")
         self.assertEqual(bridge.local_identifier("ABC/L0/001"), "ABC/L0/001")
@@ -56,6 +115,23 @@ class SkillBridgeTests(unittest.TestCase):
         self.assertEqual(by_key["private"]["existing_identifier"], "PRIVATE-ID")
         self.assertEqual(by_key["audit"]["existing_identifier"], "AUDIT-ID")
         self.assertEqual(by_key["version"]["title"], "v03 example")
+
+    def test_folder_contract_can_anchor_a_nested_workspace_root(self):
+        profile = {
+            "workspace_parent": {"title": "Parent", "identifier": "PARENT-ID"},
+            "folders": {
+                "root": {"title": "Development", "identifier": "ROOT-ID"},
+                "private": {"title": "Private", "identifier": None},
+                "audit": {"title": "Audit", "identifier": None},
+            },
+        }
+        folders = bridge.folder_specs(profile, "v-test", include_version=True)
+        by_key = {folder["key"]: folder for folder in folders}
+        self.assertEqual(by_key["workspace_parent"]["parent_key"], None)
+        self.assertEqual(by_key["root"]["parent_key"], "workspace_parent")
+        self.assertEqual(by_key["version"]["parent_key"], "root")
+        self.assertEqual(by_key["private"]["parent_key"], "root")
+        self.assertEqual(by_key["audit"]["parent_key"], "root")
 
     def test_init_run_is_private_and_advance_hashes_artifacts(self):
         with tempfile.TemporaryDirectory() as temporary:

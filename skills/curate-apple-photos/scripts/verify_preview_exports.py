@@ -10,7 +10,7 @@ import json
 import os
 from pathlib import Path
 
-from PIL import Image, UnidentifiedImageError
+from PIL import ExifTags, Image, UnidentifiedImageError
 
 
 INDEX_FIELDS = (
@@ -40,6 +40,31 @@ def file_sha256(path: Path) -> str:
         while block := handle.read(1024 * 1024):
             digest.update(block)
     return digest.hexdigest()
+
+
+def has_source_bearing_exif(image: Image.Image) -> bool:
+    """Allow only encoder-generated sRGB and pixel dimensions in a preview."""
+    exif = image.getexif()
+    if not exif:
+        return False
+    exif_offset = 34665
+    if set(exif) - {exif_offset}:
+        return True
+    try:
+        nested = exif.get_ifd(ExifTags.IFD.Exif)
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return True
+    allowed = {40961, 40962, 40963}
+    if set(nested) - allowed:
+        return True
+    width = nested.get(40962)
+    height = nested.get(40963)
+    color_space = nested.get(40961)
+    return (
+        color_space != 1
+        or width != image.width
+        or height != image.height
+    )
 
 
 def verify_preview_rows(inspection: Path, previews: Path) -> list[dict[str, str | int]]:
@@ -85,8 +110,8 @@ def verify_preview_rows(inspection: Path, previews: Path) -> list[dict[str, str 
                 width, height = image.size
                 if width < 1 or height < 1:
                     raise OSError("preview has invalid dimensions")
-                if image.getexif():
-                    raise OSError("preview retained EXIF metadata")
+                if has_source_bearing_exif(image):
+                    raise OSError("preview retained source-bearing EXIF metadata")
             size = resolved.stat().st_size
             digest = file_sha256(resolved)
             path = resolved

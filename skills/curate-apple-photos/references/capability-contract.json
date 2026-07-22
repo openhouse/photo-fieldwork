@@ -1,0 +1,118 @@
+{
+  "schema_version": 1,
+  "goal": "Give a user or local agent the fullest Apple Photos insight available through osxphotos-class catalog access, original-file metadata, and PhotoKit, while keeping publication closed and catalog writes narrowly bounded.",
+  "capabilities": [
+    {
+      "id": "library_identity",
+      "label": "Library identity and source continuity",
+      "insight": "Library and database versions, frozen source scope, stable asset count, and digest-bound membership continuity.",
+      "providers": ["private inventory", "osxphotos", "PhotoKit helper"],
+      "sensitivity": "private",
+      "required_by_default": true
+    },
+    {
+      "id": "asset_identity",
+      "label": "Asset identity and technical properties",
+      "insight": "Stable UUID, current and original filenames, media kind and subtype, dimensions, file size, UTI, availability, cloud or missing state, and reference status where available.",
+      "providers": ["private inventory", "osxphotos", "PhotoKit helper"],
+      "sensitivity": "private",
+      "required_by_default": true
+    },
+    {
+      "id": "time_and_import",
+      "label": "Dates, time zones, and import history",
+      "insight": "Creation, addition, modification, import-session, and time-zone context where the Photos version exposes it.",
+      "providers": ["private inventory", "osxphotos"],
+      "sensitivity": "private",
+      "required_by_default": true
+    },
+    {
+      "id": "embedded_metadata",
+      "label": "Original embedded metadata",
+      "insight": "Locally available EXIF, IPTC, XMP, GPS, camera and lens, orientation, color, maker-note, QuickTime, and other ImageIO or ExifTool properties from the original asset or sidecars.",
+      "providers": ["PhotoKit helper", "ExifTool", "osxphotos"],
+      "sensitivity": "highly-private",
+      "required_by_default": true
+    },
+    {
+      "id": "photos_authored_metadata",
+      "label": "Photos-authored metadata",
+      "insight": "Title, description, keywords, favorite, hidden, trashed, edit state, external-edit state, and other user-authored catalog fields.",
+      "providers": ["private inventory", "osxphotos"],
+      "sensitivity": "private",
+      "required_by_default": true
+    },
+    {
+      "id": "albums_and_structure",
+      "label": "Albums, folders, and library structure",
+      "insight": "Album memberships, nested folder paths, smart and shared context where exposed, projects, moments, and import sessions.",
+      "providers": ["private inventory", "osxphotos", "independent catalog verifier"],
+      "sensitivity": "highly-private",
+      "required_by_default": true
+    },
+    {
+      "id": "people_and_faces",
+      "label": "People, pets, and face relationships",
+      "insight": "Existing named People and Pets associations, face counts, face records, and face crops where available; never inferred names for unnamed faces.",
+      "providers": ["private inventory", "osxphotos", "PhotoKit helper"],
+      "sensitivity": "highly-private",
+      "required_by_default": true
+    },
+    {
+      "id": "places_and_location",
+      "label": "Places and location",
+      "insight": "Coordinates, reverse-geocoded place hierarchy, and location availability, kept exact only in the private workspace.",
+      "providers": ["private inventory", "osxphotos", "ExifTool"],
+      "sensitivity": "highly-private",
+      "required_by_default": true
+    },
+    {
+      "id": "computational_context",
+      "label": "Apple computational context",
+      "insight": "Classification and search labels, activities, holidays, venues, detected text descriptions, aesthetic and component scores, promotion, curation, and failure signals where available.",
+      "providers": ["private inventory", "osxphotos", "PhotoKit helper"],
+      "sensitivity": "private",
+      "required_by_default": true
+    },
+    {
+      "id": "asset_relationships",
+      "label": "Variants and related assets",
+      "insight": "Original and edited resources, Live Photo still and video, RAW+JPEG pairs, bursts, adjustments and sidecars, duplicates, and related capture groups.",
+      "providers": ["osxphotos", "PhotoKit helper", "ExifTool"],
+      "sensitivity": "private",
+      "required_by_default": true
+    },
+    {
+      "id": "sharing_and_social_context",
+      "label": "Sharing and social context",
+      "insight": "Shared albums or library state, syndication, comments, likes, and contributor context where the Photos version makes them available.",
+      "providers": ["osxphotos"],
+      "sensitivity": "highly-private",
+      "required_by_default": true
+    },
+    {
+      "id": "query_export_and_sidecars",
+      "label": "Query, export, and sidecars",
+      "insight": "Compound metadata queries, template fields, complete private JSON records, originals and edited exports, Live and RAW components, metadata sidecars, and dry-run reports.",
+      "providers": ["osxphotos", "ExifTool"],
+      "sensitivity": "highly-private",
+      "required_by_default": true
+    },
+    {
+      "id": "local_visual_inspection",
+      "label": "Local visual inspection",
+      "insight": "Offline pixels, metadata-minimized review previews, local labels, face counts, and ephemeral OCR safety flags, with no upload.",
+      "providers": ["PhotoKit helper"],
+      "sensitivity": "highly-private",
+      "required_by_default": true
+    },
+    {
+      "id": "bounded_catalog_writes",
+      "label": "Bounded Photos writes",
+      "insight": "Create approved folders and albums and add existing membership only, followed by independent read-only verification and an idempotence receipt.",
+      "providers": ["PhotoKit helper", "independent catalog verifier"],
+      "sensitivity": "private",
+      "required_by_default": true
+    }
+  ]
+}

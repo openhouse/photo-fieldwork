@@ -145,6 +145,8 @@ Those are different questions. Photo Fieldwork keeps them different.
 - Private-by-default run artifacts and a resumable checksum ledger.
 - A fully synthetic practice run.
 - Album and whole-library Apple Photos source profiles.
+- A default, machine-readable Apple Photos capability map covering the full
+  osxphotos-class private insight surface and naming degraded capabilities.
 - WAL-aware read-only inventory and verification adapters.
 - A case study of how visual inspection changed a real workflow.
 
@@ -165,6 +167,11 @@ Install the bundled `curate-apple-photos` skill:
 ```bash
 make install-skill
 ```
+
+To test a reviewed branch when the destination is already a skill symlink,
+run `./bin/install-skill --replace-link` from that checkout. The option refuses
+to replace a real file or directory. After the branch is merged, run the same
+command from the canonical checkout to restore the durable `main` target.
 
 Before production use, copy
 `skills/curate-apple-photos/references/machine-profile.example.json` to the
@@ -195,5 +202,12 @@ The app path and bundle identifier are now read from the private machine
 profile; the path above is an example of an existing installation, not a public
 configuration default.
 
-Read [the revision M implementation note](docs/revision-M.md) and
+Read [the revision M implementation note](docs/revision-M.md),
+[the helper authorization guide](docs/helper-authorization.md), and
 [the recovery guide](docs/recovery.md) before running the Apple Photos adapter.
+
+The skill begins Apple Photos work by reading its
+[capability map](skills/curate-apple-photos/references/capability-map.md) and
+emitting a private capability report. It distinguishes an installed provider
+from a provider proven by a live/read canary, so agents cannot silently reduce
+the available EXIF, People, album, place, variant, sharing, or search context.

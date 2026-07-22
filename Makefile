@@ -1,4 +1,4 @@
-.PHONY: demo test check evals install-skill
+.PHONY: demo test check evals install-skill build-helper-app
 
 UNAME_S := $(shell uname -s)
 
@@ -9,6 +9,8 @@ test:
 	PYTHONPATH=src python3 -m unittest discover -s tests -v
 
 check: test
+	sh -n bin/install-skill
+	sh -n bin/build-helper-app
 	PYTHONPATH=src python3 -m compileall -q src tests skills/curate-apple-photos/scripts
 	python3 skills/curate-apple-photos/scripts/check_evals.py
 	python3 -m json.tool config/starter.json >/dev/null
@@ -17,10 +19,11 @@ check: test
 	python3 -m json.tool schemas/retrieval.schema.json >/dev/null
 	python3 -m json.tool schemas/source-profile.schema.json >/dev/null
 	python3 -m json.tool skills/curate-apple-photos/references/machine-profile.example.json >/dev/null
+	python3 -m json.tool skills/curate-apple-photos/references/capability-contract.json >/dev/null
 	python3 -m json.tool skills/curate-apple-photos/evals/evals.json >/dev/null
 
 ifeq ($(UNAME_S),Darwin)
-	xcrun swiftc -typecheck -framework AppKit -framework Photos -framework Vision integrations/jamie-photo-archive/JamiePhotoArchive.swift
+	xcrun swiftc -typecheck -framework AppKit -framework Photos -framework Vision -framework ImageIO -framework UniformTypeIdentifiers integrations/jamie-photo-archive/JamiePhotoArchive.swift
 else
 	@printf 'skipping macOS-only Swift helper type-check on %s\n' "$(UNAME_S)"
 endif
@@ -30,3 +33,6 @@ evals:
 
 install-skill:
 	./bin/install-skill
+
+build-helper-app:
+	./bin/build-helper-app build

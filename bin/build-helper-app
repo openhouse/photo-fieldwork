@@ -1,0 +1,28 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -ne 1 ]; then
+  printf 'usage: %s OUTPUT_DIRECTORY\n' "$0" >&2
+  exit 2
+fi
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+OUTPUT=$1
+APP="$OUTPUT/Jamie Photo Archive.app"
+CONTENTS="$APP/Contents"
+MACOS="$CONTENTS/MacOS"
+
+mkdir -p "$MACOS"
+ditto "$ROOT/integrations/jamie-photo-archive/Info.plist" "$CONTENTS/Info.plist"
+xcrun swiftc -O \
+  -framework AppKit \
+  -framework Photos \
+  -framework Vision \
+  -framework ImageIO \
+  -framework UniformTypeIdentifiers \
+  "$ROOT/integrations/jamie-photo-archive/JamiePhotoArchive.swift" \
+  -o "$MACOS/JamiePhotoArchive"
+chmod 755 "$MACOS/JamiePhotoArchive"
+codesign --force --deep --sign "${PHOTO_FIELDWORK_CODESIGN_IDENTITY:--}" "$APP"
+codesign --verify --deep --strict "$APP"
+printf '%s\n' "$APP"

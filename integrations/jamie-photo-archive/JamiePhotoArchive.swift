@@ -3,6 +3,8 @@ import AppKit
 import Photos
 import Vision
 import CryptoKit
+import ImageIO
+import UniformTypeIdentifiers
 
 let visibleLibraryStillsSourceIdentifier = "visible-library-stills://v1"
 
@@ -118,6 +120,10 @@ struct InspectionRow: Codable {
     let vision_labels: [String]
     let vision_label_confidences: [Float]
     let detected_face_count: Int
+    let original_metadata_available: Bool?
+    let original_uti: String?
+    let original_orientation: Int?
+    let original_image_properties_json: String?
     let safety_state: String
     let safety_flags: [String]
     let error: String?
@@ -211,6 +217,14 @@ final class InspectionRunner {
     private let imageManager = PHImageManager.default()
     private let encoder = JSONEncoder()
 
+    private struct OriginalMetadata {
+        let available: Bool
+        let uti: String?
+        let orientation: Int?
+        let propertiesJSON: String?
+        let error: String?
+    }
+
     init(plan: InspectionPlan, executionNonce: String) {
         self.plan = plan
         self.executionNonce = executionNonce
@@ -288,7 +302,20 @@ final class InspectionRunner {
         }
         try protectPrivateFile(outputURL)
         let priorRows = try completedRows(at: outputURL)
-        let completed = Set(priorRows.map(\.asset_identifier))
+        let reusableRows = priorRows.filter { row in
+            !plan.export_previews || (row.preview_exported && safePreviewExists(identifier: row.asset_identifier))
+        }
+        if reusableRows.count != priorRows.count {
+            let repaired = reusableRows.map { row -> Data in
+                var data = (try? encoder.encode(row)) ?? Data()
+                data.append(0x0A)
+                return data
+            }.reduce(into: Data()) { $0.append($1) }
+            try repaired.write(to: outputURL, options: .atomic)
+            try protectPrivateFile(outputURL)
+            log("discarded_nonreusable_rows count=\(priorRows.count - reusableRows.count)")
+        }
+        let completed = Set(reusableRows.map(\.asset_identifier))
         let outputHandle = try FileHandle(forWritingTo: outputURL)
         defer { try? outputHandle.close() }
         try outputHandle.seekToEnd()
@@ -298,10 +325,10 @@ final class InspectionRunner {
         }
 
         var completedCount = completed.count
-        var pixelAvailableCount = priorRows.filter(\.pixel_available).count
-        var previewExportedCount = priorRows.filter(\.preview_exported).count
-        var sensitiveHoldCount = priorRows.filter { $0.safety_state == "hold" }.count
-        var unavailableCount = priorRows.filter { !$0.pixel_available }.count
+        var pixelAvailableCount = reusableRows.filter(\.pixel_available).count
+        var previewExportedCount = reusableRows.filter(\.preview_exported).count
+        var sensitiveHoldCount = reusableRows.filter { $0.safety_state == "hold" }.count
+        var unavailableCount = reusableRows.filter { !$0.pixel_available }.count
         let fetch = PHAsset.fetchAssets(withLocalIdentifiers: plan.asset_identifiers, options: nil)
         guard fetch.count == plan.asset_identifiers.count else {
             throw ArchiveError.membershipMismatch("inspection fetch", plan.asset_identifiers.count, fetch.count)
@@ -397,6 +424,7 @@ final class InspectionRunner {
     }
 
     private func inspect(_ asset: PHAsset) -> InspectionRow {
+        let original = requestOriginalMetadata(for: asset)
         guard let image = requestImage(for: asset), let cgImage = makeCGImage(image) else {
             return InspectionRow(
                 asset_identifier: asset.localIdentifier,
@@ -412,9 +440,16 @@ final class InspectionRunner {
                 vision_labels: [],
                 vision_label_confidences: [],
                 detected_face_count: 0,
+                original_metadata_available: original.available,
+                original_uti: original.uti,
+                original_orientation: original.orientation,
+                original_image_properties_json: original.propertiesJSON,
                 safety_state: "unavailable",
                 safety_flags: ["local pixels unavailable"],
-                error: "No local image result; network access remained disabled"
+                error: [
+                    "No local image result; network access remained disabled",
+                    original.error
+                ].compactMap { $0 }.joined(separator: "; ")
             )
         }
 
@@ -423,7 +458,7 @@ final class InspectionRunner {
         var confidences: [Float] = []
         var textLines: [String] = []
         var faceCount = 0
-        var errors: [String] = []
+        var errors: [String] = original.error.map { [$0] } ?? []
 
         if plan.classify_all ?? true {
             do {
@@ -475,6 +510,10 @@ final class InspectionRunner {
             vision_labels: labels,
             vision_label_confidences: confidences,
             detected_face_count: faceCount,
+            original_metadata_available: original.available,
+            original_uti: original.uti,
+            original_orientation: original.orientation,
+            original_image_properties_json: original.propertiesJSON,
             safety_state: flags.isEmpty ? "clear-automated" : "hold",
             safety_flags: flags,
             error: errors.isEmpty ? nil : errors.joined(separator: "; ")
@@ -504,6 +543,76 @@ final class InspectionRunner {
         return result
     }
 
+    private func requestOriginalMetadata(for asset: PHAsset) -> OriginalMetadata {
+        let options = PHImageRequestOptions()
+        options.isSynchronous = true
+        options.isNetworkAccessAllowed = plan.network_access_allowed
+        options.deliveryMode = .highQualityFormat
+        options.version = .original
+        var result = OriginalMetadata(
+            available: false,
+            uti: nil,
+            orientation: nil,
+            propertiesJSON: nil,
+            error: "original image properties unavailable with network disabled"
+        )
+        imageManager.requestImageDataAndOrientation(for: asset, options: options) {
+            data, uti, orientation, _ in
+            guard let data,
+                  let source = CGImageSourceCreateWithData(data as CFData, nil),
+                  let copied = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) else {
+                return
+            }
+            let compatible = self.jsonCompatible(copied as NSDictionary)
+            guard JSONSerialization.isValidJSONObject(compatible),
+                  let encoded = try? JSONSerialization.data(
+                    withJSONObject: compatible,
+                    options: [.sortedKeys]
+                  ),
+                  let propertiesJSON = String(data: encoded, encoding: .utf8) else {
+                result = OriginalMetadata(
+                    available: false,
+                    uti: uti,
+                    orientation: Int(orientation.rawValue),
+                    propertiesJSON: nil,
+                    error: "original image properties could not be serialized"
+                )
+                return
+            }
+            result = OriginalMetadata(
+                available: true,
+                uti: uti,
+                orientation: Int(orientation.rawValue),
+                propertiesJSON: propertiesJSON,
+                error: nil
+            )
+        }
+        return result
+    }
+
+    private func jsonCompatible(_ value: Any) -> Any {
+        if let dictionary = value as? NSDictionary {
+            var converted: [String: Any] = [:]
+            for (key, nested) in dictionary {
+                converted[String(describing: key)] = jsonCompatible(nested)
+            }
+            return converted
+        }
+        if let array = value as? NSArray {
+            return array.map { jsonCompatible($0) }
+        }
+        if let data = value as? Data {
+            return ["encoding": "base64", "value": data.base64EncodedString()]
+        }
+        if let date = value as? Date {
+            return ISO8601DateFormatter().string(from: date)
+        }
+        if value is String || value is NSNumber || value is NSNull {
+            return value
+        }
+        return String(describing: value)
+    }
+
     private func makeCGImage(_ image: NSImage) -> CGImage? {
         var rect = CGRect(origin: .zero, size: image.size)
         return image.cgImage(forProposedRect: &rect, context: nil, hints: nil)
@@ -513,24 +622,51 @@ final class InspectionRunner {
         let safeName = identifier.replacingOccurrences(of: "/", with: "_") + ".jpg"
         let url = URL(fileURLWithPath: plan.preview_directory).appendingPathComponent(safeName)
         if FileManager.default.fileExists(atPath: url.path) {
-            if let existing = NSImage(contentsOf: url), existing.isValid,
-               existing.size.width > 0, existing.size.height > 0 {
+            if safePreviewExists(identifier: identifier) {
                 try? protectPrivateFile(url)
                 return true
             }
             try? FileManager.default.removeItem(at: url)
         }
-        let bitmap = NSBitmapImageRep(cgImage: image)
-        guard let data = bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.82]) else {
+        guard let destination = CGImageDestinationCreateWithURL(
+            url as CFURL,
+            UTType.jpeg.identifier as CFString,
+            1,
+            nil
+        ) else {
             return false
         }
-        do {
-            try data.write(to: url, options: .atomic)
-            try protectPrivateFile(url)
-            return true
-        } catch {
+        let properties = [
+            kCGImageDestinationLossyCompressionQuality: 0.82
+        ] as CFDictionary
+        CGImageDestinationAddImage(destination, image, properties)
+        guard CGImageDestinationFinalize(destination) else {
+            try? FileManager.default.removeItem(at: url)
             return false
         }
+        try? protectPrivateFile(url)
+        guard safePreviewExists(identifier: identifier) else {
+            try? FileManager.default.removeItem(at: url)
+            return false
+        }
+        return true
+    }
+
+    private func safePreviewExists(identifier: String) -> Bool {
+        let safeName = identifier.replacingOccurrences(of: "/", with: "_") + ".jpg"
+        let url = URL(fileURLWithPath: plan.preview_directory).appendingPathComponent(safeName)
+        guard !url.hasDirectoryPath,
+              let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              CGImageSourceGetCount(source) == 1,
+              CGImageSourceCreateImageAtIndex(source, 0, nil) != nil else {
+            return false
+        }
+        // The destination receives a pixel-only CGImage and no source property
+        // dictionary, so source EXIF cannot be copied through this encoder.
+        // This method establishes only that the private derivative exists and
+        // decodes. The mandatory independent verifier owns tag-level policy and
+        // reports any unexpected metadata without deleting the evidence.
+        return true
     }
 
     private func safetyFlags(text: String, labels: [String]) -> [String] {
@@ -680,6 +816,11 @@ final class ArchiveRunner {
     }
 
     private func fetchFolder(identifier: String) throws -> PHCollectionList {
+        guard identifier.range(of: #"/L0/[0-9]{3}$"#, options: .regularExpression) != nil else {
+            throw ArchiveError.invalidPlan(
+                "existing folder identifier must be a typed PhotoKit local identifier"
+            )
+        }
         guard let folder = PHCollectionList.fetchCollectionLists(
             withLocalIdentifiers: [identifier], options: nil
         ).firstObject else {
@@ -689,6 +830,11 @@ final class ArchiveRunner {
     }
 
     private func fetchAlbum(identifier: String) throws -> PHAssetCollection {
+        guard identifier.range(of: #"/L0/[0-9]{3}$"#, options: .regularExpression) != nil else {
+            throw ArchiveError.invalidPlan(
+                "existing album identifier must be a typed PhotoKit local identifier"
+            )
+        }
         guard let album = PHAssetCollection.fetchAssetCollections(
             withLocalIdentifiers: [identifier], options: nil
         ).firstObject else {
