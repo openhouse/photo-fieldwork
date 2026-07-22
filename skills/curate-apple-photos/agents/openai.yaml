@@ -1,4 +1,4 @@
 interface:
   display_name: "Curate Apple Photos"
   short_description: "Curate Photos with maximal private archive insight"
-  default_prompt: "Use $curate-apple-photos to enumerate and verify the full osxphotos-class private insight surface, then turn this curatorial brief into a locally inspected, recursively evaluated, versioned Apple Photos corpus."
+  default_prompt: "Use $curate-apple-photos to enumerate and verify the full osxphotos-class private insight surface, open a private exploratory studio when useful, then turn this curatorial brief into a locally inspected, recursively evaluated, versioned Apple Photos corpus."

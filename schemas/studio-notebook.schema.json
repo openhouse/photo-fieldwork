@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Photo Fieldwork private studio notebook",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "purpose",
+    "studio_id",
+    "source_record_count",
+    "evaluation_state",
+    "publication_state",
+    "annotations"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "purpose": {"const": "private-exploration"},
+    "studio_id": {"type": "string", "pattern": "^[a-f0-9]{16}$"},
+    "source_record_count": {"type": "integer", "minimum": 1},
+    "evaluation_state": {"const": "not-evaluation"},
+    "publication_state": {"const": "review-required"},
+    "annotations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "uuid",
+          "preview_sha256",
+          "status",
+          "observation",
+          "association",
+          "question",
+          "claim_candidate",
+          "piles",
+          "first_seen",
+          "visit_count",
+          "last_surface"
+        ],
+        "properties": {
+          "uuid": {"type": "string", "minLength": 1},
+          "preview_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "status": {"enum": ["", "gather", "uncertain", "hold", "return-later"]},
+          "observation": {"type": "string"},
+          "association": {"type": "string"},
+          "question": {"type": "string"},
+          "claim_candidate": {"type": "string"},
+          "piles": {"type": "string"},
+          "first_seen": {"type": ["integer", "null"], "minimum": 1},
+          "visit_count": {"type": "integer", "minimum": 0},
+          "last_surface": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

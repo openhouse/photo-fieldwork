@@ -18,6 +18,7 @@ check: test
 	python3 -m json.tool schemas/publication-clearance.schema.json >/dev/null
 	python3 -m json.tool schemas/retrieval.schema.json >/dev/null
 	python3 -m json.tool schemas/source-profile.schema.json >/dev/null
+	python3 -m json.tool schemas/studio-notebook.schema.json >/dev/null
 	python3 -m json.tool skills/curate-apple-photos/references/machine-profile.example.json >/dev/null
 	python3 -m json.tool skills/curate-apple-photos/references/capability-contract.json >/dev/null
 	python3 -m json.tool skills/curate-apple-photos/evals/evals.json >/dev/null

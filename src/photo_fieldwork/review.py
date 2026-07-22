@@ -31,12 +31,13 @@ def _canonical_uuid(value: object) -> str:
     return str(value or "").strip().split("/", 1)[0]
 
 
-def _review_records(
+def verified_preview_records(
     sample: list[dict[str, str]],
     preview_index: list[dict[str, str]],
     preview_root: Path,
     asset_root: Path,
 ) -> list[dict[str, str]]:
+    """Copy and bind verified preview evidence through a strict field allowlist."""
     sample_ids = [_canonical_uuid(row.get("uuid")) for row in sample]
     if "" in sample_ids or len(sample_ids) != len(set(sample_ids)):
         raise ValueError("review sample requires unique non-empty UUIDs")
@@ -110,7 +111,7 @@ def build_review_workbench(
     output.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     output.parent.chmod(0o700)
     asset_root = output.parent / "review-assets"
-    records = _review_records(sample, preview_index, preview_root, asset_root)
+    records = verified_preview_records(sample, preview_index, preview_root, asset_root)
     review_id = hashlib.sha256(
         json.dumps(records, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()[:16]
