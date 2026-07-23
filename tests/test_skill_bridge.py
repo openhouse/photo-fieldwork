@@ -128,10 +128,14 @@ class SkillBridgeTests(unittest.TestCase):
         folders = bridge.folder_specs(profile, "v-test", include_version=True)
         by_key = {folder["key"]: folder for folder in folders}
         self.assertEqual(by_key["workspace_parent"]["parent_key"], None)
+        self.assertEqual(by_key["workspace_parent"]["parent_policy"], "external-anchor")
         self.assertEqual(by_key["root"]["parent_key"], "workspace_parent")
         self.assertEqual(by_key["version"]["parent_key"], "root")
         self.assertEqual(by_key["private"]["parent_key"], "root")
         self.assertEqual(by_key["audit"]["parent_key"], "root")
+        positions = {folder["key"]: index for index, folder in enumerate(folders)}
+        self.assertLess(positions["workspace_parent"], positions["root"])
+        self.assertLess(positions["root"], positions["version"])
 
     def test_init_run_is_private_and_advance_hashes_artifacts(self):
         with tempfile.TemporaryDirectory() as temporary:

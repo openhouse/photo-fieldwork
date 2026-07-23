@@ -145,6 +145,24 @@ class ReceiptTests(unittest.TestCase):
                     {"snapshot_bytes": database.stat().st_size},
                 )
 
+            plan["folders"][0]["parent_policy"] = "external-anchor"
+            plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
+            receipt["execution_fingerprint"]["plan_sha256"] = hashlib.sha256(
+                plan_path.read_bytes()
+            ).hexdigest()
+            receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+            with redirect_stdout(io.StringIO()):
+                verify_photos_commit.verify(
+                    argparse.Namespace(
+                        plan=plan_path,
+                        receipt=receipt_path,
+                        report=report,
+                        include_identifiers=False,
+                    ),
+                    database,
+                    {"snapshot_bytes": database.stat().st_size},
+                )
+
     def test_idempotence_comparison_ignores_completion_time(self):
         source_sha = "a" * 64
         binary_sha = "b" * 64

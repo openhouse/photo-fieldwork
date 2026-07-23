@@ -57,8 +57,10 @@ the typed identifiers from the private receipt into the private profile.
 Set `workspace_parent` to an existing title and identifier when `folders.root`
 is nested. The standard planner verifies that anchor and makes every version,
 private-review, and audit child beneath `folders.root`; it never creates the
-anchor. Leave `workspace_parent` as `null` only when the root is a true
-top-level Photos folder.
+anchor. The anchor itself may be nested elsewhere in Photos; its own parent is
+outside the governed workspace and is therefore verified as an external anchor
+rather than as a top-level folder. Leave `workspace_parent` as `null` only when
+the root is a true top-level Photos folder.
 
 Never commit the completed profile. Never put People names, exact locations,
 private album titles, credentials, or raw archive records in the public

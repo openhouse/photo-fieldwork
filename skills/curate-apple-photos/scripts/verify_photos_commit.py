@@ -148,11 +148,14 @@ def verify(args: argparse.Namespace, database: Path, snapshot_meta: dict) -> set
         parent_key = spec.get("parent_key")
         actual_parent = folder_records[key][1]
         expected_parent = folder_records[parent_key][0] if parent_key else None
-        parent_matches = (
-            actual_parent == expected_parent
-            if parent_key
-            else actual_parent is None or is_internal_library_root(conn, actual_parent)
-        )
+        if spec.get("parent_policy") == "external-anchor":
+            parent_matches = True
+        else:
+            parent_matches = (
+                actual_parent == expected_parent
+                if parent_key
+                else actual_parent is None or is_internal_library_root(conn, actual_parent)
+            )
         if not parent_matches:
             raise RuntimeError(f"folder parent mismatch for {spec['title']}")
 

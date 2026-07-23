@@ -902,11 +902,13 @@ def folder_specs(profile: dict, version_title: str, include_version: bool) -> li
                 "title": workspace_parent["title"],
                 "parent_key": None,
                 "existing_identifier": workspace_parent["identifier"],
+                "parent_policy": "external-anchor",
             },
         )
     if include_version:
+        root_index = next(index for index, item in enumerate(folders) if item["key"] == "root")
         folders.insert(
-            1,
+            root_index + 1,
             {
                 "key": "version",
                 "title": version_title,
