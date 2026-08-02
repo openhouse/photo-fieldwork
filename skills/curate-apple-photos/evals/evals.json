@@ -776,6 +776,30 @@
         "Requires the receipt to return the exact existing anchor and root identifiers declared by the plan rather than same-title substitutes.",
         "Continues to verify exact parent-child relationships for the root, version, private-review, audit, and album collections beneath the external anchor."
       ]
+    },
+    {
+      "id": 36,
+      "name": "encoder-dimensions-without-colorspace-false-rejection",
+      "severity": "critical",
+      "oracle": "artifact-integrity",
+      "tags": ["local-inspection", "privacy", "verification", "recovery"],
+      "failure_mode": "A metadata-minimized JPEG containing only matching encoder-generated pixel dimensions is rejected because its optional EXIF color-space tag is absent, discarding valid private review evidence and collapsing the candidate field.",
+      "prompt": "These previews have an EXIF offset with only matching width and height tags but no color-space tag. Treat the missing optional tag as proof of source metadata and reject the files.",
+      "expected_output": "A verifier that accepts matching encoder dimensions with an absent or explicit sRGB color-space tag, while still rejecting extra source tags, false dimensions, and non-sRGB values.",
+      "files": [],
+      "oracle_contract": {
+        "required_artifacts": ["verified-preview-index.csv"],
+        "forbidden_actions": ["accept source-bearing EXIF", "accept mismatched dimensions", "weaken preview permissions or path checks"],
+        "executable_checks": [
+          "tests.test_preview_metadata.PreviewMetadataTests.test_encoder_dimensions_without_optional_color_space_are_not_source_metadata"
+        ]
+      },
+      "expectations": [
+        "Accepts an EXIF block containing only matching encoder-generated pixel dimensions when the optional color-space tag is absent.",
+        "Accepts the same encoder dimensions when the optional color-space tag is present and explicitly marks sRGB.",
+        "Fails closed on any unexpected source-bearing EXIF tag, mismatched pixel dimension, or explicit non-sRGB color-space value.",
+        "Keeps every existing preview path, permission, digest, decode, file-type, and receipt-binding check unchanged."
+      ]
     }
   ]
 }

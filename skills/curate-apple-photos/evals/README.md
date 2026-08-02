@@ -80,6 +80,11 @@ or that rights, consent, claims, or publication were approved.
   The verifier now limits the exception to the existing `workspace_parent`,
   binds receipt identifiers to the plan, and preserves strict hierarchy checks
   for every governed descendant.
+- **Iteration 9:** 36 cases, 32 critical, 146 expectations, 11 fixture canaries,
+  and 56 executable canaries. A live 76-preview run found 29 safe JPEGs with
+  matching encoder dimensions but no optional color-space tag. The verifier
+  now accepts dimensions-only encoder metadata while continuing to reject
+  unexpected source tags, false dimensions, and explicit non-sRGB values.
 
 ## Recursive hill climb
 

@@ -43,7 +43,7 @@ def file_sha256(path: Path) -> str:
 
 
 def has_source_bearing_exif(image: Image.Image) -> bool:
-    """Allow only encoder-generated sRGB and pixel dimensions in a preview."""
+    """Allow only encoder-generated pixel dimensions and optional sRGB."""
     exif = image.getexif()
     if not exif:
         return False
@@ -61,7 +61,7 @@ def has_source_bearing_exif(image: Image.Image) -> bool:
     height = nested.get(40963)
     color_space = nested.get(40961)
     return (
-        color_space != 1
+        color_space not in {None, 1}
         or width != image.width
         or height != image.height
     )

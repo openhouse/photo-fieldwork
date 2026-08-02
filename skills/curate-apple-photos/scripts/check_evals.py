@@ -35,6 +35,7 @@ REQUIRED_TAGS = {
 ALLOWED_SEVERITY = {"critical", "high", "medium"}
 ALLOWED_ORACLES = {
     "artifact-chain",
+    "artifact-integrity",
     "evaluation-report",
     "evaluation-bundle",
     "executable-oracles",
