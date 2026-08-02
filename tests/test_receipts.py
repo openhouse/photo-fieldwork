@@ -145,13 +145,141 @@ class ReceiptTests(unittest.TestCase):
                     {"snapshot_bytes": database.stat().st_size},
                 )
 
-            plan["folders"][0]["parent_policy"] = "external-anchor"
+    def test_verifier_binds_external_anchor_identity_and_limits_parent_bypass(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            database = root / "snapshot.sqlite"
+            connection = sqlite3.connect(database)
+            connection.executescript(
+                """
+                CREATE TABLE ZGENERICALBUM(
+                    Z_PK INTEGER PRIMARY KEY,
+                    ZUUID TEXT,
+                    ZTITLE TEXT,
+                    ZKIND INTEGER,
+                    ZPARENTFOLDER INTEGER
+                );
+                CREATE TABLE ZASSET(Z_PK INTEGER PRIMARY KEY, ZUUID TEXT);
+                CREATE TABLE Z_30ASSETS(Z_30ALBUMS INTEGER, Z_3ASSETS INTEGER);
+                INSERT INTO ZGENERICALBUM VALUES (4, 'SYSTEM-ROOT', NULL, 3999, NULL);
+                INSERT INTO ZGENERICALBUM VALUES (8, 'OUTSIDE', 'Outside', 4000, 4);
+                INSERT INTO ZGENERICALBUM VALUES (5, 'ANCHOR', 'Anchor', 4000, 8);
+                INSERT INTO ZGENERICALBUM VALUES (6, 'ANCHOR-ALIAS', 'Anchor', 4000, 8);
+                INSERT INTO ZGENERICALBUM VALUES (1, 'ROOT', 'Root', 4000, 5);
+                INSERT INTO ZGENERICALBUM VALUES (2, 'SOURCE', 'Source', 2, 1);
+                INSERT INTO ZGENERICALBUM VALUES (3, 'MASTER', 'Master', 2, 1);
+                INSERT INTO ZASSET VALUES (10, 'A');
+                INSERT INTO ZASSET VALUES (11, 'B');
+                INSERT INTO Z_30ASSETS VALUES (2, 10);
+                INSERT INTO Z_30ASSETS VALUES (2, 11);
+                INSERT INTO Z_30ASSETS VALUES (3, 10);
+                """
+            )
+            connection.commit()
+            connection.close()
+            source_digest = verify_photos_commit.identifier_digest({"A", "B"})
+            plan = {
+                "plan_id": "external-anchor-plan",
+                "source_album_identifier": "SOURCE/L0/040",
+                "expected_source_count": 2,
+                "source_identifier_sha256": source_digest,
+                "hold_asset_identifiers": [],
+                "folders": [
+                    {
+                        "key": "workspace_parent",
+                        "title": "Anchor",
+                        "parent_key": None,
+                        "existing_identifier": "ANCHOR/L0/040",
+                        "parent_policy": "external-anchor",
+                    },
+                    {
+                        "key": "root",
+                        "title": "Root",
+                        "parent_key": "workspace_parent",
+                        "existing_identifier": "ROOT/L0/040",
+                    },
+                ],
+                "albums": [
+                    {
+                        "title": "Master",
+                        "parent_folder_key": "root",
+                        "asset_identifiers": ["A/L0/001"],
+                        "safety_role": "editor",
+                    }
+                ],
+            }
+            plan_path = root / "plan.json"
+            plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
+            receipt = {
+                "completed_at": "2026-08-01T01:00:00+00:00",
+                "execution_nonce": "2" * 32,
+                "plan_id": "external-anchor-plan",
+                "source_album_identifier": "SOURCE/L0/040",
+                "source_count": 2,
+                "source_identifier_sha256": source_digest,
+                "folders": [
+                    {
+                        "key": "workspace_parent",
+                        "title": "Anchor",
+                        "identifier": "ANCHOR/L0/040",
+                        "parent_identifier": "OUTSIDE/L0/040",
+                    },
+                    {
+                        "key": "root",
+                        "title": "Root",
+                        "identifier": "ROOT/L0/040",
+                        "parent_identifier": "ANCHOR/L0/040",
+                    },
+                ],
+                "albums": [
+                    {
+                        "title": "Master",
+                        "identifier": "MASTER/L0/040",
+                        "count": 1,
+                        "parent_identifier": "ROOT/L0/040",
+                    }
+                ],
+                "execution_fingerprint": {
+                    "plan_sha256": hashlib.sha256(plan_path.read_bytes()).hexdigest()
+                },
+            }
+            receipt_path = root / "receipt.json"
+            receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+            report = root / "private" / "report.md"
+            with redirect_stdout(io.StringIO()):
+                verify_photos_commit.verify(
+                    argparse.Namespace(
+                        plan=plan_path,
+                        receipt=receipt_path,
+                        report=report,
+                        include_identifiers=False,
+                    ),
+                    database,
+                    {"snapshot_bytes": database.stat().st_size},
+                )
+
+            receipt["folders"][0]["identifier"] = "ANCHOR-ALIAS/L0/040"
+            receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError, "folder identifier mismatch"):
+                verify_photos_commit.verify(
+                    argparse.Namespace(
+                        plan=plan_path,
+                        receipt=receipt_path,
+                        report=report,
+                        include_identifiers=False,
+                    ),
+                    database,
+                    {"snapshot_bytes": database.stat().st_size},
+                )
+
+            receipt["folders"][0]["identifier"] = "ANCHOR/L0/040"
+            plan["folders"][1]["parent_policy"] = "external-anchor"
             plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
             receipt["execution_fingerprint"]["plan_sha256"] = hashlib.sha256(
                 plan_path.read_bytes()
             ).hexdigest()
             receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
-            with redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(RuntimeError, "invalid external-anchor policy"):
                 verify_photos_commit.verify(
                     argparse.Namespace(
                         plan=plan_path,

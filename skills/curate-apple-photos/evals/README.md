@@ -73,6 +73,13 @@ or that rights, consent, claims, or publication were approved.
   and spreadsheet-active public text. Review assets now use content-derived
   names, private roots reject symlinks, public IDs bind the destination, and
   any unsafe claimed-clearance row blocks the complete projection.
+- **Iteration 8:** 35 cases, 31 critical, 142 expectations, 11 fixture canaries,
+  and 55 executable canaries. A live nested-workspace audit found that the
+  external-anchor exception could be copied onto a governed descendant and
+  that a same-title collection could substitute for the exact declared anchor.
+  The verifier now limits the exception to the existing `workspace_parent`,
+  binds receipt identifiers to the plan, and preserves strict hierarchy checks
+  for every governed descendant.
 
 ## Recursive hill climb
 
