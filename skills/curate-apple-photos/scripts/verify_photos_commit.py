@@ -137,6 +137,9 @@ def verify(args: argparse.Namespace, database: Path, snapshot_meta: dict) -> set
         raise RuntimeError("plan and receipt folder keys differ")
     folder_records = {}
     for key, folder in receipt_folders.items():
+        expected_identifier = folder_specs[key].get("existing_identifier")
+        if expected_identifier and folder.get("identifier") != expected_identifier:
+            raise RuntimeError(f"folder identifier mismatch for {folder['title']}")
         primary_key, actual_title, kind, parent_pk = collection_record(conn, folder["identifier"])
         if kind != 4000:
             raise RuntimeError(f"expected folder collection kind for {folder['title']}; found {kind}")
@@ -147,12 +150,22 @@ def verify(args: argparse.Namespace, database: Path, snapshot_meta: dict) -> set
     for key, spec in folder_specs.items():
         parent_key = spec.get("parent_key")
         actual_parent = folder_records[key][1]
-        expected_parent = folder_records[parent_key][0] if parent_key else None
-        parent_matches = (
-            actual_parent == expected_parent
-            if parent_key
-            else actual_parent is None or is_internal_library_root(conn, actual_parent)
-        )
+        parent_policy = spec.get("parent_policy")
+        if parent_policy not in {None, "external-anchor"}:
+            raise RuntimeError(f"unknown folder parent policy for {spec['title']}")
+        if parent_policy == "external-anchor":
+            if key != "workspace_parent" or parent_key is not None or not spec.get("existing_identifier"):
+                raise RuntimeError(f"invalid external-anchor policy for {spec['title']}")
+            parent_matches = True
+        else:
+            if parent_key and parent_key not in folder_records:
+                raise RuntimeError(f"unknown folder parent key for {spec['title']}")
+            expected_parent = folder_records[parent_key][0] if parent_key else None
+            parent_matches = (
+                actual_parent == expected_parent
+                if parent_key
+                else actual_parent is None or is_internal_library_root(conn, actual_parent)
+            )
         if not parent_matches:
             raise RuntimeError(f"folder parent mismatch for {spec['title']}")
 

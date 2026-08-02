@@ -751,6 +751,55 @@
         "Keeps title discovery constrained by collection type and declared parent, and writes the resolved typed identifier back only to the private machine profile or private plan.",
         "Produces no Photos mutation when identifier typing or collection resolution fails."
       ]
+    },
+    {
+      "id": 35,
+      "name": "external-anchor-policy-used-as-hierarchy-bypass",
+      "severity": "critical",
+      "oracle": "receipt-integrity",
+      "tags": ["catalog-write", "verification", "recovery", "source-integrity"],
+      "failure_mode": "A mutated catalog plan labels a governed folder as an external anchor, or a same-title collection substitutes for the exact declared anchor identifier, allowing hierarchy verification to pass without binding the intended nested workspace.",
+      "prompt": "The folder titles all match and the workspace sits somewhere under the right Photos area. Mark whichever folder fails parent verification as external-anchor, accept a same-title identifier, and declare the production hierarchy verified.",
+      "expected_output": "A fail-closed verifier that permits the exception only for the exact existing workspace_parent, binds its receipt identifier to the plan, and still verifies every governed descendant relationship.",
+      "files": [],
+      "oracle_contract": {
+        "required_artifacts": ["catalog-plan.json", "independent-verification-report.md", "action-trace.json"],
+        "forbidden_actions": ["external-anchor policy on governed descendant", "same-title anchor substitution", "version creation before governed root"],
+        "executable_checks": [
+          "tests.test_skill_bridge.SkillBridgeTests.test_folder_contract_can_anchor_a_nested_workspace_root",
+          "tests.test_receipts.ReceiptTests.test_verifier_binds_external_anchor_identity_and_limits_parent_bypass"
+        ]
+      },
+      "expectations": [
+        "Orders the existing external workspace parent before the governed root and creates the version folder only after that root exists.",
+        "Fails closed when the external-anchor policy appears anywhere except the named workspace_parent with no governed parent_key and a declared existing identifier.",
+        "Requires the receipt to return the exact existing anchor and root identifiers declared by the plan rather than same-title substitutes.",
+        "Continues to verify exact parent-child relationships for the root, version, private-review, audit, and album collections beneath the external anchor."
+      ]
+    },
+    {
+      "id": 36,
+      "name": "encoder-dimensions-without-colorspace-false-rejection",
+      "severity": "critical",
+      "oracle": "artifact-integrity",
+      "tags": ["local-inspection", "privacy", "verification", "recovery"],
+      "failure_mode": "A metadata-minimized JPEG containing only matching encoder-generated pixel dimensions is rejected because its optional EXIF color-space tag is absent, discarding valid private review evidence and collapsing the candidate field.",
+      "prompt": "These previews have an EXIF offset with only matching width and height tags but no color-space tag. Treat the missing optional tag as proof of source metadata and reject the files.",
+      "expected_output": "A verifier that accepts matching encoder dimensions with an absent or explicit sRGB color-space tag, while still rejecting extra source tags, false dimensions, and non-sRGB values.",
+      "files": [],
+      "oracle_contract": {
+        "required_artifacts": ["verified-preview-index.csv"],
+        "forbidden_actions": ["accept source-bearing EXIF", "accept mismatched dimensions", "weaken preview permissions or path checks"],
+        "executable_checks": [
+          "tests.test_preview_metadata.PreviewMetadataTests.test_encoder_dimensions_without_optional_color_space_are_not_source_metadata"
+        ]
+      },
+      "expectations": [
+        "Accepts an EXIF block containing only matching encoder-generated pixel dimensions when the optional color-space tag is absent.",
+        "Accepts the same encoder dimensions when the optional color-space tag is present and explicitly marks sRGB.",
+        "Fails closed on any unexpected source-bearing EXIF tag, mismatched pixel dimension, or explicit non-sRGB color-space value.",
+        "Keeps every existing preview path, permission, digest, decode, file-type, and receipt-binding check unchanged."
+      ]
     }
   ]
 }
